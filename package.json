@@ -1,0 +1,22 @@
+{
+  "name": "yog-client-tui",
+  "version": "0.1.0",
+  "description": "Terminal chat client for the yog agent harness daemon",
+  "license": "MIT",
+  "author": "haliphax <haliphax@gmail.com>",
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "charsm": "^0.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}
