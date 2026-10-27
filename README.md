@@ -54,11 +54,13 @@ to run `cp config.example.json config.json`.
 
 | Key | Action |
 |---|---|
-| `Enter` | Send the current input |
+| `Enter` | Send the current input (on a focused chunk: expand/collapse it) |
 | `Ctrl+C` | Quit |
 | `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input |
-| `PageUp` / `PageDown` | Scroll the log viewport |
+| `PageUp` / `PageDown`, `↑` / `↓` | Scroll the log viewport |
 | `Ctrl+Home` / `Ctrl+End` | Jump to top / bottom of the log |
+| `Tab` | Focus the next log entry (cycle) |
+| `Esc` | Leave focus mode |
 
 Input keystrokes are ignored while a turn is in flight (one turn at a time); the
 status line shows a spinner and key hints.
@@ -71,7 +73,9 @@ On each turn the client:
 2. `POST /v1/sessions` to create a session (reused across turns).
 3. `POST /v1/sessions/{id}/turns` with `{ prompt, model }`.
 4. Consumes the SSE stream, rendering deltas into the assistant entry, tool
-   call/result lines, and error events as they arrive.
+   call lines with an inline ✓/✗ indicator and syntax-highlighted args,
+   collapsible (Tab + Enter) result chunks for tool output, and error events
+   as they arrive.
 5. If the stream drops, recovers the turn outcome from the turn-status endpoint
    (a "stream interrupted — turn recovered from turn status" note is logged).
 6. `DELETE`s the session on exit.

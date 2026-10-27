@@ -46,7 +46,7 @@ export interface TurnEvents {
   /** `tool.call` — the model invoked a tool. */
   onToolCall?(id: string, name: string, args: unknown): void;
   /** `tool.result` — a tool outcome. */
-  onToolResult?(id: string, name: string, ok: boolean, result: unknown): void;
+  onToolResult?(id: string, name: string, ok: boolean, result: unknown, error?: string): void;
   /** `turn.finished` — normal end. */
   onFinish?(durationMs: number): void;
   /** `error` — terminal failure reported by the server. */
@@ -331,7 +331,7 @@ export class YogClient {
           events.onToolCall?.(
             str(data["id"]),
             str(data["name"]),
-            data["args"],
+            parseToolArgs(data["args"]),
           );
           return;
         }
@@ -341,6 +341,7 @@ export class YogClient {
             str(data["name"]),
             data["ok"] === true,
             data["result"],
+            str(data["error"]) || undefined,
           );
           return;
         }
@@ -431,6 +432,23 @@ export class YogClient {
     } catch {
       return false;
     }
+  }
+}
+
+/**
+ * Decode `tool.call.args`: the wire carries it as a raw JSON string, so
+ * parse it into a value the UI can render properly (a string that parses to
+ * an object/array is unwrapped; anything else passes through as the original
+ * string so the UI can pretty-print or show it verbatim).
+ */
+function parseToolArgs(raw: unknown): unknown {
+  if (typeof raw !== "string") return raw;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (parsed !== null && typeof parsed === "object") return parsed;
+    return raw; // scalar JSON: keep the original text for display
+  } catch {
+    return raw; // not JSON: show the raw string
   }
 }
 
