@@ -49,7 +49,7 @@ const S = {
   assistantMarker: "assistantMarker",
   user: "user",
   assistant: "assistant",
-  tool: "system",
+  tool: "tool",
   system: "system",
   error: "error",
   promptMarker: "promptMarker",
