@@ -12,16 +12,21 @@
  *                    bottom resumes it)
  *   Ctrl+Home/Ctrl+End  jump to top/bottom of the log (End resumes follow)
  *   Up/Down          scroll the log by one row
+ *   Tab              focus the next log entry — Enter expands/collapses a
+ *                    tool chunk, Esc leaves focus mode
  */
 import { loadConfig, resolveBaseUrl } from "./config.ts";
 import { YogClient, type TurnEvents } from "./yogClient.ts";
 import {
   displayWidth,
   initLipGloss,
+  prettyArgs,
   render,
+  resultPreview,
   totalRows,
   type LogEntry,
   type RenderState,
+  wrapText,
 } from "./view.ts";
 
 /** Rows reserved below the log: input bar + status line. */
@@ -79,6 +84,8 @@ interface UiState {
   connection: "connecting" | "connected" | "error";
   model: string;
   statusNote: string;
+  /** Focused log entry (-1 = none); Enter toggles chunk collapse. */
+  focusIndex: number;
 }
 
 /** One message of the client-side transcript history. */
@@ -123,6 +130,7 @@ async function run(): Promise<void> {
     connection: "connected",
     model: config.model,
     statusNote: "",
+    focusIndex: -1,
   };
   const history: HistoryMessage[] = [];
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
@@ -159,7 +167,7 @@ async function run(): Promise<void> {
     if (state.statusNote !== "") parts.push(state.statusNote);
     parts.push(`model ${state.model}`);
     parts.push(state.connection === "connected" ? "session ok" : state.connection);
-    parts.push("PgUp/PgDn scroll · Enter send · Ctrl+C quit");
+  parts.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
     return parts.join("  ·  ");
   };
 
@@ -184,6 +192,7 @@ async function run(): Promise<void> {
       cursor: state.cursor,
       inputScroll: state.inputScroll,
       status: statusBody(),
+      focusIndex: state.focusIndex,
       busy: state.busy ? SPINNER[state.busyFrame % SPINNER.length] : undefined,
     };
     const frame = render(view);
@@ -213,6 +222,9 @@ async function run(): Promise<void> {
     state.entries.push({ kind, lines });
     scheduleRender();
   };
+
+  /** Tool call id → its log entry, so results can annotate the call line. */
+  const pendingToolCalls = new Map<string, LogEntry>();
 
   // ---- turn submission ---------------------------------------------------
   /** Build the prompt: bounded transcript context + the new input. */
@@ -253,11 +265,40 @@ async function run(): Promise<void> {
         scheduleRender();
       },
       onToolCall: (id, name, args) => {
-        const argText = args === undefined || args === null ? "" : compactJson(args);
-        pushLines("tool", [`⚙ ${name || id}${argText ? ` ${argText}` : ""}`]);
+        const cols = process.stdout.columns ?? 80;
+        const label = `⚙ ${name || "tool"}`;
+        const shown =
+          args === undefined || args === null
+            ? label
+            : `${label} ${prettyArgs(args, cols - label.length - 4)}`;
+        const entry: LogEntry = { kind: "tool", lines: [shown] };
+        state.entries.push(entry);
+        pendingToolCalls.set(id, entry);
+        scheduleRender();
       },
-      onToolResult: (id, name, ok) => {
-        pushLines("tool", [`${ok ? "✓" : "✗"} ${name || id}${ok ? "" : " failed"}`]);
+      onToolResult: (id, name, ok, result, error) => {
+        // Annotate the matching call line in place (no extra chat lines).
+        const call = pendingToolCalls.get(id);
+        if (call) {
+          pendingToolCalls.delete(id);
+          const suffix = ok ? " ✓" : ` ✗ ${error ?? "failed"}`;
+          call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
+        } else {
+          pushLines("tool", [`${ok ? "✓" : "✗"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
+        }
+        // The result itself: a bounded, collapsible, syntax-highlighted chunk.
+        if (result !== undefined && result !== null) {
+          const cols = process.stdout.columns ?? 80;
+          const preview = resultPreview(result, cols);
+          if (preview) {
+            state.entries.push({
+              kind: "chunk",
+              lines: [`${name || "tool"} →`, ...preview],
+              collapsed: true,
+            });
+          }
+        }
+        scheduleRender();
       },
       onError: (code, message) => {
         pushLines("error", [`${code}: ${message}`]);
@@ -342,6 +383,45 @@ async function run(): Promise<void> {
     scheduleRender();
   };
 
+  // ---- focus (Tab cycles entries; Enter toggles a chunk) -----------------
+  /** First visible row of entry `i` (same accounting as `totalRows`). */
+  const entryRowStart = (i: number): number =>
+    totalRows(state.entries.slice(0, i), process.stdout.columns ?? 80);
+
+  /** Keep the focused entry inside the viewport. */
+  const revealFocus = (): void => {
+    if (state.focusIndex < 0) return;
+    const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
+    const top = entryRowStart(state.focusIndex);
+    const bottom = top + 1;
+    if (top < state.scrollOffset) {
+      state.follow = false;
+      state.scrollOffset = top;
+    } else if (bottom > state.scrollOffset + rows) {
+      state.follow = false;
+      state.scrollOffset = bottom - rows;
+    }
+  };
+
+  /** Tab: cycle focus through the log entries (wraps). */
+  const cycleFocus = (): void => {
+    const n = state.entries.length;
+    if (n === 0) return;
+    state.focusIndex = (state.focusIndex + 1) % n;
+    revealFocus();
+    scheduleRender();
+  };
+
+  /** Enter on a focused entry: expand/collapse a chunk; otherwise submit. */
+  const toggleFocused = (): boolean => {
+    const entry = state.entries[state.focusIndex];
+    if (entry?.kind !== "chunk") return false;
+    entry.collapsed = !entry.collapsed;
+    revealFocus();
+    scheduleRender();
+    return true;
+  };
+
   // ---- key handling ------------------------------------------------------
   const SEQUENCES: { seq: string; run: () => void }[] = [
     { seq: "\x1b[1;5H", run: () => jump(true) }, // Ctrl+Home → top
@@ -384,8 +464,20 @@ async function run(): Promise<void> {
         void quit(0);
         return;
       }
-      if (ch === "\r" || ch === "\n") {
-        submit();
+      if (ch === "\\t") {
+        cycleFocus();
+        continue;
+      }
+      if (ch === "\\x1b") {
+        // Lone Esc (no sequence matched): leave focus mode.
+        if (state.focusIndex !== -1) {
+          state.focusIndex = -1;
+          scheduleRender();
+        }
+        continue;
+      }
+      if (ch === "\\r" || ch === "\\n") {
+        if (!toggleFocused()) submit();
         continue;
       }
       if (ch === "\x7f" || ch === "\x08") {
@@ -436,14 +528,3 @@ async function run(): Promise<void> {
 }
 
 main();
-
-/** Compact single-line JSON for tool call arguments. */
-function compactJson(value: unknown): string {
-  try {
-    const text = JSON.stringify(value);
-    if (text === undefined) return "";
-    return text.length > 120 ? `${text.slice(0, 117)}...` : text;
-  } catch {
-    return String(value);
-  }
-}
