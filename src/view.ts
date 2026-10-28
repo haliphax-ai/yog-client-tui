@@ -138,14 +138,6 @@ function mdRender(text: string, cols: number): string {
   }
 }
 
-/**
- * Kept as the startup hook call sites expect. The oakoliver libraries are
- * pure TypeScript (no WASM), so there is nothing to initialize.
- */
-export async function initLipGloss(): Promise<void> {
-  // no-op: @oakoliver/lipgloss and @oakoliver/glamour need no runtime init
-}
-
 /** Width of a string in terminal cells, ignoring ANSI escape sequences. */
 export function displayWidth(text: string): number {
   return stringWidth(text);
@@ -653,7 +645,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
  * result lands). Entries only ever grow (in place for the same signature), so
  * a matching key means a byte-identical render — safe to reuse.
  */
-function cachedRows(entry: LogEntry, cols: number, focused = false): string[] {
+export function cachedRows(entry: LogEntry, cols: number, focused = false): string[] {
   const lines = entry.lines;
   // O(1) content signature: line count + first/last line lengths cover every
   // mutation this codebase performs (append rows, grow last row, amend label).

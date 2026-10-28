@@ -20,7 +20,6 @@ import { loadConfig, resolveBaseUrl } from "./config.ts";
 import { YogClient, type TurnEvents } from "./yogClient.ts";
 import {
   displayWidth,
-  initLipGloss,
   prettyArgs,
   render,
   resultPreview,
@@ -100,10 +99,7 @@ async function run(): Promise<void> {
   const config = await loadConfig();
   const baseUrl = resolveBaseUrl(config);
 
-  // 2. Styling engine (friendly error if the WASM fails to load).
-  await initLipGloss();
-
-  // 3. Capabilities probe + session creation (before the screen is taken
+  // 2. Capabilities probe + session creation (before the screen is taken
   //    over, so startup failures print plainly and exit non-zero).
   const client = new YogClient({ ...config, baseUrl });
   const caps = await client.probe();
