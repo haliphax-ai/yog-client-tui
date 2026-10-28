@@ -32,8 +32,9 @@ let running = false;
  *
  * Per-stage core work, in order:
  *   layout   → `setMetrics` (terminal geometry), then layout hooks
- *   paint    → `paint()` component rows, then paint hooks
- *   compose  → join the lines with "\n", then compose hooks
+ *   paint    → `paint()` component rows, joined into the frame, then paint hooks
+ *   compose  → pass the joined frame through (viewport + input + status are
+ *              already one frame), then compose hooks
  *   post     → pad/truncate every line to `width`, then post hooks
  *   emit     → emit hooks, then the single `emit` write (nothing after)
  */
@@ -58,10 +59,10 @@ function runStage(stage: Stage, frame: string, options: RunOptions): string {
       options.setMetrics?.();
       break;
     case "paint":
-      next = (options.paint?.() ?? []).join("\n");
+      next = (options.paint?.() ?? []).join("\n"); // the composed frame
       break;
     case "compose":
-      break; // the join from paint is the composed frame
+      break; // paint already produced the joined frame; compose hooks run on it
     case "post":
       next = padFrame(next, options.width);
       break;
