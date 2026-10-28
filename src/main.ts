@@ -12,8 +12,9 @@
  *                    bottom resumes it)
  *   Ctrl+Home/Ctrl+End  jump to top/bottom of the log (End resumes follow)
  *   Up/Down          scroll the log by one row
- *   Tab              focus the next log entry — Enter expands/collapses a
- *                    tool chunk, Esc leaves focus mode
+ *   Tab / Shift-Tab focus the next/previous expandable tool chunk — Enter
+ *                    expands/collapses it, Esc leaves focus mode (focus wraps
+ *                    through "none" at either end)
  */
 import { loadConfig, resolveBaseUrl } from "./config.ts";
 import { YogClient, type TurnEvents } from "./yogClient.ts";
@@ -403,11 +404,32 @@ async function run(): Promise<void> {
     }
   };
 
-  /** Tab: cycle focus through the log entries (wraps). */
-  const cycleFocus = (): void => {
-    const n = state.entries.length;
-    if (n === 0) return;
-    state.focusIndex = (state.focusIndex + 1) % n;
+  /** Indices of focusable entries (expandable tool-output chunks). */
+  const focusableChunks = (): number[] =>
+    state.entries.flatMap((e, i) => (e.kind === "chunk" ? [i] : []));
+
+  /**
+   * Tab / Shift-Tab: move focus forward (+1) or backward (-1) through the
+   * focusable chunks. The ring wraps through the "nothing selected" state
+   * (-1): past the last chunk lands on none (as does Shift-Tab from the
+   * first), and the next press continues from that end.
+   */
+  const moveFocus = (dir: 1 | -1): void => {
+    const targets = focusableChunks();
+    if (targets.length === 0) {
+      state.focusIndex = -1;
+      scheduleRender();
+      return;
+    }
+    const pos = targets.indexOf(state.focusIndex);
+    if (pos === -1) {
+      state.focusIndex =
+        dir === 1 ? (targets[0] as number) : (targets[targets.length - 1] as number);
+    } else if (dir === 1) {
+      state.focusIndex = pos === targets.length - 1 ? -1 : (targets[pos + 1] as number);
+    } else {
+      state.focusIndex = pos === 0 ? -1 : (targets[pos - 1] as number);
+    }
     revealFocus();
     scheduleRender();
   };
@@ -424,6 +446,7 @@ async function run(): Promise<void> {
 
   // ---- key handling ------------------------------------------------------
   const SEQUENCES: { seq: string; run: () => void }[] = [
+    { seq: "\x1b[Z", run: () => moveFocus(-1) }, // Shift+Tab → previous chunk
     { seq: "\x1b[1;5H", run: () => jump(true) }, // Ctrl+Home → top
     { seq: "\x1b[1;5F", run: () => jump(false) }, // Ctrl+End → bottom
     { seq: "\x1b[5~", run: () => scrollBy(-(process.stdout.rows ?? 24)) }, // PageUp
@@ -465,7 +488,7 @@ async function run(): Promise<void> {
         return;
       }
       if (ch === "\t") {
-        cycleFocus();
+        moveFocus(1);
         continue;
       }
       if (ch === "\x1b") {
