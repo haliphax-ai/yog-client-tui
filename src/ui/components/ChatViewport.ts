@@ -6,9 +6,8 @@
  * scheduler) see every change.
  *
  * Focus here means two levels:
- *  1. Component focus (Tab/Shift-Tab ring): the router offers keys to the
- *     focused component first. This component holds focus while an entry is
- *     focused.
+ *  1. Component focus (router order): the router offers keys to the focused
+ *     component first. This component holds focus while an entry is focused.
  *  2. Entry focus (what Tab/Shift-Tab move): while an entry is focused this
  *     component claims Enter (toggle) and Esc (leave); everything else —
  *     input editing, scrolling, quit — bubbles on to the next responder and
@@ -75,6 +74,18 @@ export class ChatViewport extends ChatLogComponent {
 
   override moveFocus(dir: 1 | -1): void {
     super.moveFocus(dir);
+    this.commit();
+  }
+
+  override scrollBy(delta: number, viewportRows: number): void {
+    this.syncFromStore();
+    super.scrollBy(delta, viewportRows);
+    this.commit();
+  }
+
+  override jump(top: boolean, viewportRows: number): void {
+    this.syncFromStore();
+    super.jump(top, viewportRows);
     this.commit();
   }
 

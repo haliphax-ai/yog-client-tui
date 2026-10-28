@@ -1,12 +1,12 @@
 /**
  * Focus-scoped key routing: the focused component gets first crack at every
  * key, then the remaining components in chain order, then the global
- * bindings (quit, Tab focus cycle, scroll, submit). Replaces a hardcoded
+ * bindings (quit, Tab entry-focus cycle, scroll, submit). Replaces a hardcoded
  * sequence table — each responder only claims the keys it owns and returns
  * "unhandled" to let the rest bubble.
  *
- * The router owns no state of its own: it walks the chain, counts focusable
- * components for the Tab ring, and lets the responders do their work.
+ * The router owns no state of its own: it walks the chain and lets the
+ * responders do their work.
  */
 import type { Component, KeyResult } from "./Component.ts";
 
@@ -78,7 +78,7 @@ export function routeChar(
       globals.quit(); // Ctrl+C in raw mode: quit and restore the terminal
       return true;
     case "\t":
-      globals.focusNext(); // Tab: next component in the focus ring
+      globals.focusNext(); // Tab: next entry in the focus ring
       return true;
     case "\r":
     case "\n":
