@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cachedRows, stripAnsi, type LogEntry } from "../src/view.ts";
+import { cachedRows, type LogEntry } from "../src/ui/render/index.ts";
+import { stripAnsi } from "../src/util/ansi.ts";
 
 /** Fresh chunk entry (8 body rows so it is collapsible). */
 function chunkEntry(): LogEntry {
