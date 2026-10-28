@@ -1,6 +1,7 @@
 tmp/
 node_modules/
 dist/
+coverage/
 *.log
 npm-debug.log*
 config.json
@@ -9,3 +10,6 @@ Thumbs.db
 *.swp
 .idea/
 .vscode/
+# workspace-wide excludes contain a `core` pattern (core dumps); the source
+# directory src/core/ must stay tracked
+!core

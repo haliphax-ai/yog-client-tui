@@ -17,6 +17,9 @@
  *                    through "none" at either end)
  */
 import { loadConfig, resolveBaseUrl } from "./config.ts";
+import { FOCUS_NONE, moveFocus as nextFocusIndex } from "./core/focus.ts";
+import { buildPrompt, type HistoryMessage } from "./core/history.ts";
+import { clampScroll, jump as jumpScroll, scrollBy as applyScrollBy } from "./core/scroll.ts";
 import { YogClient, type TurnEvents } from "./yogClient.ts";
 import {
   displayWidth,
@@ -31,9 +34,6 @@ import {
 
 /** Rows reserved below the log: input bar + status line. */
 const STATUS_ROWS = 2;
-
-/** Bounded client-side transcript: 12 exchanges (user + assistant pairs). */
-const HISTORY_MESSAGES = 24;
 
 /** Input prompt marker (also sizes the input window). */
 const PROMPT = "you › ";
@@ -88,12 +88,6 @@ interface UiState {
   focusIndex: number;
 }
 
-/** One message of the client-side transcript history. */
-interface HistoryMessage {
-  role: "user" | "assistant";
-  text: string;
-}
-
 async function run(): Promise<void> {
   // 1. Config.
   const config = await loadConfig();
@@ -127,7 +121,7 @@ async function run(): Promise<void> {
     connection: "connected",
     model: config.model,
     statusNote: "",
-    focusIndex: -1,
+    focusIndex: FOCUS_NONE,
   };
   const history: HistoryMessage[] = [];
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
@@ -175,8 +169,7 @@ async function run(): Promise<void> {
     const viewportRows = Math.max(1, rows - STATUS_ROWS);
     const total = totalRows(state.entries, cols);
     const maxOffset = Math.max(0, total - viewportRows);
-    if (state.follow) state.scrollOffset = maxOffset;
-    state.scrollOffset = Math.min(state.scrollOffset, maxOffset);
+    clampScroll(state, maxOffset);
     fitInput();
 
     const view: RenderState = {
@@ -224,15 +217,6 @@ async function run(): Promise<void> {
   const pendingToolCalls = new Map<string, LogEntry>();
 
   // ---- turn submission ---------------------------------------------------
-  /** Build the prompt: bounded transcript context + the new input. */
-  const buildPrompt = (input: string): string => {
-    const recent = history.slice(-HISTORY_MESSAGES);
-    if (recent.length === 0) return input;
-    const blocks = recent.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`);
-    blocks.push(`User: ${input}`);
-    return blocks.join("\n\n");
-  };
-
   const submit = (): void => {
     const input = state.input.trim();
     if (input === "" || state.busy) return; // one turn at a time (documented)
@@ -333,7 +317,7 @@ async function run(): Promise<void> {
 
     void (async () => {
       try {
-        const outcome = await client.runTurn(buildPrompt(input), config.model, events);
+        const outcome = await client.runTurn(buildPrompt(history, input), config.model, events);
         if (!outcome.ok) {
           const detail = outcome.failure ?? outcome.error;
           if (detail) pushLines("error", [detail]);
@@ -389,20 +373,12 @@ async function run(): Promise<void> {
     const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
     const total = totalRows(state.entries, process.stdout.columns ?? 80);
     const maxOffset = Math.max(0, total - rows);
-    state.follow = false;
-    state.scrollOffset = Math.max(0, Math.min(maxOffset, state.scrollOffset + delta));
-    if (state.scrollOffset >= maxOffset) state.follow = true;
+    applyScrollBy(state, delta, maxOffset);
     scheduleRender();
   };
 
   const jump = (top: boolean): void => {
-    if (top) {
-      state.follow = false;
-      state.scrollOffset = 0;
-    } else {
-      state.follow = true;
-      state.scrollOffset = Number.MAX_SAFE_INTEGER;
-    }
+    jumpScroll(state, top);
     scheduleRender();
   };
 
@@ -432,32 +408,12 @@ async function run(): Promise<void> {
     }
   };
 
-  /** Indices of focusable entries (tool calls + output chunks). */
-  const focusableChunks = (): number[] =>
-    state.entries.flatMap((e, i) => (e.kind === "chunk" || e.kind === "tool" ? [i] : []));
-
   /**
    * Tab / Shift-Tab: move focus forward (+1) or backward (-1) through the
-   * focusable chunks. The ring wraps through the "nothing selected" state
-   * (-1): past the last chunk lands on none (as does Shift-Tab from the
-   * first), and the next press continues from that end.
+   * focusable chunks (see `core/focus` for the wrap-through-none ring).
    */
   const moveFocus = (dir: 1 | -1): void => {
-    const targets = focusableChunks();
-    if (targets.length === 0) {
-      state.focusIndex = -1;
-      scheduleRender();
-      return;
-    }
-    const pos = targets.indexOf(state.focusIndex);
-    if (pos === -1) {
-      state.focusIndex =
-        dir === 1 ? (targets[0] as number) : (targets[targets.length - 1] as number);
-    } else if (dir === 1) {
-      state.focusIndex = pos === targets.length - 1 ? -1 : (targets[pos + 1] as number);
-    } else {
-      state.focusIndex = pos === 0 ? -1 : (targets[pos - 1] as number);
-    }
+    state.focusIndex = nextFocusIndex(state.entries, state.focusIndex, dir);
     revealFocus();
     scheduleRender();
   };
@@ -526,8 +482,8 @@ async function run(): Promise<void> {
       }
       if (ch === "\x1b") {
         // Lone Esc (no sequence matched): leave focus mode.
-        if (state.focusIndex !== -1) {
-          state.focusIndex = -1;
+        if (state.focusIndex !== FOCUS_NONE) {
+          state.focusIndex = FOCUS_NONE;
           scheduleRender();
         }
         continue;
