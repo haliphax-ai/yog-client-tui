@@ -320,11 +320,11 @@ export function colorizeToolLine(text: string): string {
       escape();
       continue;
     }
-    if (ch === "✓" || ch === "✗") {
-      // Include VS16 in the colored run so the emoji presentation survives.
+    if (ch === "✅" || ch === "❌" || ch === "✓" || ch === "✗") {
+      // Keep VS16 (if any) in the colored run; ✅/❌ are default-emoji.
       let end = i + 1;
       if (text[end] === "\uFE0F") end += 1;
-      colorize(text.slice(i, end), ch === "✓" ? C.ok : C.fail);
+      colorize(text.slice(i, end), ch === "✅" || ch === "✓" ? C.ok : C.fail);
       i = end;
       continue;
     }
@@ -352,8 +352,10 @@ export function colorizeToolLine(text: string): string {
         i = j;
         continue;
       }
-      out += ch;
-      i += 1;
+      // Truncated/unterminated string: color to end-of-input and stop —
+      // bailing uncolored here would leave everything after it plain.
+      colorize(text.slice(i), C.str);
+      i = text.length;
       continue;
     }
     const num = text.slice(i).match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/);
@@ -380,21 +382,26 @@ export function colorizeToolLine(text: string): string {
 }
 
 /**
- * Render tool-call arguments for the inline call line: pretty-printed,
- * whitespace-collapsed JSON capped to `max` cells — never the escaped
- * double-encoded form.
+ * Render tool-call arguments as JSON. `compact` (default): whitespace-
+ * collapsed, capped to `max` cells with an ellipsis — the inline call line.
+ * `pretty`: 2-space indented, uncapped — the expanded view.
  */
-export function prettyArgs(value: unknown, max: number): string {
+export function prettyArgs(
+  value: unknown,
+  max: number,
+  mode: "compact" | "pretty" = "compact",
+): string {
   let text: string;
   try {
     if (typeof value === "string") text = value;
-    else text = JSON.stringify(value) ?? String(value);
+    else text = JSON.stringify(value, undefined, mode === "pretty" ? 2 : undefined) ?? String(value);
   } catch {
     text = String(value);
   }
+  if (mode === "pretty") return text;
   const clean = text.replace(/\s+/g, " ").trim();
   const limit = Math.max(12, max);
-  return clean.length > limit ? `${clean.slice(0, limit - 3)}...` : clean;
+  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
 }
 
 /**
@@ -546,7 +553,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const rows =
       entry.expanded && entry.full !== undefined
         ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
-        : [entry.lines[0] ?? ""];
+        : wrapText(entry.lines[0] ?? "", Math.max(1, cols - 2)); // fits padded bar
     const rendered = ST.toolFocus.padding(0, 1).width(cols).render(rows.join("\n"));
     return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
   }

@@ -271,9 +271,11 @@ async function run(): Promise<void> {
         const full =
           args === undefined || args === null
             ? undefined
-            : prettyArgs(args, Number.MAX_SAFE_INTEGER);
+            : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
+        // Reserve room for the result suffix (✅/❌ + error) so the row
+        // never wraps inside the focus bar's padded budget.
         const shown =
-          full === undefined ? label : `${label} ${prettyArgs(args, cols - label.length - 4)}`;
+          full === undefined ? label : `${label} ${prettyArgs(args, cols - label.length - 20)}`;
         const entry: LogEntry = {
           kind: "tool",
           lines: [shown],
@@ -290,11 +292,11 @@ async function run(): Promise<void> {
         const call = pendingToolCalls.get(id);
         if (call) {
           pendingToolCalls.delete(id);
-          const suffix = ok ? " ✓️" : ` ✗️ ${error ?? "failed"}`;
+          const suffix = ok ? " ✅" : ` ❌ ${error ?? "failed"}`;
           call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
           if (call.label !== undefined) call.label = `${call.label}${suffix}`;
         } else {
-          pushLines("tool", [`${ok ? "✓️" : "✗️"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
+          pushLines("tool", [`${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
         }
         // The result itself: a tool-output block. Header carries the status
         // (one space after the arrow); body is [] for status-only results —
