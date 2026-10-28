@@ -415,18 +415,24 @@ async function run(): Promise<void> {
   const entryRowStart = (i: number): number =>
     totalRows(state.entries.slice(0, i), process.stdout.columns ?? 80);
 
-  /** Keep the focused entry inside the viewport. */
+  /** Rows entry `i` occupies incl. its trailing separator (same accounting as `totalRows`). */
+  const entryBlockRows = (i: number): number =>
+    totalRows(state.entries.slice(i, i + 1), process.stdout.columns ?? 80);
+
+  /** Keep the whole focused entry inside the viewport: above → align its
+   *  top; below → bottom-align short entries, top-align tall ones (a block
+   *  taller than the viewport must never be scrolled at from its middle). */
   const revealFocus = (): void => {
     if (state.focusIndex < 0) return;
     const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
     const top = entryRowStart(state.focusIndex);
-    const bottom = top + 1;
+    const height = entryBlockRows(state.focusIndex);
     if (top < state.scrollOffset) {
       state.follow = false;
       state.scrollOffset = top;
-    } else if (bottom > state.scrollOffset + rows) {
+    } else if (top + height > state.scrollOffset + rows) {
       state.follow = false;
-      state.scrollOffset = bottom - rows;
+      state.scrollOffset = Math.min(top, top + height - rows);
     }
   };
 
