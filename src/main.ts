@@ -36,7 +36,7 @@ import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
-import { cycleFocus, routeChar, routeKey, type Globals, type Routed } from "./ui/components/keyRouter.ts";
+import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
 import { createScheduler, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
 
 /** Rows reserved below the log: input bar + status line. */
@@ -204,11 +204,6 @@ async function run(): Promise<void> {
   const input = new InputComponent();
   const status = new StatusComponent();
   const chain: readonly Component[] = [viewport, input, status];
-  const routed: Routed[] = [
-    { id: "viewport", component: viewport },
-    { id: "input", component: input },
-    { id: "status", component: status },
-  ];
 
   /** Rows available to the log viewport in the current terminal layout. */
   const viewportRows = (): number =>
@@ -231,8 +226,8 @@ async function run(): Promise<void> {
   /** Global bindings the router falls back to when no component claims a key. */
   const globals: Globals = {
     quit: () => void quit(0),
-    focusNext: () => cycleFocus(routed, 1),
-    focusPrev: () => cycleFocus(routed, -1),
+    focusNext: () => viewport.cycleFocus(1),
+    focusPrev: () => viewport.cycleFocus(-1),
     scrollBy: (delta) => viewport.scrollBy(delta, viewportRows()),
     jump: (top) => viewport.jump(top, viewportRows()),
     submit,
