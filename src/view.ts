@@ -37,6 +37,12 @@ export interface LogEntry {
    *  pre-wrapped content (tool output chunks). Collapsed shows a bounded
    *  preview; focus + Enter expands to the full content. */
   collapsed?: boolean;
+  /** Tool-call entry: focus + Enter expands the full args (flat view). */
+  expanded?: boolean;
+  /** Tool label (`⚙️ name ✓️`) kept separate so the expanded view keeps it. */
+  label?: string;
+  /** Full (untruncated) args text for the expanded view. */
+  full?: string;
 }
 
 /** Everything `render()` needs to produce a frame. */
@@ -87,6 +93,8 @@ const ST = {
     .foreground("#ffffff")
     .background("#1e3a8a")
     .padding(1),
+  /** Focused tool call: dark blue bar, white text (compact, no padding). */
+  toolFocus: newStyle().foreground("#ffffff").background("#1e3a8a"),
   promptMarker: newStyle().foreground("#a78bfa").bold(true),
   inputText: newStyle(),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
@@ -291,7 +299,7 @@ export function colorizeToolLine(text: string): string {
     punct: "\x1b[38;5;245m",
     ok: "\x1b[38;5;41m",
     fail: "\x1b[38;5;203m",
-    reset: "\x1b[0m",
+    reset: "\x1b[39m", // fg only — a full reset would punch holes in focus-bar bg
   };
   const escape = (): void => {
     const rest = text.slice(i);
@@ -313,8 +321,11 @@ export function colorizeToolLine(text: string): string {
       continue;
     }
     if (ch === "✓" || ch === "✗") {
-      colorize(ch, ch === "✓" ? C.ok : C.fail);
-      i += 1;
+      // Include VS16 in the colored run so the emoji presentation survives.
+      let end = i + 1;
+      if (text[end] === "\uFE0F") end += 1;
+      colorize(text.slice(i, end), ch === "✓" ? C.ok : C.fail);
+      i = end;
       continue;
     }
     if (ch === '"') {
@@ -504,10 +515,15 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
     const arrowed = open ? header.replace("→", "↓") : header; // ↓ when expanded
-    // Header: bold + underlined white text so it separates from the body.
+    // Header: bold + underlined; bright green on exit 0, bright red otherwise.
+    const exitCode = header.match(/exit (-?\d+)/);
+    const headerColor = !exitCode
+      ? "\x1b[38;2;255;255;255m"
+      : Number(exitCode[1]) === 0
+        ? "\x1b[38;2;0;255;0m" // bright green
+        : "\x1b[38;2;255;0;0m"; // bright red
     const styledHeader =
-      `\x1b[1m\x1b[4m\x1b[38;2;255;255;255m${arrowed}` +
-      "\x1b[39m\x1b[24m\x1b[22m";
+      `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
     const style = (focused ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
       const rendered = style.render([styledHeader, ...body].join("\n"));
@@ -524,6 +540,17 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     );
     return { rendered, rows: rendered.split("\n").length };
   }
+
+  if (entry.kind === "tool" && focused) {
+    // Focused tool call: dark blue bar; Enter expands to label + full args.
+    const rows =
+      entry.expanded && entry.full !== undefined
+        ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
+        : [entry.lines[0] ?? ""];
+    const rendered = ST.toolFocus.padding(0, 1).width(cols).render(rows.join("\n"));
+    return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
+  }
+
 
   const lines: string[] = [];
   for (const line of entry.lines) lines.push(...wrapText(line, cols));

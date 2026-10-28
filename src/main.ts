@@ -268,11 +268,19 @@ async function run(): Promise<void> {
       onToolCall: (id, name, args) => {
         const cols = process.stdout.columns ?? 80;
         const label = `⚙️ ${name || "tool"}`;
-        const shown =
+        const full =
           args === undefined || args === null
-            ? label
-            : `${label} ${prettyArgs(args, cols - label.length - 4)}`;
-        const entry: LogEntry = { kind: "tool", lines: [shown] };
+            ? undefined
+            : prettyArgs(args, Number.MAX_SAFE_INTEGER);
+        const shown =
+          full === undefined ? label : `${label} ${prettyArgs(args, cols - label.length - 4)}`;
+        const entry: LogEntry = {
+          kind: "tool",
+          lines: [shown],
+          label,
+          full,
+          expanded: false,
+        };
         state.entries.push(entry);
         pendingToolCalls.set(id, entry);
         scheduleRender();
@@ -284,6 +292,7 @@ async function run(): Promise<void> {
           pendingToolCalls.delete(id);
           const suffix = ok ? " ✓️" : ` ✗️ ${error ?? "failed"}`;
           call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
+          if (call.label !== undefined) call.label = `${call.label}${suffix}`;
         } else {
           pushLines("tool", [`${ok ? "✓️" : "✗️"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
         }
@@ -406,9 +415,9 @@ async function run(): Promise<void> {
     }
   };
 
-  /** Indices of focusable entries (expandable tool-output chunks). */
+  /** Indices of focusable entries (tool calls + output chunks). */
   const focusableChunks = (): number[] =>
-    state.entries.flatMap((e, i) => (e.kind === "chunk" ? [i] : []));
+    state.entries.flatMap((e, i) => (e.kind === "chunk" || e.kind === "tool" ? [i] : []));
 
   /**
    * Tab / Shift-Tab: move focus forward (+1) or backward (-1) through the
@@ -436,11 +445,16 @@ async function run(): Promise<void> {
     scheduleRender();
   };
 
-  /** Enter on a focused entry: expand/collapse a chunk; otherwise submit. */
+  /** Enter on a focused entry: expand/collapse a chunk or tool call; otherwise submit. */
   const toggleFocused = (): boolean => {
     const entry = state.entries[state.focusIndex];
-    if (entry?.kind !== "chunk") return false;
-    entry.collapsed = !entry.collapsed;
+    if (entry?.kind === "chunk") {
+      entry.collapsed = !entry.collapsed;
+    } else if (entry?.kind === "tool") {
+      entry.expanded = !entry.expanded;
+    } else {
+      return false;
+    }
     revealFocus();
     scheduleRender();
     return true;
