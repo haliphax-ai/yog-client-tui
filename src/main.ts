@@ -1,6 +1,6 @@
 /**
  * Entry point / wiring only: terminal lifecycle, key handling, scroll state,
- * render scheduling, and the config → yogClient → view pipeline.
+ * render scheduling, and the config → yogClient → presenter → view pipeline.
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
@@ -20,13 +20,11 @@ import { loadConfig, resolveBaseUrl } from "./config.ts";
 import { FOCUS_NONE, moveFocus as nextFocusIndex } from "./core/focus.ts";
 import { buildPrompt, type HistoryMessage } from "./core/history.ts";
 import { clampScroll, jump as jumpScroll, scrollBy as applyScrollBy } from "./core/scroll.ts";
-import { YogClient, type TurnEvents } from "./yogClient.ts";
+import { createTurnPresenter } from "./core/turnPresenter.ts";
+import { YogClient } from "./yogClient.ts";
 import { displayWidth } from "./util/ansi.ts";
 import {
-  prettyArgs,
   render,
-  resultPreview,
-  resultStatus,
   totalRows,
   type LogEntry,
   type RenderState,
@@ -124,8 +122,6 @@ async function run(): Promise<void> {
     focusIndex: FOCUS_NONE,
   };
   const history: HistoryMessage[] = [];
-  const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
-  let assistantText = "";
   let quitting = false;
 
   // ---- render scheduling -------------------------------------------------
@@ -213,122 +209,46 @@ async function run(): Promise<void> {
     scheduleRender();
   };
 
-  /** Tool call id → its log entry, so results can annotate the call line. */
-  const pendingToolCalls = new Map<string, LogEntry>();
-
   // ---- turn submission ---------------------------------------------------
   const submit = (): void => {
     const input = state.input.trim();
     if (input === "" || state.busy) return; // one turn at a time (documented)
 
-    history.push({ role: "user", text: input });
-    pushLines("user", [input]);
+    const turn = createTurnPresenter(
+      {
+        entries: state.entries,
+        append: pushLines,
+        width: () => process.stdout.columns ?? 80,
+        requestRender: scheduleRender,
+      },
+      history,
+    );
+    turn.begin(input);
     state.input = "";
     state.cursor = 0;
     state.inputScroll = 0;
     state.statusNote = "";
-    assistant.entry = undefined;
-    assistantText = "";
     state.follow = true;
     startSpinner();
     scheduleRender();
 
-    const events: TurnEvents = {
-      onDelta: (text) => {
-        assistantText += text;
-        const entry = (assistant.entry ??= { kind: "assistant", lines: [""], streaming: true });
-        if (state.entries[state.entries.length - 1] !== entry) state.entries.push(entry);
-        // Append to the last (possibly partial) paragraph, re-split on \n.
-        const lines = entry.lines;
-        const lastIdx = lines.length - 1;
-        const merged = `${lines[lastIdx] ?? ""}${text}`;
-        lines.splice(lastIdx, 1, ...merged.split("\n"));
-        scheduleRender();
-      },
-      onToolCall: (id, name, args) => {
-        const cols = process.stdout.columns ?? 80;
-        const label = `⚙️ ${name || "tool"}`;
-        const full =
-          args === undefined || args === null
-            ? undefined
-            : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
-        // The rebuilt row (label + ✅ + space + args + 2 padding) must fit
-        // cols exactly: reserve 3 cells for the check landing in the label.
-        const argsCompact =
-          full === undefined
-            ? undefined
-            : prettyArgs(args, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
-        const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
-        const entry: LogEntry = {
-          kind: "tool",
-          lines: [shown],
-          label,
-          argsCompact,
-          full,
-          expanded: false,
-        };
-        state.entries.push(entry);
-        pendingToolCalls.set(id, entry);
-        scheduleRender();
-      },
-      onToolResult: (id, name, ok, result, error) => {
-        // Annotate the matching call line in place (no extra chat lines).
-        const call = pendingToolCalls.get(id);
-        if (call) {
-          pendingToolCalls.delete(id);
-          const suffix = ok ? " ✅" : ` ❌ ${error ?? "failed"}`;
-          // Check goes into the label (before the args), keeping its position
-          // across collapse/expand; rebuild the collapsed line around it.
-          if (call.label !== undefined) {
-            call.label = `${call.label}${suffix}`;
-            call.lines[0] =
-              call.argsCompact === undefined
-                ? call.label
-                : `${call.label} ${call.argsCompact}`;
-          } else {
-            call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
-          }
-        } else {
-          pushLines("tool", [`${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
-        }
-        // The result itself: a tool-output block. Header carries the status
-        // (one space after the arrow); body is [] for status-only results —
-        // short blocks render full height, long ones stay collapsible.
-        if (result !== undefined && result !== null) {
-          const cols = process.stdout.columns ?? 80;
-          const body = resultPreview(result, cols);
-          const status = resultStatus(result);
-          const arrow = status ? ` → ${status}` : " →";
-          state.entries.push({
-            kind: "chunk",
-            lines: [`${name || "tool"}${arrow}`, ...body],
-            collapsed: true,
-          });
-        }
-        scheduleRender();
-      },
-      onError: (code, message) => {
-        pushLines("error", [`${code}: ${message}`]);
-      },
-      onRecovered: () => {
-        pushLines("system", ["stream interrupted — turn recovered from turn status"]);
-      },
-    };
-
     void (async () => {
       try {
-        const outcome = await client.runTurn(buildPrompt(history, input), config.model, events);
+        const outcome = await client.runTurn(
+          buildPrompt(history, input),
+          config.model,
+          turn.events,
+        );
         if (!outcome.ok) {
           const detail = outcome.failure ?? outcome.error;
-          if (detail) pushLines("error", [detail]);
+          if (detail) turn.fail(detail);
         }
       } catch (err) {
-        pushLines("error", [err instanceof Error ? err.message : String(err)]);
+        turn.fail(err instanceof Error ? err.message : String(err));
         state.connection = "error";
       } finally {
         stopSpinner();
-        if (assistant.entry) assistant.entry.streaming = false;
-        if (assistantText !== "") history.push({ role: "assistant", text: assistantText });
+        turn.finish();
         scheduleRender();
       }
     })();
