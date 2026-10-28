@@ -27,7 +27,6 @@ import {
   totalRows,
   type LogEntry,
   type RenderState,
-  wrapText,
 } from "./view.ts";
 
 /** Rows reserved below the log: input bar + status line. */

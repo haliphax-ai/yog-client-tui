@@ -6,7 +6,23 @@
  * line (model, connection/session state). `render()` turns plain UI state
  * into one styled frame string; `main.ts` writes it. No network code here.
  */
-import { initLip, Lipgloss } from "charsm";
+import {
+  joinHorizontal,
+  joinVertical,
+  Left,
+  newStyle,
+  stringWidth,
+  stripAnsi as lgStripAnsi,
+  Top,
+  truncate as lgTruncate,
+  wrap as lgWrap,
+  type Style,
+} from "@oakoliver/lipgloss";
+import {
+  newTermRenderer,
+  withStandardStyle,
+  withWordWrap,
+} from "@oakoliver/glamour";
 
 /** What kind of log entry this is (drives its styling). */
 export type EntryKind = "user" | "assistant" | "tool" | "system" | "error" | "chunk";
@@ -49,102 +65,62 @@ export interface RenderState {
   focusIndex: number;
 }
 
-/** Style ids registered with charsm; referenced by name when applying. */
-const S = {
-  viewport: "viewport",
-  userMarker: "userMarker",
-  assistantMarker: "assistantMarker",
-  user: "user",
-  assistant: "assistant",
-  tool: "tool",
-  system: "system",
-  error: "error",
-  chunk: "chunk",
-  chunkHeader: "chunkHeader",
-  chunkHeaderFocus: "chunkHeaderFocus",
-  chunkMore: "chunkMore",
-  promptMarker: "promptMarker",
-  inputText: "inputText",
-  cursor: "cursor",
-  status: "status",
+const ST = {
+  /** Prompt bubble: dark grey bg, light grey text, 1-cell margins. */
+  user: newStyle()
+    .foreground("#d4d4d8")
+    .background("#3f3f46")
+    .margin(1, 1)
+    .padding(0, 1),
+  /** Response: normal background, white text, no horizontal margin. */
+  assistant: newStyle().foreground("#ffffff"),
+  tool: newStyle().foreground("#a78bfa"),
+  system: newStyle().foreground("#94a3b8"),
+  error: newStyle().foreground("#ef4444").bold(true),
+  chunk: newStyle().foreground("#cbd5e1"),
+  chunkHeader: newStyle().foreground("#7dd3fc").bold(true),
+  chunkHeaderFocus: newStyle()
+    .background("#1e293b")
+    .foreground("#e2e8f0")
+    .bold(true),
+  chunkMore: newStyle().foreground("#f59e0b"),
+  promptMarker: newStyle().foreground("#a78bfa").bold(true),
+  inputText: newStyle(),
+  cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
+  status: newStyle().foreground("#64748b"),
 } as const;
 
-let lip: Lipgloss | undefined;
-let stylesReady = false;
-
-/** Initialize the charsm WASM runtime. Throws a friendly error on failure. */
-export async function initLipGloss(): Promise<void> {
-  if (stylesReady) return;
-  let ok = false;
+/**
+ * Render markdown at `cols` via glamour with tokyo-night styling. Returns ""
+ * on renderer failure so callers can fall back to plain text.
+ */
+function mdRender(text: string, cols: number): string {
   try {
-    ok = await initLip();
-  } catch (err) {
-    throw new Error(
-      `failed to load the charsm styling engine: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    return newTermRenderer(
+      withStandardStyle("tokyo-night"),
+      withWordWrap(Math.max(1, cols)),
+    ).render(text);
+  } catch {
+    return "";
   }
-  if (!ok) {
-    throw new Error("failed to load the charsm styling engine (initLip returned false)");
-  }
-  lip = new Lipgloss();
-  defineStyles();
-  stylesReady = true;
 }
 
-/** Register every style used by the frame. Called once after init. */
-function defineStyles(): void {
-  const l = lip;
-  if (!l) return;
-  l.createStyle({ id: S.viewport, margin: [0] });
-  l.createStyle({ id: S.userMarker, margin: [0], bold: true, canvasColor: { color: "#22c55e" } });
-  l.createStyle({
-    id: S.assistantMarker,
-    margin: [0],
-    bold: true,
-    canvasColor: { color: "#38bdf8" },
-  });
-  l.createStyle({ id: S.user, margin: [0], canvasColor: { color: "#e2e8f0" } });
-  l.createStyle({ id: S.assistant, margin: [0] });
-  l.createStyle({ id: S.tool, margin: [0], canvasColor: { color: "#a78bfa" } });
-  l.createStyle({ id: S.system, margin: [0], canvasColor: { color: "#94a3b8" } });
-  l.createStyle({ id: S.error, margin: [0], bold: true, canvasColor: { color: "#ef4444" } });
-  l.createStyle({ id: S.promptMarker, margin: [0], bold: true, canvasColor: { color: "#a78bfa" } });
-  l.createStyle({ id: S.inputText, margin: [0] });
-  l.createStyle({
-    id: S.cursor,
-    margin: [0],
-    bold: true,
-    canvasColor: { background: "#7c3aed", color: "#ffffff" },
-  });
-  l.createStyle({ id: S.status, margin: [0], canvasColor: { color: "#64748b" } });
-  l.createStyle({ id: S.chunk, margin: [0], canvasColor: { color: "#cbd5e1" } });
-  l.createStyle({ id: S.chunkHeader, margin: [0], bold: true, canvasColor: { color: "#7dd3fc" } });
-  l.createStyle({
-    id: S.chunkHeaderFocus,
-    margin: [0],
-    bold: true,
-    canvasColor: { background: "#1e293b", color: "#e2e8f0" },
-  });
-  l.createStyle({ id: S.chunkMore, margin: [0], canvasColor: { color: "#f59e0b" } });
-}
-
-/** Assert the engine is initialized (guards render before init). */
-function engine(): Lipgloss {
-  if (!lip) throw new Error("render() called before initLipGloss()");
-  return lip;
+/**
+ * Kept as the startup hook call sites expect. The oakoliver libraries are
+ * pure TypeScript (no WASM), so there is nothing to initialize.
+ */
+export async function initLipGloss(): Promise<void> {
+  // no-op: @oakoliver/lipgloss and @oakoliver/glamour need no runtime init
 }
 
 /** Width of a string in terminal cells, ignoring ANSI escape sequences. */
 export function displayWidth(text: string): number {
-  return stripAnsi(text).length;
+  return stringWidth(text);
 }
 
 /** Remove ANSI escape sequences (CSI, OSC, single-character escapes). */
 export function stripAnsi(text: string): string {
-  return text
-    .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "")
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")
-    .replace(/\x1b[@-Z\\-_]/g, "");
+  return lgStripAnsi(text);
 }
 
 /** Match one ANSI escape sequence at the start of `rest`, if any. */
@@ -157,99 +133,40 @@ function matchEscape(rest: string): string | undefined {
 
 /** Truncate to `max` display cells, keeping any leading ANSI sequences. */
 function truncateAnsi(text: string, max: number): string {
-  if (max <= 0) return "";
-  let out = "";
-  let width = 0;
-  let i = 0;
-  while (i < text.length) {
-    const ch = text[i] as string;
-    if (ch === "\x1b") {
-      const esc = matchEscape(text.slice(i));
-      if (esc) {
-        out += esc;
-        i += esc.length;
-        continue;
-      }
-      i += 1;
-      continue;
-    }
-    if (width >= max) break;
-    out += ch;
-    width += 1;
-    i += 1;
-  }
-  return out;
+  return max <= 0 ? "" : lgTruncate(text, max);
 }
 
+
+
 /**
- * Word-wrap one paragraph to `cols`, then hard-truncate any single overlong
- * token so no rendered line ever exceeds the terminal width.
+ * Word-wrap one line to `cols` (ANSI-aware, hard-breaks overlong tokens) via
+ * the library's cell-accurate wrap; blank lines are preserved.
  */
 export function wrapText(text: string, cols: number): string[] {
   if (cols < 1) return [""];
-  const out: string[] = [];
-  for (const raw of text.split("\n")) {
-    if (raw === "") {
-      out.push("");
-      continue;
-    }
-    let line = "";
-    for (const word of raw.split(" ")) {
-      if (word === "") {
-        line += " ";
-        continue;
-      }
-      if (line === "") {
-        line = word;
-      } else if (line.length + 1 + word.length <= cols) {
-        line = `${line} ${word}`;
-      } else {
-        out.push(line);
-        line = word;
-      }
-      // Hard-truncate a token that cannot fit on a line of its own.
-      while (line.length > cols) {
-        out.push(line.slice(0, cols));
-        line = line.slice(cols);
-      }
-    }
-    out.push(line);
-  }
-  return out;
+  return text
+    .split("\n")
+    .flatMap((line) => (line === "" ? [""] : lgWrap(line, cols).split("\n")));
 }
 
-/** Style id for an entry kind. */
-function kindStyle(kind: EntryKind): string {
+/** Style for an entry kind. */
+function kindStyle(kind: EntryKind): Style {
   switch (kind) {
     case "user":
-      return S.user;
+      return ST.user;
     case "assistant":
-      return S.assistant;
+      return ST.assistant;
     case "tool":
-      return S.tool;
+      return ST.tool;
     case "system":
-      return S.system;
+      return ST.system;
     case "error":
-      return S.error;
+      return ST.error;
     case "chunk":
-      return S.chunk;
+      return ST.chunk;
   }
 }
 
-/** Marker rendered in front of the first line of an entry. */
-function markerFor(kind: EntryKind): { text: string; style: string } | undefined {
-  switch (kind) {
-    case "user":
-      return { text: "you \u203a ", style: S.userMarker };
-    case "assistant":
-      return { text: "yog \u203a ", style: S.assistantMarker };
-    default:
-      return undefined;
-  }
-}
-
-/** Marker width in cells ("you › " / "yog › "). */
-const MARKER_WIDTH = 5;
 
 /** Rows each collapsed chunk preview shows (label excluded). */
 const COLLAPSE_LINES = 6;
@@ -281,11 +198,12 @@ function trimLeading(line: string, n: number): string {
   return out + line.slice(i);
 }
 
+
 /**
- * Render text/JSON with glamour syntax highlighting (charsm `RenderMD`), then
- * normalize it to the terminal width: drop glamour's blank outer lines and
- * shared indent, cap every line. Returns undefined on failure or oversized
- * input so callers can fall back to plain text.
+ * Render text/JSON with glamour syntax highlighting (glamour `mdRender`),
+ * then normalize it to the terminal width: drop glamour's blank outer lines
+ * and shared indent, cap every line. Returns undefined on failure or
+ * oversized input so callers can fall back to plain text.
  */
 export function highlightBlock(
   value: unknown,
@@ -298,7 +216,8 @@ export function highlightBlock(
         ? value
         : (JSON.stringify(value, null, 2) ?? String(value));
     if (text.length > 100_000) return undefined;
-    const rendered = engine().RenderMD(`\`\`\`${lang}\n${text}\n\`\`\``, "tokyo-night");
+    const rendered = mdRender(`\`\`\`${lang}\n${text}\n\`\`\``, cols);
+    if (rendered === "") return undefined;
     const lines = rendered.split("\n");
     while (lines.length > 0 && stripAnsi(lines[0] ?? "").trim() === "") lines.shift();
     while (lines.length > 0 && stripAnsi(lines[lines.length - 1] ?? "").trim() === "") {
@@ -320,6 +239,36 @@ export function highlightBlock(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Render markdown through glamour (tokyo-night) at `cols` and normalize:
+ * drop blank outer rows, strip glamour's shared indent, keep interior blank
+ * rows (paragraph breaks), and cap every line to `cols`. Returns [] on
+ * failure or oversized input so callers can fall back to plain text.
+ */
+export function renderMarkdown(text: string, cols: number): string[] {
+  if (text.length > 100_000) return [];
+  const rendered = mdRender(text, cols);
+  if (rendered === "") return [];
+  const lines = rendered.split("\n");
+  while (lines.length > 0 && stripAnsi(lines[0] ?? "").trim() === "") lines.shift();
+  while (lines.length > 0 && stripAnsi(lines[lines.length - 1] ?? "").trim() === "") lines.pop();
+  if (lines.length === 0) return [];
+  const indents: number[] = [];
+  for (const line of lines) {
+    if (stripAnsi(line).trim() !== "") indents.push(line.match(/^ */)?.[0].length ?? 0);
+  }
+  const indent = indents.length > 0 ? Math.min(...indents) : 0;
+  const out: string[] = [];
+  for (const line of lines) {
+    if (stripAnsi(line).trim() === "") {
+      out.push(""); // paragraph break inside the entry
+      continue;
+    }
+    out.push(truncateAnsi(trimLeading(line, indent), cols));
+  }
+  return out;
 }
 
 /**
@@ -477,98 +426,111 @@ export function resultPreview(result: unknown, cols: number): string[] | undefin
   return plain.flatMap((line) => wrapText(line, target));
 }
 
-/**
- * The display rows of one entry before wrapping: label first, then content.
- * Chunk content arrives pre-styled and width-capped (from `highlightJson` or
- * plain output lines) and passes through unwrapped; collapsed chunks show a
- * bounded preview plus a "+N lines" hint.
- */
-function entryLogical(entry: LogEntry, cols: number): string[] {
-  if (entry.kind === "chunk") {
-    const rows: string[] = [entry.lines[0] ?? ""];
-    const body = entry.lines.slice(1);
-    if (entry.collapsed) {
-      const preview = body.slice(0, COLLAPSE_LINES);
-      rows.push(...preview);
-      const hidden = body.length - preview.length;
-      if (hidden > 0) {
-        const hint = `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`;
-        rows.push(engine().apply({ value: hint, id: S.chunkMore }));
-      }
-    } else {
-      rows.push(...body);
-    }
-    return rows;
-  }
-  const out: string[] = [];
-  for (const line of entry.lines) out.push(...wrapText(line, cols));
-  return out.length > 0 ? out : [""];
+/** A fully styled entry: its rendered rows and their count. */
+interface EntryRender {
+  rendered: string;
+  rows: number;
 }
 
 /**
- * Build the visible log viewport: resolve each entry to rows (wrapping
- * plain entries, passing pre-styled chunk content through), prefix markers,
- * highlight the focused chunk header, then slice `viewportRows` rows from
- * `scrollOffset`.
+ * Flatten glamour's theme colors out of a rendered markdown row, keeping only
+ * structural emphasis (bold/italic): inside the prompt bubble the role style
+ * (dark-grey bg, light-grey text) must win, and background resets would
+ * punch holes in it. Responses keep glamour's full styling.
  */
-function buildViewport(state: RenderState): string[] {
-  const l = engine();
-  const logical: string[] = [];
-  for (const [entryIndex, entry] of state.entries.entries()) {
-    const focused = entryIndex === state.focusIndex;
-    const rows = entryLogical(entry, state.cols);
-    for (const [idx, row] of rows.entries()) {
-      const marker = idx === 0 ? markerFor(entry.kind) : undefined;
-      const bodyCols = marker ? Math.max(1, state.cols - MARKER_WIDTH) : state.cols;
-      const prestyled = entry.kind === "chunk" && idx > 0;
-      const wrapped = prestyled ? [row] : wrapText(row, bodyCols);
-      for (const [widx, wl] of wrapped.entries()) {
-        const body = wl === "" && rows.length > 1 ? " " : wl;
-        if (widx === 0 && marker) {
-          const m = l.apply({ value: marker.text, id: marker.style });
-          logical.push(m + l.apply({ value: body, id: kindStyle(entry.kind) }));
-        } else if (entry.kind === "chunk" && idx === 0) {
-          logical.push(l.apply({ value: body, id: focused ? S.chunkHeaderFocus : S.chunkHeader }));
-        } else if (prestyled) {
-          logical.push(body);
-        } else {
-          const styled = l.apply({ value: body, id: kindStyle(entry.kind) });
-          logical.push(entry.kind === "tool" ? colorizeToolLine(styled) : styled);
-        }
-      }
-    }
-    // Blank separator between entries.
-    logical.push("");
+function flattenMarkdown(rows: string[]): string[] {
+  return rows.map((row) =>
+    row
+      .replaceAll("\x1b[m", "\x1b[22m")
+      .replaceAll("\x1b[0m", "\x1b[22m")
+      .replace(/\x1b\[(?:38|48);[0-9;]*m|\x1b\[39m|\x1b\[49m/g, ""),
+  );
+}
+
+/**
+ * Render one entry to its styled block at `cols`. Prompts and responses go
+ * through the glamour markdown renderer first: prompts become a dark-grey
+ * bubble (1-cell margin all around, light-grey text), responses render on
+ * the normal background with no margin. Tool/system/error rows wrap plain;
+ * chunks keep their pre-styled body with a (possibly focused) header.
+ */
+function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRender {
+  if (entry.kind === "user" || entry.kind === "assistant") {
+    const bodyW = Math.max(1, entry.kind === "user" ? cols - 2 : cols);
+    const text = entry.lines.join("\n");
+    const md = renderMarkdown(text, bodyW);
+    const content =
+      md.length > 0
+        ? entry.kind === "user"
+          ? flattenMarkdown(md)
+          : md
+        : wrapText(text, bodyW);
+    const style = entry.kind === "user" ? ST.user.width(bodyW) : ST.assistant;
+    const rendered = style.render(content.join("\n"));
+    return { rendered, rows: rendered.split("\n").length };
   }
 
-  // Visible slice from the scroll offset, padded to the viewport height.
-  const start = Math.max(0, Math.min(state.scrollOffset, Math.max(0, logical.length)));
+  if (entry.kind === "chunk") {
+    const body = entry.lines.slice(1);
+    let hidden = 0;
+    if (entry.collapsed) {
+      hidden = Math.max(0, body.length - COLLAPSE_LINES);
+      body.length = COLLAPSE_LINES;
+    }
+    if (hidden > 0) {
+      body.push(
+        ST.chunkMore.render(
+          `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
+        ),
+      );
+    }
+    const header = (focused ? ST.chunkHeaderFocus : ST.chunkHeader).render(
+      entry.lines[0] ?? "",
+    );
+    const rows = [header, ...body];
+    return { rendered: rows.join("\n"), rows: rows.length };
+  }
+
+  const lines: string[] = [];
+  for (const line of entry.lines) lines.push(...wrapText(line, cols));
+  if (lines.length === 0) lines.push("");
+  const rendered = kindStyle(entry.kind).render(lines.join("\n"));
+  return { rendered, rows: lines.length };
+}
+
+/**
+ * Build the visible log viewport: render every entry to its styled block
+ * (markdown bubbles for prompts/responses), flatten to rows, then slice
+ * `viewportRows` rows from `scrollOffset`.
+ */
+function buildViewport(state: RenderState): string[] {
+  const rendered: string[] = [];
+  for (const [entryIndex, entry] of state.entries.entries()) {
+    const view = renderEntry(entry, state.cols, entryIndex === state.focusIndex);
+    rendered.push(...view.rendered.split("\n"));
+    rendered.push(""); // blank separator between entries
+  }
+
+  const start = Math.max(0, Math.min(state.scrollOffset, Math.max(0, rendered.length)));
   const visible: string[] = [];
-  for (let i = start; i < logical.length && visible.length < state.viewportRows; i += 1) {
-    const line = logical[i] as string;
-    visible.push(truncateAnsi(line, state.cols));
+  for (let i = start; i < rendered.length && visible.length < state.viewportRows; i += 1) {
+    visible.push(truncateAnsi(rendered[i] as string, state.cols));
   }
   while (visible.length < state.viewportRows) visible.push("");
   return visible;
 }
 
-/** Number of wrapped rows the current entries occupy at `cols`. */
+/** Number of rows the current entries occupy at `cols` (incl. separators). */
 export function totalRows(entries: LogEntry[], cols: number): number {
   let rows = 0;
   for (const entry of entries) {
-    const lines = entryLogical(entry, cols);
-    for (const [idx, line] of lines.entries()) {
-      const bodyCols = idx === 0 && markerFor(entry.kind) ? Math.max(1, cols - MARKER_WIDTH) : cols;
-      rows += entry.kind === "chunk" && idx > 0 ? 1 : wrapText(line, bodyCols).length;
-    }
-    rows += 1; // separator
+    rows += renderEntry(entry, cols).rows + 1;
   }
   return rows;
 }
 
 /** Render the input bar: marker + text window with a highlighted cursor. */
 function buildInput(state: RenderState): string {
-  const l = engine();
   const marker = state.promptMarker;
   const markerW = displayWidth(marker);
   const avail = Math.max(1, state.cols - markerW);
@@ -587,31 +549,23 @@ function buildInput(state: RenderState): string {
   const widthAfter = Math.max(0, avail - displayWidth(before) - 1);
 
   const parts: string[] = [
-    l.apply({ value: marker, id: S.promptMarker }),
-    l.apply({ value: before, id: S.inputText }),
-    at === "" ? l.apply({ value: " ", id: S.cursor }) : l.apply({ value: at, id: S.cursor }),
-    l.apply({ value: truncateAnsi(after, widthAfter), id: S.inputText }),
+    ST.promptMarker.render(marker),
+    ST.inputText.render(before),
+    at === "" ? ST.cursor.render(" ") : ST.cursor.render(at),
+    ST.inputText.render(truncateAnsi(after, widthAfter)),
   ];
-  const line = l.join({ direction: "horizontal", position: "left", elements: parts });
+  const line = joinHorizontal(Left, ...parts);
   return truncateAnsi(line, state.cols);
 }
 
 /** Compose the whole frame: viewport + input bar + status line. */
 export function render(state: RenderState): string {
-  const l = engine();
   const rows = Math.max(1, state.viewportRows);
   const viewportLines = buildViewport({ ...state, viewportRows: rows });
-  const viewport = l.apply({ value: viewportLines.join("\n"), id: S.viewport });
+  const viewport = viewportLines.join("\n");
   const input = buildInput(state);
-  const status = l.apply({ value: state.status, id: S.status });
-
-  const frame = l.join({
-    direction: "vertical",
-    position: "top",
-    elements: [viewport, input, status],
-  });
-  // Normalize every line to the terminal width so auto-wrap never shifts the
-  // frame (the join pads width-aware; this trims overset lines).
+  const status = ST.status.render(state.status);
+  const frame = joinVertical(Top, viewport, input, status);
   const lines = frame.split("\n").map((line) => padAnsi(line, state.cols));
   return lines.join("\n");
 }
