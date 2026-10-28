@@ -93,8 +93,10 @@ const ST = {
     .foreground("#ffffff")
     .background("#1e3a8a")
     .padding(1),
-  /** Focused tool call: dark blue bar, white text (compact, no padding). */
-  toolFocus: newStyle().foreground("#ffffff").background("#1e3a8a"),
+  /** Tool call (unfocused): transparent bg, purple text, same padding. */
+  toolPlain: newStyle().foreground("#a78bfa").padding(0, 1),
+  /** Focused tool call: dark blue bar, white text (same padding — no jitter). */
+  toolFocus: newStyle().foreground("#ffffff").background("#1e3a8a").padding(0, 1),
   promptMarker: newStyle().foreground("#a78bfa").bold(true),
   inputText: newStyle(),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
@@ -548,13 +550,15 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     return { rendered, rows: rendered.split("\n").length };
   }
 
-  if (entry.kind === "tool" && focused) {
-    // Focused tool call: dark blue bar; Enter expands to label + full args.
+  if (entry.kind === "tool") {
+    // Identical geometry in both states (1-cell side padding, full width):
+    // focusing only recolors, and expansion persists regardless of focus.
     const rows =
       entry.expanded && entry.full !== undefined
         ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
-        : wrapText(entry.lines[0] ?? "", Math.max(1, cols - 2)); // fits padded bar
-    const rendered = ST.toolFocus.padding(0, 1).width(cols).render(rows.join("\n"));
+        : wrapText(entry.lines[0] ?? "", Math.max(1, cols - 2));
+    const style = (focused ? ST.toolFocus : ST.toolPlain).width(cols);
+    const rendered = style.render(rows.join("\n"));
     return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
   }
 
@@ -563,11 +567,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
   for (const line of entry.lines) lines.push(...wrapText(line, cols));
   if (lines.length === 0) lines.push("");
   const rendered = kindStyle(entry.kind).render(lines.join("\n"));
-  // Tool lines get JSON/✓ syntax coloring on top of the base style.
-  return {
-    rendered: entry.kind === "tool" ? colorizeToolLine(rendered) : rendered,
-    rows: lines.length,
-  };
+  return { rendered, rows: lines.length };
 }
 
 /**
