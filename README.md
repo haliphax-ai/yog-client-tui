@@ -4,7 +4,8 @@ A minimal terminal chat client for yog-style HTTP/SSE servers, built with Node.j
 and TypeScript. It opens a session, streams assistant replies into a scrollable log
 viewport, and keeps a bounded conversation transcript so the server — which has no
 per-session memory — can still see recent context on every turn. Terminal styling is
-provided by the `charsm` WASM library (lipgloss-style primitives).
+provided by `@oakoliver/lipgloss` (a TypeScript port of charmbracelet/lipgloss)
+with `@oakoliver/glamour` markdown rendering.
 
 ## Architecture
 
@@ -14,7 +15,7 @@ The code is split into three strictly separated concerns:
 |---|---|
 | `src/config.ts` | Config parsing and validation: `model` (required), optional `baseUrl`, and `resolveBaseUrl` (config → `YOG_SERVER_URL` env → `http://127.0.0.1:8111`). |
 | `src/yogClient.ts` | The yog HTTP/SSE client: capabilities probe → `POST /v1/sessions` → `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → `DELETE session` on exit. |
-| `src/view.ts` | Presentation only. Renders the log viewport + input bar + status line via charsm (`initLip` / `Lipgloss` / `createStyle` / `apply` / `join`). |
+| `src/view.ts` | Presentation only. Renders the log viewport + input bar + status line via `@oakoliver/lipgloss` styles and `@oakoliver/glamour` markdown (prompts and responses). |
 | `src/main.ts` | Wiring: terminal lifecycle (alt screen, raw mode), key handling, scroll state, render coalescing, and the bounded client-side transcript. |
 
 `view.ts` never talks to the network and `yogClient.ts` never touches the terminal,

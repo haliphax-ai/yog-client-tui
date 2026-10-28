@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "charsm": "^0.2.0"
+    "@oakoliver/bubbles": "^1.2.2",
+    "@oakoliver/glamour": "^2.0.0",
+    "@oakoliver/lipgloss": "^1.1.3"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
