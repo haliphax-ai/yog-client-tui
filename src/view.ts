@@ -65,25 +65,28 @@ export interface RenderState {
   focusIndex: number;
 }
 
+/** Styling map. Tool-output blocks: black bg, dark grey text, 1-cell padding. */
 const ST = {
-  /** Prompt bubble: dark grey bg, light grey text, 1-cell margins. */
+  /** Prompt: dark grey bg, light grey text, 1-cell padding, no margin. */
   user: newStyle()
     .foreground("#d4d4d8")
     .background("#3f3f46")
-    .margin(1, 1)
-    .padding(0, 1),
-  /** Response: normal background, white text, no horizontal margin. */
-  assistant: newStyle().foreground("#ffffff"),
+    .padding(1),
+  /** Response: normal background, white text, 1-row vertical margin. */
+  assistant: newStyle().foreground("#ffffff").margin(1, 0),
   tool: newStyle().foreground("#a78bfa"),
   system: newStyle().foreground("#94a3b8"),
   error: newStyle().foreground("#ef4444").bold(true),
-  chunk: newStyle().foreground("#cbd5e1"),
-  chunkHeader: newStyle().foreground("#7dd3fc").bold(true),
-  chunkHeaderFocus: newStyle()
-    .background("#1e293b")
-    .foreground("#e2e8f0")
-    .bold(true),
-  chunkMore: newStyle().foreground("#f59e0b"),
+  /** Tool block (unfocused): black bg, dark grey text, 1-cell padding. */
+  chunkBlock: newStyle()
+    .foreground("#a1a1aa")
+    .background("#000000")
+    .padding(1),
+  /** Tool block (focused): white text on dark blue, same padding. */
+  chunkBlockFocus: newStyle()
+    .foreground("#ffffff")
+    .background("#1e3a8a")
+    .padding(1),
   promptMarker: newStyle().foreground("#a78bfa").bold(true),
   inputText: newStyle(),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
@@ -163,13 +166,13 @@ function kindStyle(kind: EntryKind): Style {
     case "error":
       return ST.error;
     case "chunk":
-      return ST.chunk;
+      return ST.chunkBlock;
   }
 }
 
 
-/** Rows each collapsed chunk preview shows (label excluded). */
-const COLLAPSE_LINES = 6;
+/** Rows a tool-output block body shows before truncation (label excluded). */
+const COLLAPSE_LINES = 10;
 
 /** Remove up to `n` leading plain spaces, keeping any embedded escapes. */
 function trimLeading(line: string, n: number): string {
@@ -384,24 +387,23 @@ export function prettyArgs(value: unknown, max: number): string {
 }
 
 /**
- * Rows for a tool-result chunk body. The bash tool's shape (stdout/stderr/
- * exitCode) is rendered as real text — never the JSON-escaped blob; anything
- * else is syntax-highlighted JSON, falling back to plain wrapped lines.
- * Returns undefined when there is nothing worth showing.
+ * Body rows for a tool-result block. The bash tool's shape (stdout/stderr)
+ * is rendered as real text — never the JSON-escaped blob; anything else is
+ * syntax-highlighted JSON, falling back to plain wrapped lines. Returns
+ * undefined when there is nothing worth showing (the exit status then lives
+ * in the block header alone).
  */
-export function resultPreview(result: unknown, cols: number): string[] | undefined {
+function previewBody(result: unknown, cols: number): string[] | undefined {
   const target = Math.max(1, cols - 2);
   const CAP = 500;
 
-  // bash-shaped result: stdout/stderr as text + an exit-status line.
+  // bash-shaped result: stdout/stderr as text (exit status is in the header).
   if (result !== null && typeof result === "object" && !Array.isArray(result)) {
     const obj = result as Record<string, unknown>;
     const out = obj["stdout"];
     const err = obj["stderr"];
     if (typeof out === "string" || typeof err === "string") {
-      const exit = typeof obj["exitCode"] === "number" ? `exit ${obj["exitCode"]}` : "exit ?";
-      const runtime = typeof obj["runtimeMs"] === "number" ? ` · ${obj["runtimeMs"]}ms` : "";
-      const rows: string[] = [`${exit}${runtime}`];
+      const rows: string[] = [];
       for (const chunk of [out, err]) {
         if (typeof chunk !== "string" || chunk.trim() === "") continue;
         const body = chunk.replace(/\n$/, "").split("\n");
@@ -410,7 +412,7 @@ export function resultPreview(result: unknown, cols: number): string[] | undefin
           rows.push(...wrapText(line, target));
         }
       }
-      return rows; // even stdout/stderr-less: status line is still useful
+      return rows.length > 0 ? rows : undefined;
     }
   }
 
@@ -424,6 +426,20 @@ export function resultPreview(result: unknown, cols: number): string[] | undefin
   const plain = text.split("\n");
   if (plain.length > CAP) return plain.slice(0, CAP).flatMap((line) => wrapText(line, target));
   return plain.flatMap((line) => wrapText(line, target));
+}
+
+/** Exit/runtime status for a tool result: `exit 0 · 42ms` ("" if none). */
+export function resultStatus(result: unknown): string {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) return "";
+  const obj = result as Record<string, unknown>;
+  const exit = typeof obj["exitCode"] === "number" ? `exit ${obj["exitCode"]}` : "";
+  const runtime = typeof obj["runtimeMs"] === "number" ? ` · ${obj["runtimeMs"]}ms` : "";
+  return exit || runtime ? `${exit}${runtime}` : "";
+}
+
+/** Body rows for a tool-result block ([] when there is nothing to show). */
+export function resultPreview(result: unknown, cols: number): string[] {
+  return previewBody(result, cols) ?? [];
 }
 
 /** A fully styled entry: its rendered rows and their count. */
@@ -449,46 +465,52 @@ function flattenMarkdown(rows: string[]): string[] {
 
 /**
  * Render one entry to its styled block at `cols`. Prompts and responses go
- * through the glamour markdown renderer first: prompts become a dark-grey
- * bubble (1-cell margin all around, light-grey text), responses render on
- * the normal background with no margin. Tool/system/error rows wrap plain;
- * chunks keep their pre-styled body with a (possibly focused) header.
+ * through the glamour markdown renderer first: prompts render in a dark-grey
+ * padded bubble (1-cell padding, light-grey text), responses get a 1-row
+ * vertical margin and glamour styling. Tool-output blocks are always full
+ * height (header with exit status + output, black bg, dark-grey text);
+ * headers show `↓` when expanded, `→` when focusable. Other rows wrap plain.
  */
 function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
-    const bodyW = Math.max(1, entry.kind === "user" ? cols - 2 : cols);
+    const isUser = entry.kind === "user";
     const text = entry.lines.join("\n");
+    // Prompt: 1-cell padding each side sits INSIDE the style width, so the
+    // content wraps at cols-2 while the block spans the full terminal.
+    const bodyW = Math.max(1, isUser ? cols - 2 : cols);
     const md = renderMarkdown(text, bodyW);
     const content =
       md.length > 0
-        ? entry.kind === "user"
+        ? isUser
           ? flattenMarkdown(md)
           : md
         : wrapText(text, bodyW);
-    const style = entry.kind === "user" ? ST.user.width(bodyW) : ST.assistant;
+    const style = isUser ? ST.user.width(cols) : ST.assistant;
     const rendered = style.render(content.join("\n"));
     return { rendered, rows: rendered.split("\n").length };
   }
 
   if (entry.kind === "chunk") {
     const body = entry.lines.slice(1);
-    let hidden = 0;
-    if (entry.collapsed) {
-      hidden = Math.max(0, body.length - COLLAPSE_LINES);
-      body.length = COLLAPSE_LINES;
+    const expandable = body.length > COLLAPSE_LINES;
+    const open = !entry.collapsed || !expandable; // short blocks are full
+    const header = entry.lines[0] ?? "";
+    const arrowed = open ? header.replace("→", "↓") : header; // ↓ when expanded
+    const style = (focused ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
+    if (open) {
+      const rendered = style.render([arrowed, ...body].join("\n"));
+      return { rendered, rows: rendered.split("\n").length };
     }
-    if (hidden > 0) {
-      body.push(
-        ST.chunkMore.render(
-          `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
-        ),
-      );
-    }
-    const header = (focused ? ST.chunkHeaderFocus : ST.chunkHeader).render(
-      entry.lines[0] ?? "",
+    const shown = body.slice(0, COLLAPSE_LINES);
+    const hidden = body.length - shown.length;
+    const rendered = style.render(
+      [
+        arrowed,
+        ...shown,
+        `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
+      ].join("\n"),
     );
-    const rows = [header, ...body];
-    return { rendered: rows.join("\n"), rows: rows.length };
+    return { rendered, rows: rendered.split("\n").length };
   }
 
   const lines: string[] = [];

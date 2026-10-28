@@ -24,6 +24,7 @@ import {
   prettyArgs,
   render,
   resultPreview,
+  resultStatus,
   totalRows,
   type LogEntry,
   type RenderState,
@@ -286,17 +287,19 @@ async function run(): Promise<void> {
         } else {
           pushLines("tool", [`${ok ? "✓" : "✗"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
         }
-        // The result itself: a bounded, collapsible, syntax-highlighted chunk.
+        // The result itself: a tool-output block. Header carries the status
+        // (one space after the arrow); body is [] for status-only results —
+        // short blocks render full height, long ones stay collapsible.
         if (result !== undefined && result !== null) {
           const cols = process.stdout.columns ?? 80;
-          const preview = resultPreview(result, cols);
-          if (preview) {
-            state.entries.push({
-              kind: "chunk",
-              lines: [`${name || "tool"} →`, ...preview],
-              collapsed: true,
-            });
-          }
+          const body = resultPreview(result, cols);
+          const status = resultStatus(result);
+          const arrow = status ? ` → ${status}` : " →";
+          state.entries.push({
+            kind: "chunk",
+            lines: [`${name || "tool"}${arrow}`, ...body],
+            collapsed: true,
+          });
         }
         scheduleRender();
       },
