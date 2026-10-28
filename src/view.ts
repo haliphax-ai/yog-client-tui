@@ -39,8 +39,11 @@ export interface LogEntry {
   collapsed?: boolean;
   /** Tool-call entry: focus + Enter expands the full args (flat view). */
   expanded?: boolean;
-  /** Tool label (`⚙️ name ✓️`) kept separate so the expanded view keeps it. */
+  /** Tool label (`⚙️ name ✅`) so the check sits before the args in both
+   *  collapsed and expanded views. */
   label?: string;
+  /** Compact args text (re-appended after `label` when the check arrives). */
+  argsCompact?: string;
   /** Full (untruncated) args text for the expanded view. */
   full?: string;
 }

@@ -272,14 +272,16 @@ async function run(): Promise<void> {
           args === undefined || args === null
             ? undefined
             : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
-        // Reserve room for the result suffix (✅/❌ + error) so the row
-        // never wraps inside the focus bar's padded budget.
-        const shown =
-          full === undefined ? label : `${label} ${prettyArgs(args, cols - label.length - 20)}`;
+        // Reserve room for label growth (✅/❌ + error) so the row never
+        // wraps inside the focus bar's padded budget.
+        const argsCompact =
+          full === undefined ? undefined : prettyArgs(args, cols - label.length - 20);
+        const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
         const entry: LogEntry = {
           kind: "tool",
           lines: [shown],
           label,
+          argsCompact,
           full,
           expanded: false,
         };
@@ -293,8 +295,17 @@ async function run(): Promise<void> {
         if (call) {
           pendingToolCalls.delete(id);
           const suffix = ok ? " ✅" : ` ❌ ${error ?? "failed"}`;
-          call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
-          if (call.label !== undefined) call.label = `${call.label}${suffix}`;
+          // Check goes into the label (before the args), keeping its position
+          // across collapse/expand; rebuild the collapsed line around it.
+          if (call.label !== undefined) {
+            call.label = `${call.label}${suffix}`;
+            call.lines[0] =
+              call.argsCompact === undefined
+                ? call.label
+                : `${call.label} ${call.argsCompact}`;
+          } else {
+            call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
+          }
         } else {
           pushLines("tool", [`${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
         }
