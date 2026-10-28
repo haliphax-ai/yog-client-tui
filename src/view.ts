@@ -72,8 +72,8 @@ const ST = {
     .foreground("#d4d4d8")
     .background("#3f3f46")
     .padding(1),
-  /** Response: normal background, white text, 1-row vertical margin. */
-  assistant: newStyle().foreground("#ffffff").margin(1, 0),
+  /** Response: normal background, white text; spacing comes from the uniform entry separator. */
+  assistant: newStyle().foreground("#ffffff"),
   tool: newStyle().foreground("#a78bfa"),
   system: newStyle().foreground("#94a3b8"),
   error: newStyle().foreground("#ef4444").bold(true),
@@ -466,10 +466,10 @@ function flattenMarkdown(rows: string[]): string[] {
 /**
  * Render one entry to its styled block at `cols`. Prompts and responses go
  * through the glamour markdown renderer first: prompts render in a dark-grey
- * padded bubble (1-cell padding, light-grey text), responses get a 1-row
- * vertical margin and glamour styling. Tool-output blocks are always full
+ * padded bubble (1-cell padding, light-grey text); responses keep full
+ * glamour styling on a plain background. Tool-output blocks are always full
  * height (header with exit status + output, black bg, dark-grey text);
- * headers show `↓` when expanded, `→` when focusable. Other rows wrap plain.
+ * headers show `↓` only when focused and expanded, `→` otherwise. Other rows wrap plain.
  */
 function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
@@ -495,7 +495,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const expandable = body.length > COLLAPSE_LINES;
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
-    const arrowed = open ? header.replace("→", "↓") : header; // ↓ when expanded
+    const arrowed = focused && open ? header.replace("→", "↓") : header; // ↓ only focused+open
     const style = (focused ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
       const rendered = style.render([arrowed, ...body].join("\n"));
