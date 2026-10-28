@@ -292,3 +292,12 @@ export function cachedRows(entry: LogEntry, cols: number, focused = false): stri
   entry.cache = { entry, key, rows };
   return rows;
 }
+
+/** Number of rows the given entries occupy at `cols` (incl. separators). */
+export function totalRows(entries: LogEntry[], cols: number): number {
+  let rows = 0;
+  for (const entry of entries) {
+    rows += cachedRows(entry, cols).length + 1;
+  }
+  return rows;
+}
