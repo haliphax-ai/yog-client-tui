@@ -8,8 +8,6 @@
  * This module deals in plain data only: it knows nothing about the terminal,
  * styling, or rendering. The UI drives it through the `TurnEvents` callbacks.
  */
-import type { Config } from "./config.ts";
-import { resolveBaseUrl } from "./config.ts";
 
 /** Advertised server capabilities. */
 export interface Capabilities {
@@ -79,9 +77,6 @@ export class YogError extends Error {
     this.status = status;
   }
 }
-
-/** Default origin when config and environment are both silent. */
-export const DEFAULT_SERVER_URL = "http://127.0.0.1:8111";
 
 /** Build the bearer header when `YOG_API_TOKEN` is set. */
 function authHeaders(): Record<string, string> | undefined {
@@ -242,8 +237,8 @@ export class YogClient {
   /** Capabilities from the startup probe. */
   capabilities: Capabilities | undefined;
 
-  constructor(config: Config) {
-    this.baseUrl = resolveBaseUrl(config);
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
   }
 
   /** Auth headers for every request (bearer token when configured). */
