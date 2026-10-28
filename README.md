@@ -55,13 +55,13 @@ to run `cp config.example.json config.json`.
 
 | Key | Action |
 |---|---|
-| `Enter` | Send the current input (on a focused chunk: expand/collapse it) |
+| `Enter` | Send the current input (on a focused chunk / tool call: expand/collapse it) |
 | `Ctrl+C` | Quit |
 | `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input |
 | `PageUp` / `PageDown`, `↑` / `↓` | Scroll the log viewport |
 | `Ctrl+Home` / `Ctrl+End` | Jump to top / bottom of the log |
-| `Tab` | Focus the next expandable tool-output chunk (wraps through "none") |
-| `Shift+Tab` | Focus the previous chunk (wraps through "none") |
+| `Tab` | Focus the next expandable entry (tool call / output chunk; wraps through "none") |
+| `Shift+Tab` | Focus the previous entry (wraps through "none") |
 | `Esc` | Leave focus mode |
 
 Input keystrokes are ignored while a turn is in flight (one turn at a time); the
