@@ -20,6 +20,7 @@ import {
 } from "@oakoliver/lipgloss";
 import {
   newTermRenderer,
+  type TermRenderer,
   withStandardStyle,
   withWordWrap,
 } from "@oakoliver/glamour";
@@ -46,6 +47,8 @@ export interface LogEntry {
   argsCompact?: string;
   /** Full (untruncated) args text for the expanded view. */
   full?: string;
+  /** Memoized rendered rows (internal — do not mutate from outside view.ts). */
+  cache?: { entry: LogEntry; key: string; rows: string[] };
 }
 
 /** Everything `render()` needs to produce a frame. */
@@ -106,16 +109,30 @@ const ST = {
   status: newStyle().foreground("#64748b"),
 } as const;
 
+/** Memoized glamour renderers, keyed by wrap width (max 8 before reuse). */
+const mdRenderers = new Map<number, TermRenderer>();
+
+/** Glamour renderer for `cols` (constructed once per width, then reused). */
+function mdRenderer(cols: number): TermRenderer {
+  const width = Math.max(1, cols);
+  const cached = mdRenderers.get(width);
+  if (cached) return cached;
+  const renderer = newTermRenderer(
+    withStandardStyle("tokyo-night"),
+    withWordWrap(width),
+  );
+  if (mdRenderers.size >= 8) mdRenderers.clear(); // simple bound on growth
+  mdRenderers.set(width, renderer);
+  return renderer;
+}
+
 /**
  * Render markdown at `cols` via glamour with tokyo-night styling. Returns ""
  * on renderer failure so callers can fall back to plain text.
  */
 function mdRender(text: string, cols: number): string {
   try {
-    return newTermRenderer(
-      withStandardStyle("tokyo-night"),
-      withWordWrap(Math.max(1, cols)),
-    ).render(text);
+    return mdRenderer(cols).render(text);
   } catch {
     return "";
   }
@@ -629,24 +646,60 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
 }
 
 /**
- * Build the visible log viewport: render every entry to its styled block
- * (markdown bubbles for prompts/responses), flatten to rows, then slice
- * `viewportRows` rows from `scrollOffset`.
+ * Rendered rows for one entry, memoized on the `LogEntry` object. The key
+ * captures everything `renderEntry` derives output from: display width, the
+ * focus flag, the expand/collapse toggles, and a content signature (streaming
+ * entries mutate `lines`, tool calls get `label`/`lines[0]` amended when the
+ * result lands). Entries only ever grow (in place for the same signature), so
+ * a matching key means a byte-identical render — safe to reuse.
+ */
+function cachedRows(entry: LogEntry, cols: number, focused = false): string[] {
+  const lines = entry.lines;
+  // O(1) content signature: line count + first/last line lengths cover every
+  // mutation this codebase performs (append rows, grow last row, amend label).
+  const key = `${cols}|${focused ? 1 : 0}|${entry.collapsed ? 1 : 0}|${
+    entry.expanded ? 1 : 0
+  }|${lines.length}|${lines[0]?.length ?? 0}|${lines[lines.length - 1]?.length ?? 0}|${
+    entry.label ?? ""
+  }`;
+  const hit = entry.cache;
+  if (hit !== undefined && hit.entry === entry && hit.key === key) return hit.rows;
+  const rows = renderEntry(entry, cols, focused).rendered.split("\n");
+  entry.cache = { entry, key, rows };
+  return rows;
+}
+
+/**
+ * Build the visible log viewport from cached entry rows: walk cumulative
+ * row counts to locate `scrollOffset`, then render only entries that
+ * intersect the viewport. Cache misses re-render the whole log (width
+ * changes, focus moves), but scrolling over a warm cache never does.
  */
 function buildViewport(state: RenderState): string[] {
-  const rendered: string[] = [];
-  for (const [entryIndex, entry] of state.entries.entries()) {
-    const view = renderEntry(entry, state.cols, entryIndex === state.focusIndex);
-    rendered.push(...view.rendered.split("\n"));
-    rendered.push(""); // blank separator between entries
-  }
-
-  const start = Math.max(0, Math.min(state.scrollOffset, Math.max(0, rendered.length)));
+  const { entries, cols, viewportRows, focusIndex } = state;
+  const offset = Math.max(0, state.scrollOffset);
   const visible: string[] = [];
-  for (let i = start; i < rendered.length && visible.length < state.viewportRows; i += 1) {
-    visible.push(truncateAnsi(rendered[i] as string, state.cols));
+  let base = 0; // first row of entries[i]
+  let i = 0;
+  const blockLen = (idx: number): number => {
+    const entry = entries[idx] as LogEntry;
+    return cachedRows(entry, cols, idx === focusIndex).length + 1;
+  };
+  while (i < entries.length && base + blockLen(i) <= offset) {
+    base += blockLen(i);
+    i += 1;
   }
-  while (visible.length < state.viewportRows) visible.push("");
+  let pos = base; // first row of the entry being appended
+  for (; i < entries.length && visible.length < viewportRows; i += 1) {
+    const rows = cachedRows(entries[i] as LogEntry, cols, i === focusIndex);
+    const from = offset > pos ? Math.min(offset - pos, rows.length) : 0;
+    for (let r = from; r < rows.length && visible.length < viewportRows; r += 1) {
+      visible.push(truncateAnsi(rows[r] as string, cols));
+    }
+    pos += rows.length + 1; // rows + separator
+    if (pos > offset && visible.length < viewportRows) visible.push("");
+  }
+  while (visible.length < viewportRows) visible.push("");
   return visible;
 }
 
@@ -654,7 +707,7 @@ function buildViewport(state: RenderState): string[] {
 export function totalRows(entries: LogEntry[], cols: number): number {
   let rows = 0;
   for (const entry of entries) {
-    rows += renderEntry(entry, cols).rows + 1;
+    rows += cachedRows(entry, cols).length + 1;
   }
   return rows;
 }
