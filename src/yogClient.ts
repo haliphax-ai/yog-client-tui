@@ -90,7 +90,7 @@ function authHeaders(): Record<string, string> | undefined {
 }
 
 /** Decode a non-2xx JSON error envelope into a `YogError`. */
-async function toYogError(res: Response, what: string): Promise<Error> {
+export async function toYogError(res: Response, what: string): Promise<Error> {
   try {
     const body = (await res.json()) as { error?: { code?: string; message?: string } };
     if (body?.error?.message) {
@@ -107,7 +107,7 @@ async function toYogError(res: Response, what: string): Promise<Error> {
  * A server that dies *mid-session* (reset after connect) is not "never
  * started", so only ECONNREFUSED & friends count as unreachable.
  */
-function isUnreachable(err: unknown): boolean {
+export function isUnreachable(err: unknown): boolean {
   const seen = new Set<unknown>();
   let cur: unknown = err;
   while (cur !== undefined && cur !== null && !seen.has(cur)) {
@@ -140,7 +140,7 @@ interface ParsedFrame {
  * `data:` lines are concatenated with newlines per the SSE spec; unknown
  * fields (`id:`, `retry:`, comments) are tolerated and ignored.
  */
-function parseFrame(block: string): ParsedFrame | undefined {
+export function parseFrame(block: string): ParsedFrame | undefined {
   let event = "";
   const dataLines: string[] = [];
   for (const rawLine of block.split(/\r\n|\r|\n/)) {
@@ -161,7 +161,7 @@ function parseFrame(block: string): ParsedFrame | undefined {
  * the payload is authoritative when it is itself an envelope, otherwise the
  * SSE event name fills in the `type`.
  */
-function toEnvelope(frame: ParsedFrame): TurnEnvelope | undefined {
+export function toEnvelope(frame: ParsedFrame): TurnEnvelope | undefined {
   let payload: unknown;
   try {
     payload = frame.data === "" ? undefined : JSON.parse(frame.data);
@@ -195,7 +195,7 @@ function toError(err: unknown): Error {
  * envelopes to `onEvent`. Resolves on a clean end; resolves with the error
  * captured when the body died mid-stream (`streamError`).
  */
-async function readSseStream(
+export async function readSseStream(
   res: Response,
   onEvent: (ev: TurnEnvelope) => void,
 ): Promise<Error | undefined> {
@@ -441,7 +441,7 @@ export class YogClient {
  * an object/array is unwrapped; anything else passes through as the original
  * string so the UI can pretty-print or show it verbatim).
  */
-function parseToolArgs(raw: unknown): unknown {
+export function parseToolArgs(raw: unknown): unknown {
   if (typeof raw !== "string") return raw;
   try {
     const parsed: unknown = JSON.parse(raw);
