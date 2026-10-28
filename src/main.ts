@@ -95,7 +95,7 @@ async function run(): Promise<void> {
 
   // 2. Capabilities probe + session creation (before the screen is taken
   //    over, so startup failures print plainly and exit non-zero).
-  const client = new YogClient({ ...config, baseUrl });
+  const client = new YogClient(baseUrl);
   const caps = await client.probe();
   await client.open();
 
