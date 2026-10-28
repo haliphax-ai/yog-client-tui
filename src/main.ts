@@ -272,10 +272,12 @@ async function run(): Promise<void> {
           args === undefined || args === null
             ? undefined
             : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
-        // Reserve room for label growth (✅/❌ + error) so the row never
-        // wraps inside the focus bar's padded budget.
+        // The rebuilt row (label + ✅ + space + args + 2 padding) must fit
+        // cols exactly: reserve 3 cells for the check landing in the label.
         const argsCompact =
-          full === undefined ? undefined : prettyArgs(args, cols - label.length - 20);
+          full === undefined
+            ? undefined
+            : prettyArgs(args, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
         const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
         const entry: LogEntry = {
           kind: "tool",
