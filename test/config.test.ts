@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_BASE_URL,
   loadConfig,
@@ -11,37 +11,20 @@ import {
   type Config,
 } from "../src/config.ts";
 
-/** Shared state for the narrow node:fs/promises mock (see below). */
-const fsState = vi.hoisted(() => ({ denyBundledRead: false }));
-
 /**
- * Real fs, with one surgical override: when `denyBundledRead` is set, the
- * package-root (bundled) `config.json` read fails as if the file were absent.
- * Everything else — including the local cwd read every other test relies on —
- * goes straight through to the real implementation.
+ * Shared state for the narrow node:fs/promises override (see below).
+ *
+ * This suite must not register a registry-wide mock: the test pool shares
+ * module registries across files, so a hoisted `vi.mock("node:fs/promises")`
+ * rides along with this file into other files' module graphs in some thread
+ * interleavings and flips unrelated assertions. Instead, `beforeAll` resets
+ * the module registry, registers the override with `vi.doMock` (which
+ * affects only modules imported after that call), captures an isolated
+ * `loadConfig` whose backing module graph sees it, and immediately unregisters
+ * the override and resets the registry again — so nothing persists past this
+ * suite's setup.
  */
-vi.mock("node:fs/promises", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:fs/promises")>();
-  const pathMod = await import("node:path");
-  const urlMod = await import("node:url");
-  // package root as src/config.ts computes it: <root>/test/x.test.ts -> <root>/config.json
-  const bundled = pathMod.resolve(
-    pathMod.dirname(urlMod.fileURLToPath(import.meta.url)),
-    "..",
-    "config.json",
-  );
-  return {
-    ...actual,
-    readFile: (file: Parameters<typeof actual.readFile>[0], ...rest: unknown[]) => {
-      if (fsState.denyBundledRead && String(file) === bundled) {
-        return Promise.reject(
-          Object.assign(new Error("bundled config denied by test"), { code: "ENOENT" }),
-        );
-      }
-      return (actual.readFile as (...args: unknown[]) => unknown)(file, ...rest);
-    },
-  };
-});
+const fsState = { denyBundledRead: false };
 
 /** Package-root `config.json` (the bundled fallback), as loadConfig resolves it. */
 const bundledConfigPath = path.resolve(
@@ -49,6 +32,40 @@ const bundledConfigPath = path.resolve(
   "..",
   "config.json",
 );
+
+/**
+ * The suite's own copy of `loadConfig`, imported while the override below is
+ * registered; its `src/config.ts` holds a direct reference to the overridden
+ * `readFile`, so `fsState` still controls it after the override is unregistered.
+ */
+let loadConfigUnderTest: typeof loadConfig;
+
+beforeAll(async () => {
+  vi.resetModules();
+  vi.doMock("node:fs/promises", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs/promises")>();
+    return {
+      ...actual,
+      readFile: (async (
+        file: Parameters<typeof actual.readFile>[0],
+        ...rest: unknown[]
+      ) => {
+        if (fsState.denyBundledRead && String(file) === bundledConfigPath) {
+          throw Object.assign(new Error("bundled config denied by test"), {
+            code: "ENOENT",
+          });
+        }
+        return (actual.readFile as (...args: unknown[]) => unknown)(file, ...rest);
+      }) as typeof actual.readFile,
+    };
+  });
+  try {
+    ({ loadConfig: loadConfigUnderTest } = await import("../src/config.ts"));
+  } finally {
+    vi.doUnmock("node:fs/promises");
+    vi.resetModules();
+  }
+});
 
 /**
  * Temp directories used as fake working directories, cleaned up after the
@@ -73,7 +90,7 @@ async function writeConfig(dir: string, contents: string): Promise<string> {
 /** Run loadConfig and capture the rejection, failing the test if it resolves. */
 async function loadError(cwd: string): Promise<Error> {
   try {
-    await loadConfig(cwd);
+    await loadConfigUnderTest(cwd);
   } catch (err) {
     expect(err).toBeInstanceOf(Error);
     return err as Error;
@@ -89,7 +106,7 @@ describe("loadConfig", () => {
   it("loads a valid config from the given cwd", async () => {
     const dir = await tempDir();
     await writeConfig(dir, '{"model":"m-1","baseUrl":"http://example.test"}');
-    const config = await loadConfig(dir);
+    const config = await loadConfigUnderTest(dir);
     expect(config).toEqual({ model: "m-1", baseUrl: "http://example.test" });
     // no surprise keys: only model and optional baseUrl
     expect(Object.keys(config).sort()).toEqual(["baseUrl", "model"]);
@@ -98,7 +115,7 @@ describe("loadConfig", () => {
   it("omits baseUrl from the result when it is absent", async () => {
     const dir = await tempDir();
     await writeConfig(dir, '{"model":"m-1"}');
-    const config = await loadConfig(dir);
+    const config = await loadConfigUnderTest(dir);
     expect(config).toEqual({ model: "m-1" });
     expect("baseUrl" in config).toBe(false);
   });
@@ -106,27 +123,27 @@ describe("loadConfig", () => {
   it("trims whitespace around model and baseUrl", async () => {
     const dir = await tempDir();
     await writeConfig(dir, '{"model":"  m-1  ","baseUrl":"  http://example.test  "}');
-    const config = await loadConfig(dir);
+    const config = await loadConfigUnderTest(dir);
     expect(config).toEqual({ model: "m-1", baseUrl: "http://example.test" });
   });
 
   it("ignores unknown extra keys", async () => {
     const dir = await tempDir();
     await writeConfig(dir, '{"model":"m-1","other":123,"nested":{"a":true}}');
-    const config = await loadConfig(dir);
+    const config = await loadConfigUnderTest(dir);
     expect(config).toEqual({ model: "m-1" });
   });
 
   it("local config in cwd wins over the bundled package-root copy", async () => {
     const dir = await tempDir();
     await writeConfig(dir, '{"model":"local-model"}');
-    const config = await loadConfig(dir);
+    const config = await loadConfigUnderTest(dir);
     expect(config.model).toBe("local-model");
   });
 
   it("falls back to the bundled package-root config when the cwd copy is missing", async () => {
     const dir = await tempDir(); // no config.json written
-    const config = await loadConfig(dir);
+    const config = await loadConfigUnderTest(dir);
     // whatever the bundled file holds, that is what comes back
     const raw = await readFile(bundledConfigPath, "utf8");
     const parsed = JSON.parse(raw) as Record<string, unknown>;
