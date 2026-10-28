@@ -172,7 +172,7 @@ function kindStyle(kind: EntryKind): Style {
 
 
 /** Rows a tool-output block body shows before truncation (label excluded). */
-const COLLAPSE_LINES = 10;
+const COLLAPSE_LINES = 5;
 
 /** Remove up to `n` leading plain spaces, keeping any embedded escapes. */
 function trimLeading(line: string, n: number): string {
@@ -448,28 +448,40 @@ interface EntryRender {
   rows: number;
 }
 
+
 /**
  * Flatten glamour's theme colors out of a rendered markdown row, keeping only
  * structural emphasis (bold/italic): inside the prompt bubble the role style
- * (dark-grey bg, light-grey text) must win, and background resets would
- * punch holes in it. Responses keep glamour's full styling.
+ * (light-grey text on light-grey bg) must win, and background resets would
+ * punch holes in it. Glamour packs attributes into combined SGRs
+ * (`38;2;r;g;b;3`) — trailing attributes (3=italic, 1=bold, …) are
+ * re-emitted standalone; closing resets become attr-off codes so emphasis
+ * never leaks past its run. Assistant replies keep glamour's full styling.
  */
 function flattenMarkdown(rows: string[]): string[] {
   return rows.map((row) =>
     row
-      .replaceAll("\x1b[m", "\x1b[22m")
-      .replaceAll("\x1b[0m", "\x1b[22m")
-      .replace(/\x1b\[(?:38|48);[0-9;]*m|\x1b\[39m|\x1b\[49m/g, ""),
+      .replaceAll("\x1b[m", "\x1b[23m\x1b[22m")
+      .replaceAll("\x1b[0m", "\x1b[23m\x1b[22m")
+      .replace(
+        /\x1b\[(?:38;2;\d{1,3};\d{1,3};\d{1,3}|38;5;\d{1,3}|48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})((?:;\d+)*)m/g,
+        (_m, attrs: string) => {
+          const clean = attrs.replace(/^;/, ""); // drop leading ";"
+          return clean ? `\x1b[${clean}m` : "";
+        },
+      ),
   );
 }
 
 /**
  * Render one entry to its styled block at `cols`. Prompts and responses go
- * through the glamour markdown renderer first: prompts render in a dark-grey
- * padded bubble (1-cell padding, light-grey text); responses keep full
- * glamour styling on a plain background. Tool-output blocks are always full
- * height (header with exit status + output, black bg, dark-grey text);
- * headers show `↓` only when focused and expanded, `→` otherwise. Other rows wrap plain.
+ * through the glamour markdown renderer first: prompts render in a light-grey
+ * padded bubble with theme colors flattened to the bubble's light-grey text
+ * (emphasis kept); assistant replies keep full glamour styling on a plain
+ * background. Tool-output blocks are always full height (header with exit
+ * status + output, black bg, dark-grey text); headers show `↓` when expanded
+ * (bodies <= COLLAPSE_LINES are always expanded), `→` when collapsed. Other
+ * rows wrap plain.
  */
 function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
@@ -480,11 +492,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const bodyW = Math.max(1, isUser ? cols - 2 : cols);
     const md = renderMarkdown(text, bodyW);
     const content =
-      md.length > 0
-        ? isUser
-          ? flattenMarkdown(md)
-          : md
-        : wrapText(text, bodyW);
+      md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(text, bodyW);
     const style = isUser ? ST.user.width(cols) : ST.assistant;
     const rendered = style.render(content.join("\n"));
     return { rendered, rows: rendered.split("\n").length };
@@ -495,17 +503,21 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const expandable = body.length > COLLAPSE_LINES;
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
-    const arrowed = focused && open ? header.replace("→", "↓") : header; // ↓ only focused+open
+    const arrowed = open ? header.replace("→", "↓") : header; // ↓ when expanded
+    // Header: bold + underlined white text so it separates from the body.
+    const styledHeader =
+      `\x1b[1m\x1b[4m\x1b[38;2;255;255;255m${arrowed}` +
+      "\x1b[39m\x1b[24m\x1b[22m";
     const style = (focused ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
-      const rendered = style.render([arrowed, ...body].join("\n"));
+      const rendered = style.render([styledHeader, ...body].join("\n"));
       return { rendered, rows: rendered.split("\n").length };
     }
     const shown = body.slice(0, COLLAPSE_LINES);
     const hidden = body.length - shown.length;
     const rendered = style.render(
       [
-        arrowed,
+        styledHeader,
         ...shown,
         `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
       ].join("\n"),
@@ -517,7 +529,11 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
   for (const line of entry.lines) lines.push(...wrapText(line, cols));
   if (lines.length === 0) lines.push("");
   const rendered = kindStyle(entry.kind).render(lines.join("\n"));
-  return { rendered, rows: lines.length };
+  // Tool lines get JSON/✓ syntax coloring on top of the base style.
+  return {
+    rendered: entry.kind === "tool" ? colorizeToolLine(rendered) : rendered,
+    rows: lines.length,
+  };
 }
 
 /**

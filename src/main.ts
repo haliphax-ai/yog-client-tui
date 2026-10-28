@@ -267,7 +267,7 @@ async function run(): Promise<void> {
       },
       onToolCall: (id, name, args) => {
         const cols = process.stdout.columns ?? 80;
-        const label = `⚙ ${name || "tool"}`;
+        const label = `⚙️ ${name || "tool"}`;
         const shown =
           args === undefined || args === null
             ? label
@@ -282,10 +282,10 @@ async function run(): Promise<void> {
         const call = pendingToolCalls.get(id);
         if (call) {
           pendingToolCalls.delete(id);
-          const suffix = ok ? " ✓" : ` ✗ ${error ?? "failed"}`;
+          const suffix = ok ? " ✓️" : ` ✗️ ${error ?? "failed"}`;
           call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
         } else {
-          pushLines("tool", [`${ok ? "✓" : "✗"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
+          pushLines("tool", [`${ok ? "✓️" : "✗️"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`]);
         }
         // The result itself: a tool-output block. Header carries the status
         // (one space after the arrow); body is [] for status-only results —
