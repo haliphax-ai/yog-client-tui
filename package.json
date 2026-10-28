@@ -9,7 +9,8 @@
     "start": "node src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "coverage": "vitest run --coverage"
+    "coverage": "vitest run --coverage",
+    "lint:deps": "depcruise --config .dependency-cruiser.cjs src"
   },
   "dependencies": {
     "@oakoliver/glamour": "^2.0.0",
@@ -19,7 +20,7 @@
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^5.0.5",
     "dependency-cruiser": "^18.7.0",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vitest": "^5.0.5"
   },
   "engines": {
