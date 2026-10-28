@@ -1,6 +1,9 @@
 /**
  * Entry point / wiring only: terminal lifecycle, key handling, scroll state,
  * render scheduling, and the config → yogClient → presenter → view pipeline.
+ * UI state lives in the central store (`core/store`); the render scheduler is
+ * subscribed to it once, and mutations go through `setState`, which notifies
+ * subscribers.
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
@@ -20,6 +23,7 @@ import { loadConfig, resolveBaseUrl } from "./config.ts";
 import { FOCUS_NONE, moveFocus as nextFocusIndex } from "./core/focus.ts";
 import { buildPrompt, type HistoryMessage } from "./core/history.ts";
 import { clampScroll, jump as jumpScroll, scrollBy as applyScrollBy } from "./core/scroll.ts";
+import { getState, setState, subscribe, type UiState } from "./core/store.ts";
 import { createTurnPresenter } from "./core/turnPresenter.ts";
 import { YogClient } from "./yogClient.ts";
 import { displayWidth } from "./util/ansi.ts";
@@ -70,22 +74,6 @@ function main(): void {
   });
 }
 
-interface UiState {
-  entries: LogEntry[];
-  input: string;
-  cursor: number;
-  inputScroll: number;
-  scrollOffset: number;
-  follow: boolean;
-  busy: boolean;
-  busyFrame: number;
-  connection: "connecting" | "connected" | "error";
-  model: string;
-  statusNote: string;
-  /** Focused log entry (-1 = none); Enter toggles chunk collapse. */
-  focusIndex: number;
-}
-
 async function run(): Promise<void> {
   // 1. Config.
   const config = await loadConfig();
@@ -98,29 +86,6 @@ async function run(): Promise<void> {
   await client.open();
 
   // ---- state -------------------------------------------------------------
-  const state: UiState = {
-    entries: [
-      {
-        kind: "system",
-        lines: [
-          `connected to ${baseUrl} · contract ${caps.contractVersion} · ` +
-            `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
-          `model ${config.model} · Ctrl+C quits`,
-        ],
-      },
-    ],
-    input: "",
-    cursor: 0,
-    inputScroll: 0,
-    scrollOffset: 0,
-    follow: true,
-    busy: false,
-    busyFrame: 0,
-    connection: "connected",
-    model: config.model,
-    statusNote: "",
-    focusIndex: FOCUS_NONE,
-  };
   const history: HistoryMessage[] = [];
   let quitting = false;
 
@@ -135,7 +100,7 @@ async function run(): Promise<void> {
   };
 
   /** Keep the cursor inside the visible input window. */
-  const fitInput = (): void => {
+  const fitInput = (state: UiState): void => {
     const markerW = displayWidth(PROMPT);
     const avail = Math.max(1, (process.stdout.columns ?? 80) - markerW);
     if (state.inputScroll > state.cursor) state.inputScroll = state.cursor;
@@ -148,25 +113,26 @@ async function run(): Promise<void> {
   };
 
   /** Status line: busy spinner, note, model, session state, key hints. */
-  const statusBody = (): string => {
+  const statusBody = (state: UiState): string => {
     const parts: string[] = [];
     if (state.busy) parts.push(`${SPINNER[state.busyFrame % SPINNER.length]} thinking…`);
     if (state.statusNote !== "") parts.push(state.statusNote);
     parts.push(`model ${state.model}`);
     parts.push(state.connection === "connected" ? "session ok" : state.connection);
-  parts.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
+    parts.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
     return parts.join("  ·  ");
   };
 
   /** Compose and write one frame. */
   const draw = (): void => {
+    const state: UiState = getState();
     const cols = process.stdout.columns ?? 80;
     const rows = process.stdout.rows ?? 24;
     const viewportRows = Math.max(1, rows - STATUS_ROWS);
     const total = totalRows(state.entries, cols);
     const maxOffset = Math.max(0, total - viewportRows);
     clampScroll(state, maxOffset);
-    fitInput();
+    fitInput(state);
 
     const view: RenderState = {
       entries: state.entries,
@@ -177,7 +143,7 @@ async function run(): Promise<void> {
       input: state.input,
       cursor: state.cursor,
       inputScroll: state.inputScroll,
-      status: statusBody(),
+      status: statusBody(state),
       focusIndex: state.focusIndex,
       busy: state.busy ? SPINNER[state.busyFrame % SPINNER.length] : undefined,
     };
@@ -185,18 +151,21 @@ async function run(): Promise<void> {
     process.stdout.write(`\x1b[H${frame.split("\n").join("\r\n")}`);
   };
 
+  // Single wiring point: every setState notifies subscribers, and this one
+  // subscriber coalesces redraws with the FRAME_MS timer above.
+  subscribe(() => scheduleRender());
+
   // ---- busy spinner ------------------------------------------------------
   let spinnerTimer: NodeJS.Timeout | undefined;
   const startSpinner = (): void => {
     if (spinnerTimer !== undefined) return;
-    state.busy = true;
+    setState({ busy: true });
     spinnerTimer = setInterval(() => {
-      state.busyFrame += 1;
-      scheduleRender();
+      setState({ busyFrame: getState().busyFrame + 1 });
     }, 90);
   };
   const stopSpinner = (): void => {
-    state.busy = false;
+    setState({ busy: false });
     if (spinnerTimer !== undefined) {
       clearInterval(spinnerTimer);
       spinnerTimer = undefined;
@@ -205,12 +174,14 @@ async function run(): Promise<void> {
 
   // ---- log helpers -------------------------------------------------------
   const pushLines = (kind: LogEntry["kind"], lines: string[]): void => {
+    const state = getState();
     state.entries.push({ kind, lines });
-    scheduleRender();
+    setState({ entries: state.entries });
   };
 
   // ---- turn submission ---------------------------------------------------
   const submit = (): void => {
+    const state = getState();
     const input = state.input.trim();
     if (input === "" || state.busy) return; // one turn at a time (documented)
 
@@ -224,13 +195,14 @@ async function run(): Promise<void> {
       history,
     );
     turn.begin(input);
-    state.input = "";
-    state.cursor = 0;
-    state.inputScroll = 0;
-    state.statusNote = "";
-    state.follow = true;
+    setState({
+      input: "",
+      cursor: 0,
+      inputScroll: 0,
+      statusNote: "",
+      follow: true,
+    });
     startSpinner();
-    scheduleRender();
 
     void (async () => {
       try {
@@ -245,11 +217,12 @@ async function run(): Promise<void> {
         }
       } catch (err) {
         turn.fail(err instanceof Error ? err.message : String(err));
-        state.connection = "error";
+        setState({ connection: "error" });
       } finally {
         stopSpinner();
         turn.finish();
-        scheduleRender();
+        // finish() may have appended to the shared entries array in place.
+        setState({ entries: getState().entries });
       }
     })();
   };
@@ -259,72 +232,81 @@ async function run(): Promise<void> {
     // Strip control characters; keep everything printable.
     const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
     if (clean === "") return;
-    state.input = state.input.slice(0, state.cursor) + clean + state.input.slice(state.cursor);
-    state.cursor += clean.length;
-    scheduleRender();
+    const state = getState();
+    setState({
+      input: state.input.slice(0, state.cursor) + clean + state.input.slice(state.cursor),
+      cursor: state.cursor + clean.length,
+    });
   };
 
   const backspace = (): void => {
+    const state = getState();
     if (state.cursor === 0) return;
-    state.input = state.input.slice(0, state.cursor - 1) + state.input.slice(state.cursor);
-    state.cursor -= 1;
-    scheduleRender();
+    setState({
+      input: state.input.slice(0, state.cursor - 1) + state.input.slice(state.cursor),
+      cursor: state.cursor - 1,
+    });
   };
 
   const del = (): void => {
+    const state = getState();
     if (state.cursor >= state.input.length) return;
-    state.input = state.input.slice(0, state.cursor) + state.input.slice(state.cursor + 1);
-    scheduleRender();
+    setState({
+      input: state.input.slice(0, state.cursor) + state.input.slice(state.cursor + 1),
+    });
   };
 
   const moveCursor = (delta: number): void => {
-    state.cursor = Math.max(0, Math.min(state.input.length, state.cursor + delta));
-    scheduleRender();
+    const state = getState();
+    setState({ cursor: Math.max(0, Math.min(state.input.length, state.cursor + delta)) });
   };
 
   const setCursor = (pos: number): void => {
-    state.cursor = Math.max(0, Math.min(state.input.length, pos));
-    scheduleRender();
+    const state = getState();
+    setState({ cursor: Math.max(0, Math.min(state.input.length, pos)) });
   };
 
   // ---- scrolling ---------------------------------------------------------
   /** Scroll the log by `delta` rows (positive = toward the bottom). */
   const scrollBy = (delta: number): void => {
+    const state = getState();
     const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
     const total = totalRows(state.entries, process.stdout.columns ?? 80);
     const maxOffset = Math.max(0, total - rows);
     applyScrollBy(state, delta, maxOffset);
-    scheduleRender();
+    setState({ scrollOffset: state.scrollOffset, follow: state.follow });
   };
 
   const jump = (top: boolean): void => {
+    const state = getState();
     jumpScroll(state, top);
-    scheduleRender();
+    setState({ scrollOffset: state.scrollOffset, follow: state.follow });
   };
 
   // ---- focus (Tab cycles entries; Enter toggles a chunk) -----------------
   /** First visible row of entry `i` (same accounting as `totalRows`). */
   const entryRowStart = (i: number): number =>
-    totalRows(state.entries.slice(0, i), process.stdout.columns ?? 80);
+    totalRows(getState().entries.slice(0, i), process.stdout.columns ?? 80);
 
   /** Rows entry `i` occupies incl. its trailing separator (same accounting as `totalRows`). */
   const entryBlockRows = (i: number): number =>
-    totalRows(state.entries.slice(i, i + 1), process.stdout.columns ?? 80);
+    totalRows(getState().entries.slice(i, i + 1), process.stdout.columns ?? 80);
 
-  /** Keep the whole focused entry inside the viewport: above → align its
-   *  top; below → bottom-align short entries, top-align tall ones (a block
-   *  taller than the viewport must never be scrolled at from its middle). */
+  /**
+   * Keep the whole focused entry inside the viewport: above → align its
+   * top; below → bottom-align short entries, top-align tall ones (a block
+   * taller than the viewport must never be scrolled at from its middle).
+   */
   const revealFocus = (): void => {
+    const state = getState();
     if (state.focusIndex < 0) return;
     const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
     const top = entryRowStart(state.focusIndex);
     const height = entryBlockRows(state.focusIndex);
     if (top < state.scrollOffset) {
-      state.follow = false;
-      state.scrollOffset = top;
+      setState({ follow: false, scrollOffset: top });
     } else if (top + height > state.scrollOffset + rows) {
-      state.follow = false;
-      state.scrollOffset = Math.min(top, top + height - rows);
+      setState({ follow: false, scrollOffset: Math.min(top, top + height - rows) });
     }
   };
 
@@ -333,13 +315,14 @@ async function run(): Promise<void> {
    * focusable chunks (see `core/focus` for the wrap-through-none ring).
    */
   const moveFocus = (dir: 1 | -1): void => {
-    state.focusIndex = nextFocusIndex(state.entries, state.focusIndex, dir);
+    const state = getState();
+    setState({ focusIndex: nextFocusIndex(state.entries, state.focusIndex, dir) });
     revealFocus();
-    scheduleRender();
   };
 
   /** Enter on a focused entry: expand/collapse a chunk or tool call; otherwise submit. */
   const toggleFocused = (): boolean => {
+    const state = getState();
     const entry = state.entries[state.focusIndex];
     if (entry?.kind === "chunk") {
       entry.collapsed = !entry.collapsed;
@@ -348,8 +331,9 @@ async function run(): Promise<void> {
     } else {
       return false;
     }
+    // Same array reference (the presenter shares it); notify subscribers.
+    setState({ entries: state.entries });
     revealFocus();
-    scheduleRender();
     return true;
   };
 
@@ -362,11 +346,11 @@ async function run(): Promise<void> {
     { seq: "\x1b[6~", run: () => scrollBy(process.stdout.rows ?? 24) }, // PageDown
     { seq: "\x1b[3~", run: () => del() }, // Delete
     { seq: "\x1b[1~", run: () => setCursor(0) }, // Home (rxvt)
-    { seq: "\x1b[4~", run: () => setCursor(state.input.length) }, // End (rxvt)
+    { seq: "\x1b[4~", run: () => setCursor(getState().input.length) }, // End (rxvt)
     { seq: "\x1b[H", run: () => setCursor(0) }, // Home
-    { seq: "\x1b[F", run: () => setCursor(state.input.length) }, // End
+    { seq: "\x1b[F", run: () => setCursor(getState().input.length) }, // End
     { seq: "\x1bOH", run: () => setCursor(0) },
-    { seq: "\x1bOF", run: () => setCursor(state.input.length) },
+    { seq: "\x1bOF", run: () => setCursor(getState().input.length) },
     { seq: "\x1bOA", run: () => scrollBy(-1) }, // Up
     { seq: "\x1bOB", run: () => scrollBy(1) }, // Down
     { seq: "\x1bOC", run: () => moveCursor(1) }, // Right (application mode)
@@ -402,9 +386,8 @@ async function run(): Promise<void> {
       }
       if (ch === "\x1b") {
         // Lone Esc (no sequence matched): leave focus mode.
-        if (state.focusIndex !== FOCUS_NONE) {
-          state.focusIndex = FOCUS_NONE;
-          scheduleRender();
+        if (getState().focusIndex !== FOCUS_NONE) {
+          setState({ focusIndex: FOCUS_NONE });
         }
         continue;
       }
@@ -453,6 +436,22 @@ async function run(): Promise<void> {
     ]);
     process.exit(code);
   };
+
+  // 3. Seed the store with the startup entry and session defaults.
+  setState({
+    entries: [
+      {
+        kind: "system",
+        lines: [
+          `connected to ${baseUrl} · contract ${caps.contractVersion} · ` +
+            `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
+          `model ${config.model} · Ctrl+C quits`,
+        ],
+      },
+    ],
+    model: config.model,
+    focusIndex: FOCUS_NONE,
+  });
 
   // 4. Take over the terminal and draw the first frame.
   enterTerminal();
