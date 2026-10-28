@@ -9,18 +9,46 @@ with `@oakoliver/glamour` markdown rendering.
 
 ## Architecture
 
-The code is split into three strictly separated concerns:
+The code is split into responsibility domains with enforced dependency rules
+(dependency-cruiser checks them in `npm run lint:deps`):
 
-| Module | Responsibility |
-|---|---|
-| `src/config.ts` | Config parsing and validation: `model` (required), optional `baseUrl`, and `resolveBaseUrl` (config → `YOG_SERVER_URL` env → `http://127.0.0.1:8111`). |
-| `src/yogClient.ts` | The yog HTTP/SSE client: capabilities probe → `POST /v1/sessions` → `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → `DELETE session` on exit. |
-| `src/view.ts` | Presentation only. Renders the log viewport + input bar + status line via `@oakoliver/lipgloss` styles and `@oakoliver/glamour` markdown (prompts and responses). |
-| `src/main.ts` | Wiring: terminal lifecycle (alt screen, raw mode), key handling, scroll state, render coalescing, and the bounded client-side transcript. |
+| Domain | Location | Responsibility |
+|---|---|---|
+| Composition root | `src/main.ts` | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`. |
+| `config` | `src/config.ts` | Config parsing and validation: `model` (required), optional `baseUrl`, and `resolveBaseUrl` (config → `YOG_SERVER_URL` env → `http://127.0.0.1:8111`). |
+| `core` | `src/core/` | The tiny state store (`getState` / `setState` / `subscribe`), focus ring, bounded transcript history, scroll math, and the turn presenter (SSE events → state, no rendering). |
+| `client` | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → `POST /v1/sessions` → `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → `DELETE session` on exit. Never touches the terminal, styling, config, or the filesystem. |
+| `ui` | `src/ui/` | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, composition, memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem. |
+| `util` | `src/util/` | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain. |
+| `ui/pipeline` | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer. |
 
-`view.ts` never talks to the network and `yogClient.ts` never touches the terminal,
-so the presentation layer can change without affecting transport logic (and vice
-versa).
+`client/` never touches the terminal and `ui/` never touches the transport, so
+presentation can change without affecting transport logic (and vice versa).
+
+### Render pipeline
+
+Every redraw runs through a fixed sequence of stages — the order is data (the
+`STAGES` array), not convention, so it is deterministic by construction:
+
+| Stage | Core work | Hook point |
+|---|---|---|
+| `layout` | Measure terminal geometry (cols/rows/viewport rows) into components. | — |
+| `paint` | Each component renders its rows. | components + overlays that draw into the paint pass |
+| `compose` | Join viewport + input + status lines into one frame. | — |
+| `post` | Pad/truncate every ANSI line to the terminal width. | overlays, status widgets, banners |
+| `emit` | Write the finished frame to stdout — a single owner (`writeFrame`); nothing runs after it. | — |
+
+Features extend the pipeline with `register(stage, hook)` from
+`src/ui/pipeline/index.ts`: hooks append to an ordered array per stage and run
+after that stage's core work, each receiving and returning the current frame so
+later hooks always see earlier hooks' output. Ordering is registration order —
+no priority numbers to reason about — and `register` returns an unregister
+function. An empty hook list means the pipeline is exactly the core stages, so
+hook-free rendering is byte-identical frame for frame.
+
+Frame coalescing lives in the pipeline too: the scheduler subscribes to the state
+store once, collapses bursts of `setState` into one flush per `FRAME_MS` window,
+and the flush runs the stages.
 
 ## Setup
 
