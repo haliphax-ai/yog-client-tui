@@ -464,11 +464,11 @@ async function run(): Promise<void> {
         void quit(0);
         return;
       }
-      if (ch === "\\t") {
+      if (ch === "\t") {
         cycleFocus();
         continue;
       }
-      if (ch === "\\x1b") {
+      if (ch === "\x1b") {
         // Lone Esc (no sequence matched): leave focus mode.
         if (state.focusIndex !== -1) {
           state.focusIndex = -1;
@@ -476,7 +476,7 @@ async function run(): Promise<void> {
         }
         continue;
       }
-      if (ch === "\\r" || ch === "\\n") {
+      if (ch === "\r" || ch === "\n") {
         if (!toggleFocused()) submit();
         continue;
       }
