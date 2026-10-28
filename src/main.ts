@@ -1,14 +1,15 @@
 /**
  * Entry point / wiring only: terminal lifecycle, key handling, render
  * scheduling, and the config → yogClient → presenter → view pipeline.
- * UI state lives in the central store (`core/store`); the render scheduler is
- * subscribed to it once, and mutations go through `setState`, which notifies
- * subscribers.
+ * UI state lives in the central store (`core/store`); the render scheduler
+ * subscribes to it once, coalesces bursts into one flush, and the flush runs
+ * the staged render pipeline (`ui/pipeline`: layout → paint → compose → post
+ * → emit). Mutations go through `setState`, which notifies subscribers.
  *
  * Key handling is focus-scoped: `keyRouter` offers each key to the focused
  * component first, then the remaining components, then the globals below.
  * The viewport, input bar, and status line are components (`ui/components`);
- * `draw()` composes their rows into one frame.
+ * the pipeline's paint stage renders their rows and emit writes the frame.
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
@@ -27,22 +28,19 @@
 import { loadConfig, resolveBaseUrl } from "./config.ts";
 import { FOCUS_NONE } from "./core/focus.ts";
 import { buildPrompt, type HistoryMessage } from "./core/history.ts";
-import { getState, setState, subscribe } from "./core/store.ts";
+import { getState, setState } from "./core/store.ts";
 import { createTurnPresenter } from "./core/turnPresenter.ts";
 import { YogClient } from "./yogClient.ts";
-import { displayWidth, truncateAnsi } from "./util/ansi.ts";
 import { type LogEntry } from "./ui/render/index.ts";
 import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
 import { cycleFocus, routeChar, routeKey, type Globals, type Routed } from "./ui/components/keyRouter.ts";
+import { createScheduler, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
 
 /** Rows reserved below the log: input bar + status line. */
 const STATUS_ROWS = 2;
-
-/** Render coalescing interval so SSE deltas do not flood stdout. */
-const FRAME_MS = 16;
 
 /** Terminal state shared with error paths (module scope, always in sync). */
 let terminalActive = false;
@@ -54,14 +52,6 @@ function restoreTerminal(): void {
   process.stdout.write("\x1b[?1049l\x1b[?25h");
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
-}
-
-/** Pad (or truncate) an ANSI-bearing line to exactly `cols` cells. */
-function padAnsi(line: string, cols: number): string {
-  const width = displayWidth(line);
-  if (width === cols) return line;
-  if (width > cols) return truncateAnsi(line, cols);
-  return line + " ".repeat(cols - width);
 }
 
 /**
@@ -114,31 +104,28 @@ async function run(): Promise<void> {
   let quitting = false;
 
   // ---- render scheduling -------------------------------------------------
-  let renderTimer: NodeJS.Timeout | undefined;
-  const scheduleRender = (): void => {
-    if (renderTimer !== undefined) return;
-    renderTimer = setTimeout(() => {
-      renderTimer = undefined;
-      draw();
-    }, FRAME_MS);
-  };
-
-  /** Compose and write one frame from the component chain. */
+  /** Run one frame through the staged render pipeline. */
   const draw = (): void => {
     const cols = process.stdout.columns ?? 80;
-    const rows = process.stdout.rows ?? 24;
-    viewport.setViewportRows(Math.max(1, rows - STATUS_ROWS));
-    const lines = [
-      ...viewport.render({ cols }),
-      input.render({ cols }),
-      status.render({ cols }),
-    ].map((line) => padAnsi(line, cols));
-    process.stdout.write(`\x1b[H${lines.join("\r\n")}`);
+    runPipeline({
+      width: cols,
+      setMetrics: () => {
+        const rows = process.stdout.rows ?? 24;
+        viewport.setViewportRows(Math.max(1, rows - STATUS_ROWS));
+      },
+      paint: () => [
+        ...viewport.render({ cols }),
+        input.render({ cols }),
+        status.render({ cols }),
+      ],
+      emit: writeFrame,
+    });
   };
 
-  // Single wiring point: every setState notifies subscribers, and this one
-  // subscriber coalesces redraws with the FRAME_MS timer above.
-  subscribe(() => scheduleRender());
+  // Single wiring point: every setState notifies this store subscriber,
+  // which coalesces redraws with the FRAME_MS timer and runs the pipeline
+  // on flush.
+  const scheduler = createScheduler(draw);
 
   // ---- busy spinner ------------------------------------------------------
   let spinnerTimer: NodeJS.Timeout | undefined;
@@ -175,7 +162,7 @@ async function run(): Promise<void> {
         entries: state.entries,
         append: pushLines,
         width: () => process.stdout.columns ?? 80,
-        requestRender: scheduleRender,
+        requestRender: scheduler.request,
       },
       history,
     );
@@ -231,7 +218,7 @@ async function run(): Promise<void> {
   const quit = async (code: number): Promise<void> => {
     if (quitting) return;
     quitting = true;
-    if (renderTimer !== undefined) clearTimeout(renderTimer);
+    scheduler.cancel();
     if (spinnerTimer !== undefined) clearInterval(spinnerTimer);
     restoreTerminal();
     await Promise.race([
