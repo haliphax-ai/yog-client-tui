@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   colorizeToolLine,
-  displayWidth,
   highlightBlock,
   prettyArgs,
   renderMarkdown,
   resultPreview,
   resultStatus,
-  stripAnsi,
   totalRows,
-  wrapText,
   type LogEntry,
-} from "../src/view.ts";
+} from "../src/ui/render/index.ts";
+import { displayWidth, stripAnsi, wrapText } from "../src/util/ansi.ts";
 
 /** Build a plain log entry with sensible defaults. */
 const entry = (over: Partial<LogEntry>): LogEntry => ({

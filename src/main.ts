@@ -21,8 +21,8 @@ import { FOCUS_NONE, moveFocus as nextFocusIndex } from "./core/focus.ts";
 import { buildPrompt, type HistoryMessage } from "./core/history.ts";
 import { clampScroll, jump as jumpScroll, scrollBy as applyScrollBy } from "./core/scroll.ts";
 import { YogClient, type TurnEvents } from "./yogClient.ts";
+import { displayWidth } from "./util/ansi.ts";
 import {
-  displayWidth,
   prettyArgs,
   render,
   resultPreview,
@@ -30,7 +30,7 @@ import {
   totalRows,
   type LogEntry,
   type RenderState,
-} from "./view.ts";
+} from "./ui/render/index.ts";
 
 /** Rows reserved below the log: input bar + status line. */
 const STATUS_ROWS = 2;
