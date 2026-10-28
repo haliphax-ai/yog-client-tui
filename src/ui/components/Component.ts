@@ -24,6 +24,8 @@ export type KeyResult = "handled" | "unhandled";
 export interface Component {
   /** True when the component takes part in the focus cycle. */
   readonly focusable: boolean;
+  /** True while this component holds focus in the ring. */
+  readonly isFocused: boolean;
   /** Produce this component's rows (or a single frame string) at `ctx.cols`. */
   render(ctx: RenderContext): RenderResult;
   /** Handle a key sequence (an escape sequence such as `\x1b[A`). */

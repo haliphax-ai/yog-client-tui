@@ -1,9 +1,14 @@
 /**
- * Entry point / wiring only: terminal lifecycle, key handling, scroll state,
- * render scheduling, and the config → yogClient → presenter → view pipeline.
+ * Entry point / wiring only: terminal lifecycle, key handling, render
+ * scheduling, and the config → yogClient → presenter → view pipeline.
  * UI state lives in the central store (`core/store`); the render scheduler is
  * subscribed to it once, and mutations go through `setState`, which notifies
  * subscribers.
+ *
+ * Key handling is focus-scoped: `keyRouter` offers each key to the focused
+ * component first, then the remaining components, then the globals below.
+ * The viewport, input bar, and status line are components (`ui/components`);
+ * `draw()` composes their rows into one frame.
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
@@ -20,28 +25,21 @@
  *                    through "none" at either end)
  */
 import { loadConfig, resolveBaseUrl } from "./config.ts";
-import { FOCUS_NONE, moveFocus as nextFocusIndex } from "./core/focus.ts";
+import { FOCUS_NONE } from "./core/focus.ts";
 import { buildPrompt, type HistoryMessage } from "./core/history.ts";
-import { clampScroll, jump as jumpScroll, scrollBy as applyScrollBy } from "./core/scroll.ts";
-import { getState, setState, subscribe, type UiState } from "./core/store.ts";
+import { getState, setState, subscribe } from "./core/store.ts";
 import { createTurnPresenter } from "./core/turnPresenter.ts";
 import { YogClient } from "./yogClient.ts";
-import { displayWidth } from "./util/ansi.ts";
-import {
-  render,
-  totalRows,
-  type LogEntry,
-  type RenderState,
-} from "./ui/render/index.ts";
+import { displayWidth, truncateAnsi } from "./util/ansi.ts";
+import { type LogEntry } from "./ui/render/index.ts";
+import type { Component } from "./ui/components/Component.ts";
+import { ChatViewport } from "./ui/components/ChatViewport.ts";
+import { InputComponent } from "./ui/components/InputComponent.ts";
+import { StatusComponent } from "./ui/components/StatusComponent.ts";
+import { cycleFocus, routeChar, routeKey, type Globals, type Routed } from "./ui/components/keyRouter.ts";
 
 /** Rows reserved below the log: input bar + status line. */
 const STATUS_ROWS = 2;
-
-/** Input prompt marker (also sizes the input window). */
-const PROMPT = "you › ";
-
-/** Busy spinner frames, animated in the status line while a turn runs. */
-const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /** Render coalescing interval so SSE deltas do not flood stdout. */
 const FRAME_MS = 16;
@@ -56,6 +54,32 @@ function restoreTerminal(): void {
   process.stdout.write("\x1b[?1049l\x1b[?25h");
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
+}
+
+/** Pad (or truncate) an ANSI-bearing line to exactly `cols` cells. */
+function padAnsi(line: string, cols: number): string {
+  const width = displayWidth(line);
+  if (width === cols) return line;
+  if (width > cols) return truncateAnsi(line, cols);
+  return line + " ".repeat(cols - width);
+}
+
+/**
+ * Longest well-formed escape sequence at the start of `rest` (CSI `ESC [`
+ * or SS3 `ESC O`, parameter bytes up to a final byte); null when the rest
+ * starts with plain input or a lone/incomplete escape.
+ */
+function matchSequence(rest: string): string | null {
+  if (!rest.startsWith("\x1b") || rest.length < 2) return null;
+  const kind = rest[1];
+  if (kind !== "[" && kind !== "O") return null;
+  for (let j = 2; j < rest.length; j += 1) {
+    const c = rest.charCodeAt(j);
+    if (c >= 0x30 && c <= 0x3f) continue; // parameter bytes
+    if (c >= 0x40 && c <= 0x7e) return rest.slice(0, j + 1); // final byte
+    return null;
+  }
+  return null; // incomplete at the end of this chunk
 }
 
 function main(): void {
@@ -99,56 +123,17 @@ async function run(): Promise<void> {
     }, FRAME_MS);
   };
 
-  /** Keep the cursor inside the visible input window. */
-  const fitInput = (state: UiState): void => {
-    const markerW = displayWidth(PROMPT);
-    const avail = Math.max(1, (process.stdout.columns ?? 80) - markerW);
-    if (state.inputScroll > state.cursor) state.inputScroll = state.cursor;
-    while (
-      state.inputScroll < state.cursor &&
-      displayWidth(state.input.slice(state.inputScroll, state.cursor)) > avail - 1
-    ) {
-      state.inputScroll += 1;
-    }
-  };
-
-  /** Status line: busy spinner, note, model, session state, key hints. */
-  const statusBody = (state: UiState): string => {
-    const parts: string[] = [];
-    if (state.busy) parts.push(`${SPINNER[state.busyFrame % SPINNER.length]} thinking…`);
-    if (state.statusNote !== "") parts.push(state.statusNote);
-    parts.push(`model ${state.model}`);
-    parts.push(state.connection === "connected" ? "session ok" : state.connection);
-    parts.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
-    return parts.join("  ·  ");
-  };
-
-  /** Compose and write one frame. */
+  /** Compose and write one frame from the component chain. */
   const draw = (): void => {
-    const state: UiState = getState();
     const cols = process.stdout.columns ?? 80;
     const rows = process.stdout.rows ?? 24;
-    const viewportRows = Math.max(1, rows - STATUS_ROWS);
-    const total = totalRows(state.entries, cols);
-    const maxOffset = Math.max(0, total - viewportRows);
-    clampScroll(state, maxOffset);
-    fitInput(state);
-
-    const view: RenderState = {
-      entries: state.entries,
-      scrollOffset: state.scrollOffset,
-      viewportRows,
-      cols,
-      promptMarker: PROMPT,
-      input: state.input,
-      cursor: state.cursor,
-      inputScroll: state.inputScroll,
-      status: statusBody(state),
-      focusIndex: state.focusIndex,
-      busy: state.busy ? SPINNER[state.busyFrame % SPINNER.length] : undefined,
-    };
-    const frame = render(view);
-    process.stdout.write(`\x1b[H${frame.split("\n").join("\r\n")}`);
+    viewport.setViewportRows(Math.max(1, rows - STATUS_ROWS));
+    const lines = [
+      ...viewport.render({ cols }),
+      input.render({ cols }),
+      status.render({ cols }),
+    ].map((line) => padAnsi(line, cols));
+    process.stdout.write(`\x1b[H${lines.join("\r\n")}`);
   };
 
   // Single wiring point: every setState notifies subscribers, and this one
@@ -227,180 +212,61 @@ async function run(): Promise<void> {
     })();
   };
 
-  // ---- input editing -----------------------------------------------------
-  const insert = (text: string): void => {
-    // Strip control characters; keep everything printable.
-    const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-    if (clean === "") return;
-    const state = getState();
-    setState({
-      input: state.input.slice(0, state.cursor) + clean + state.input.slice(state.cursor),
-      cursor: state.cursor + clean.length,
-    });
+  // ---- components --------------------------------------------------------
+  const viewport = new ChatViewport();
+  const input = new InputComponent();
+  const status = new StatusComponent();
+  const chain: readonly Component[] = [viewport, input, status];
+  const routed: Routed[] = [
+    { id: "viewport", component: viewport },
+    { id: "input", component: input },
+    { id: "status", component: status },
+  ];
+
+  /** Rows available to the log viewport in the current terminal layout. */
+  const viewportRows = (): number =>
+    Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
+
+  /** Quit: restore the terminal, best-effort session close, then exit. */
+  const quit = async (code: number): Promise<void> => {
+    if (quitting) return;
+    quitting = true;
+    if (renderTimer !== undefined) clearTimeout(renderTimer);
+    if (spinnerTimer !== undefined) clearInterval(spinnerTimer);
+    restoreTerminal();
+    await Promise.race([
+      client.close().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 2000)),
+    ]);
+    process.exit(code);
   };
 
-  const backspace = (): void => {
-    const state = getState();
-    if (state.cursor === 0) return;
-    setState({
-      input: state.input.slice(0, state.cursor - 1) + state.input.slice(state.cursor),
-      cursor: state.cursor - 1,
-    });
-  };
-
-  const del = (): void => {
-    const state = getState();
-    if (state.cursor >= state.input.length) return;
-    setState({
-      input: state.input.slice(0, state.cursor) + state.input.slice(state.cursor + 1),
-    });
-  };
-
-  const moveCursor = (delta: number): void => {
-    const state = getState();
-    setState({ cursor: Math.max(0, Math.min(state.input.length, state.cursor + delta)) });
-  };
-
-  const setCursor = (pos: number): void => {
-    const state = getState();
-    setState({ cursor: Math.max(0, Math.min(state.input.length, pos)) });
-  };
-
-  // ---- scrolling ---------------------------------------------------------
-  /** Scroll the log by `delta` rows (positive = toward the bottom). */
-  const scrollBy = (delta: number): void => {
-    const state = getState();
-    const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
-    const total = totalRows(state.entries, process.stdout.columns ?? 80);
-    const maxOffset = Math.max(0, total - rows);
-    applyScrollBy(state, delta, maxOffset);
-    setState({ scrollOffset: state.scrollOffset, follow: state.follow });
-  };
-
-  const jump = (top: boolean): void => {
-    const state = getState();
-    jumpScroll(state, top);
-    setState({ scrollOffset: state.scrollOffset, follow: state.follow });
-  };
-
-  // ---- focus (Tab cycles entries; Enter toggles a chunk) -----------------
-  /** First visible row of entry `i` (same accounting as `totalRows`). */
-  const entryRowStart = (i: number): number =>
-    totalRows(getState().entries.slice(0, i), process.stdout.columns ?? 80);
-
-  /** Rows entry `i` occupies incl. its trailing separator (same accounting as `totalRows`). */
-  const entryBlockRows = (i: number): number =>
-    totalRows(getState().entries.slice(i, i + 1), process.stdout.columns ?? 80);
-
-  /**
-   * Keep the whole focused entry inside the viewport: above → align its
-   * top; below → bottom-align short entries, top-align tall ones (a block
-   * taller than the viewport must never be scrolled at from its middle).
-   */
-  const revealFocus = (): void => {
-    const state = getState();
-    if (state.focusIndex < 0) return;
-    const rows = Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
-    const top = entryRowStart(state.focusIndex);
-    const height = entryBlockRows(state.focusIndex);
-    if (top < state.scrollOffset) {
-      setState({ follow: false, scrollOffset: top });
-    } else if (top + height > state.scrollOffset + rows) {
-      setState({ follow: false, scrollOffset: Math.min(top, top + height - rows) });
-    }
-  };
-
-  /**
-   * Tab / Shift-Tab: move focus forward (+1) or backward (-1) through the
-   * focusable chunks (see `core/focus` for the wrap-through-none ring).
-   */
-  const moveFocus = (dir: 1 | -1): void => {
-    const state = getState();
-    setState({ focusIndex: nextFocusIndex(state.entries, state.focusIndex, dir) });
-    revealFocus();
-  };
-
-  /** Enter on a focused entry: expand/collapse a chunk or tool call; otherwise submit. */
-  const toggleFocused = (): boolean => {
-    const state = getState();
-    const entry = state.entries[state.focusIndex];
-    if (entry?.kind === "chunk") {
-      entry.collapsed = !entry.collapsed;
-    } else if (entry?.kind === "tool") {
-      entry.expanded = !entry.expanded;
-    } else {
-      return false;
-    }
-    // Same array reference (the presenter shares it); notify subscribers.
-    setState({ entries: state.entries });
-    revealFocus();
-    return true;
+  /** Global bindings the router falls back to when no component claims a key. */
+  const globals: Globals = {
+    quit: () => void quit(0),
+    focusNext: () => cycleFocus(routed, 1),
+    focusPrev: () => cycleFocus(routed, -1),
+    scrollBy: (delta) => viewport.scrollBy(delta, viewportRows()),
+    jump: (top) => viewport.jump(top, viewportRows()),
+    submit,
   };
 
   // ---- key handling ------------------------------------------------------
-  const SEQUENCES: { seq: string; run: () => void }[] = [
-    { seq: "\x1b[Z", run: () => moveFocus(-1) }, // Shift+Tab → previous chunk
-    { seq: "\x1b[1;5H", run: () => jump(true) }, // Ctrl+Home → top
-    { seq: "\x1b[1;5F", run: () => jump(false) }, // Ctrl+End → bottom
-    { seq: "\x1b[5~", run: () => scrollBy(-(process.stdout.rows ?? 24)) }, // PageUp
-    { seq: "\x1b[6~", run: () => scrollBy(process.stdout.rows ?? 24) }, // PageDown
-    { seq: "\x1b[3~", run: () => del() }, // Delete
-    { seq: "\x1b[1~", run: () => setCursor(0) }, // Home (rxvt)
-    { seq: "\x1b[4~", run: () => setCursor(getState().input.length) }, // End (rxvt)
-    { seq: "\x1b[H", run: () => setCursor(0) }, // Home
-    { seq: "\x1b[F", run: () => setCursor(getState().input.length) }, // End
-    { seq: "\x1bOH", run: () => setCursor(0) },
-    { seq: "\x1bOF", run: () => setCursor(getState().input.length) },
-    { seq: "\x1bOA", run: () => scrollBy(-1) }, // Up
-    { seq: "\x1bOB", run: () => scrollBy(1) }, // Down
-    { seq: "\x1bOC", run: () => moveCursor(1) }, // Right (application mode)
-    { seq: "\x1bOD", run: () => moveCursor(-1) }, // Left (application mode)
-    { seq: "\x1b[A", run: () => scrollBy(-1) }, // Up
-    { seq: "\x1b[B", run: () => scrollBy(1) }, // Down
-    { seq: "\x1b[C", run: () => moveCursor(1) }, // Right
-    { seq: "\x1b[D", run: () => moveCursor(-1) }, // Left
-  ];
-
   const handleData = (chunk: string): void => {
     let i = 0;
     while (i < chunk.length) {
       const rest = chunk.slice(i);
-      const seq = SEQUENCES.find((s) => rest.startsWith(s.seq));
-      if (seq) {
-        seq.run();
-        i += seq.seq.length;
+      const seq = matchSequence(rest);
+      if (seq !== null) {
+        routeKey(chain, seq, globals); // unknown sequences are consumed
+        i += seq.length;
         continue;
       }
-      const cp = chunk.codePointAt(i);
+      const cp = rest.codePointAt(0);
       if (cp === undefined) break;
       const ch = String.fromCodePoint(cp);
+      routeChar(chain, ch, globals);
       i += ch.length;
-      if (ch === "\x03") {
-        // Ctrl+C in raw mode: quit and restore the terminal.
-        void quit(0);
-        return;
-      }
-      if (ch === "\t") {
-        moveFocus(1);
-        continue;
-      }
-      if (ch === "\x1b") {
-        // Lone Esc (no sequence matched): leave focus mode.
-        if (getState().focusIndex !== FOCUS_NONE) {
-          setState({ focusIndex: FOCUS_NONE });
-        }
-        continue;
-      }
-      if (ch === "\r" || ch === "\n") {
-        if (!toggleFocused()) submit();
-        continue;
-      }
-      if (ch === "\x7f" || ch === "\x08") {
-        backspace();
-        continue;
-      }
-      if (ch < " ") continue; // ignore other control characters
-      insert(ch);
     }
   };
 
@@ -421,20 +287,6 @@ async function run(): Promise<void> {
     process.on("SIGWINCH", onResize);
     process.on("SIGINT", () => void quit(0));
     process.on("SIGTERM", () => void quit(0));
-  };
-
-  /** Quit: restore the terminal, best-effort session close, then exit. */
-  const quit = async (code: number): Promise<void> => {
-    if (quitting) return;
-    quitting = true;
-    if (renderTimer !== undefined) clearTimeout(renderTimer);
-    if (spinnerTimer !== undefined) clearInterval(spinnerTimer);
-    restoreTerminal();
-    await Promise.race([
-      client.close().catch(() => undefined),
-      new Promise((resolve) => setTimeout(resolve, 2000)),
-    ]);
-    process.exit(code);
   };
 
   // 3. Seed the store with the startup entry and session defaults.
