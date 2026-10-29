@@ -14,16 +14,23 @@ export function spinnerFrame(): string {
   return SPINNER[getState().busyFrame % SPINNER.length] as string;
 }
 
-/** Status line body: parts joined by the mid-dot separator. */
+/**
+ * Status line body: three segments — transient activity (spinner, note),
+ * session state (model · connection), key hints. Segments are separated by
+ * a vertical box-drawing line; the mid-dot separates items within a
+ * segment (the key-hints segment uses the dot among its own items).
+ */
 export function statusBody(): string {
   const state = getState();
-  const parts: string[] = [];
-  if (state.busy) parts.push(`${spinnerFrame()} thinking…`);
-  if (state.statusNote !== "") parts.push(state.statusNote);
-  parts.push(`model ${state.model}`);
-  parts.push(state.connection === "connected" ? "session ok" : state.connection);
-  parts.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
-  return parts.join(" · ");
+  const activity: string[] = [];
+  if (state.busy) activity.push(`${spinnerFrame()} thinking…`);
+  if (state.statusNote !== "") activity.push(state.statusNote);
+  const session = [`model ${state.model}`, state.connection === "connected" ? "session ok" : state.connection];
+  const segments: string[] = [];
+  if (activity.length > 0) segments.push(activity.join(" · "));
+  segments.push(session.join(" · "));
+  segments.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
+  return segments.join(" │ ");
 }
 
 export class StatusComponent extends BaseComponent {
