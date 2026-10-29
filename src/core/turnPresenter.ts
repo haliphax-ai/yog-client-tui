@@ -53,6 +53,18 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
 
   const events: TurnEvents = {
     onDelta: (text) => {
+      // Invariant: a prose entry is only ever appended to while it is the
+      // log tail. Tool calls close the open block eagerly (see onToolCall);
+      // if anything else interposed (error/recovery note, orphan result
+      // line), close it here too — re-pushing the shared object would make
+      // every alias replay every later delta.
+      if (
+        assistant.entry !== undefined &&
+        host.entries[host.entries.length - 1] !== assistant.entry
+      ) {
+        assistant.entry.streaming = false;
+        assistant.entry = undefined;
+      }
       const entry = (assistant.entry ??= { kind: "assistant", lines: [""], streaming: true });
       if (host.entries[host.entries.length - 1] !== entry) host.entries.push(entry);
       // Append to the last (possibly partial) paragraph, re-split on \n.
@@ -63,6 +75,13 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.requestRender();
     },
     onToolCall: (id, name, args) => {
+      // A tool call ends the open prose segment: close it on the spot so
+      // any later prose streams into a fresh block of its own (the onDelta
+      // tail guard below is the generic backstop).
+      if (assistant.entry !== undefined) {
+        assistant.entry.streaming = false;
+        assistant.entry = undefined;
+      }
       const entry = toolCallEntry(id, name, args, host.width());
       host.entries.push(entry);
       pendingToolCalls.set(id, entry);
