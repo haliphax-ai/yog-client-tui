@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_BASE_URL,
   loadConfig,
+  persistSessionKey,
   resolveBaseUrl,
   resolveConfigPath,
   type Config,
@@ -372,5 +374,78 @@ describe("resolveBaseUrl", () => {
       if (previous === undefined) delete process.env["YOG_SERVER_URL"];
       else process.env["YOG_SERVER_URL"] = previous;
     }
+  });
+});
+
+describe("loadConfig: session key", () => {
+  it("accepts and trims a non-empty session id", async () => {
+    const dir = await tempDir();
+    await writeConfig(dir, '{"model":"m-1","session":" sess-7 "}');
+    const config = await loadConfigUnderTest(dir);
+    expect(config.session).toBe("sess-7");
+  });
+
+  it("omits session from the result when it is absent", async () => {
+    const dir = await tempDir();
+    await writeConfig(dir, '{"model":"m-1"}');
+    const config = await loadConfigUnderTest(dir);
+    expect("session" in config).toBe(false);
+  });
+
+  it("rejects a non-string session", async () => {
+    const dir = await tempDir();
+    const file = await writeConfig(dir, '{"model":"m-1","session":123}');
+    const err = await loadError(dir);
+    expect(err.message).toBe(
+      `invalid configuration (${file}): "session" must be a non-empty string when present`,
+    );
+  });
+
+  it("rejects a whitespace-only session", async () => {
+    const dir = await tempDir();
+    const file = await writeConfig(dir, '{"model":"m-1","session":"   "}');
+    const err = await loadError(dir);
+    expect(err.message).toBe(
+      `invalid configuration (${file}): "session" must be a non-empty string when present`,
+    );
+  });
+});
+
+describe("persistSessionKey", () => {
+  it("rewrites the local copy in place, preserving unknown keys and style", async () => {
+    const dir = await tempDir();
+    await writeConfig(dir, '{\n  "model": "m-1",\n  "custom": {"a": 1}\n}\n');
+    await persistSessionKey("sess-9", dir);
+    const raw = await readFile(path.join(dir, "config.json"), "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(parsed["session"]).toBe("sess-9");
+    expect(parsed["model"]).toBe("m-1");
+    expect(parsed["custom"]).toEqual({ a: 1 });
+    expect(raw).toBe('{\n  "model": "m-1",\n  "custom": {\n    "a": 1\n  },\n  "session": "sess-9"\n}\n');
+  });
+
+  it("falls back to the bundled-dir copy when the cwd has none", async () => {
+    const dir = await tempDir(); // empty cwd
+    const bundled = await tempDir();
+    await writeConfig(bundled, '{"model":"bundled-model"}');
+    await persistSessionKey("sess-b", dir, bundled);
+    const raw = await readFile(path.join(bundled, "config.json"), "utf8");
+    expect((JSON.parse(raw) as Record<string, unknown>)["session"]).toBe("sess-b");
+  });
+
+  it("swallows write failures instead of failing the session", async () => {
+    const dir = await tempDir();
+    const missing = path.join(dir, "no-such-dir");
+    // Neither location exists/readable: resolve without throwing.
+    await expect(persistSessionKey("sess-x", missing)).resolves.toBeUndefined();
+  });
+
+  it("does not invent a config when no copy exists", async () => {
+    const dir = await tempDir();
+    const bundled = await tempDir();
+    await persistSessionKey("sess-y", dir, bundled);
+    // Neither directory gained a config.json.
+    expect(existsSync(path.join(dir, "config.json"))).toBe(false);
+    expect(existsSync(path.join(bundled, "config.json"))).toBe(false);
   });
 });

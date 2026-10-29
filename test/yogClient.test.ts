@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   parseFrame,
   toEnvelope,
@@ -9,6 +9,8 @@ import {
   toYogError,
   YogError,
   type TurnEnvelope,
+  YogClient,
+  type TranscriptMessage,
 } from "../src/yogClient.ts";
 
 /** Build a fetch-style Response whose body streams the given chunks. */
@@ -378,5 +380,173 @@ describe("toYogError", () => {
     const err = await toYogError(res, "capabilities request failed");
     expect((err as YogError).code).toBe("http_error");
     expect((err as YogError).message).toBe("capabilities request failed: HTTP 404");
+  });
+});
+
+/** A JSON Response with the given status. */
+function jsonResponse(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("YogClient.reopen", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("adopts an existing session id on HTTP 200", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ session: { id: "s1", status: "open" } }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new YogClient("http://test");
+    const adopted = await client.reopen("s1");
+    expect(adopted).toBe("s1");
+    expect(client.sessionId).toBe("s1");
+    expect(fetchMock).toHaveBeenCalledWith("http://test/v1/sessions/s1", expect.anything());
+  });
+
+  it("clears the id and resolves undefined on a 404 unknown_session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "unknown_session", message: "nope" } }, 404)),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "stale";
+    const adopted = await client.reopen("stale");
+    expect(adopted).toBeUndefined();
+    expect(client.sessionId).toBeUndefined();
+  });
+
+  it("surfaces a YogError for other non-2xx responses", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: { code: "internal", message: "boom" } }, 500)));
+    const client = new YogClient("http://test");
+    await expect(client.reopen("s1")).rejects.toMatchObject({
+      name: "YogError",
+      code: "internal",
+      status: 500,
+    });
+  });
+
+  it("propagates friendly unreachable errors for connection failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw Object.assign(new Error("refused"), { code: "ECONNREFUSED" });
+      }),
+    );
+    const client = new YogClient("http://test");
+    await expect(client.reopen("s1")).rejects.toThrow(/cannot reach yog server/);
+  });
+});
+
+describe("YogClient.getTranscript", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("requires an open or adopted session first", async () => {
+    const client = new YogClient("http://test");
+    await expect(client.getTranscript()).rejects.toThrow(/before open/);
+  });
+
+  it("fetches the full dump with no query string when no params are given", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        {
+          session: { id: "s1", status: "dormant" },
+          messages: [
+            { seq: 1, role: "user", content: "q" },
+            { seq: 2, role: "assistant", content: "a" },
+          ],
+        },
+        200,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.getTranscript();
+    expect(result).toEqual({
+      sessionId: "s1",
+      status: "dormant",
+      messages: [
+        { seq: 1, role: "user", content: "q" },
+        { seq: 2, role: "assistant", content: "a" },
+      ],
+    });
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, unknown];
+    expect(url).toBe("http://test/v1/sessions/s1/transcript");
+  });
+
+  it("builds ?after= and ?limit= query params when given", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ session: { id: "s1" }, messages: [] }, 200));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    await client.getTranscript(7, 3);
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, unknown];
+    expect(url).toBe("http://test/v1/sessions/s1/transcript?after=7&limit=3");
+  });
+
+  it("maps a 404 unknown_session to a YogError with that code", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "unknown_session", message: "gone" } }, 404)),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "stale";
+    await expect(client.getTranscript()).rejects.toMatchObject({
+      name: "YogError",
+      code: "unknown_session",
+      status: 404,
+    });
+  });
+
+  it("falls back to http_error when an error body has no message", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: { code: "x" } }, 422)));
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const err = await client.getTranscript().catch((e: unknown) => e);
+    expect((err as YogError).code).toBe("http_error");
+    expect((err as YogError).message).toBe("fetching transcript failed: HTTP 422");
+  });
+
+  it("propagates friendly unreachable errors for connection failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw Object.assign(new Error("dns"), { code: "ENOTFOUND" });
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    await expect(client.getTranscript()).rejects.toThrow(/cannot reach yog server/);
+  });
+});
+
+describe("YogClient.runTurn payload", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts only { prompt, model } — history never rides along", async () => {
+    // A clean terminal stream: turn.started → turn.finished.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: turn.finished\ndata: {"durationMs":5}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const outcome = await client.runTurn("hello", "model-x", {});
+    expect(outcome.ok).toBe(true);
+    const fetchMock = vi.mocked(fetch);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ prompt: "hello", model: "model-x" });
   });
 });

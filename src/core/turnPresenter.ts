@@ -3,13 +3,19 @@
  *
  * Pure event translation: no rendering, no terminal access. `main.ts` wires
  * the returned {@link TurnEvents} callbacks to the client and supplies the
- * column width for tool-line fitting. The pending tool-call pairing and the
- * client-side transcript history live here for the duration of a turn.
+ * column width for tool-line fitting. The pending tool-call pairing lives
+ * here for the duration of a turn; the shared entry builders
+ * (`toolCallEntry` / `annotateToolCall` / `toolResultChunk`) also serve
+ * transcript rehydration, so restored rows render exactly like live ones.
  */
-import type { TurnEvents } from "../yogClient.ts";
+import { parseToolArgs, type TurnEvents } from "../yogClient.ts";
 import { prettyArgs, resultPreview, resultStatus, type LogEntry } from "../ui/render/index.ts";
 import { displayWidth } from "../util/ansi.ts";
-import type { HistoryMessage } from "./history.ts";
+import {
+  decodeToolCalls,
+  decodeToolResult,
+  type TranscriptEntry,
+} from "./transcript.ts";
 
 /** Anything that can be pushed to the log and schedules a redraw. */
 export type AppendEntry = (kind: LogEntry["kind"], lines: string[]) => void;
@@ -31,9 +37,8 @@ export interface TurnPresenter {
   /** User message + reset lines (spinner already started). */
   begin(input: string): void;
   /**
-   * Turn finished: stop marking the assistant entry as streaming and append
-   * the accumulated assistant text to the transcript (in that order — the
-   * transcript sees the finalized state).
+   * Turn finished: stop marking the assistant entry as streaming (the
+   * server persists the turn; the client keeps no history).
    */
   finish(): void;
   /** A turn failed (non-ok outcome or thrown error): record the line. */
@@ -41,18 +46,13 @@ export interface TurnPresenter {
 }
 
 /** Create the presenter for one turn (one `submit()`). */
-export function createTurnPresenter(
-  host: TurnHost,
-  history: HistoryMessage[],
-): TurnPresenter {
+export function createTurnPresenter(host: TurnHost): TurnPresenter {
   // Tool call id → its log entry, so results can annotate the call line.
   const pendingToolCalls = new Map<string, LogEntry>();
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
-  let assistantText = "";
 
   const events: TurnEvents = {
     onDelta: (text) => {
-      assistantText += text;
       const entry = (assistant.entry ??= { kind: "assistant", lines: [""], streaming: true });
       if (host.entries[host.entries.length - 1] !== entry) host.entries.push(entry);
       // Append to the last (possibly partial) paragraph, re-split on \n.
@@ -63,27 +63,7 @@ export function createTurnPresenter(
       host.requestRender();
     },
     onToolCall: (id, name, args) => {
-      const cols = host.width();
-      const label = `⚙️ ${name || "tool"}`;
-      const full =
-        args === undefined || args === null
-          ? undefined
-          : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
-      // The rebuilt row (label + ✅ + space + args + 2 padding) must fit
-      // cols exactly: reserve 3 cells for the check landing in the label.
-      const argsCompact =
-        full === undefined
-          ? undefined
-          : prettyArgs(args, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
-      const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
-      const entry: LogEntry = {
-        kind: "tool",
-        lines: [shown],
-        label,
-        argsCompact,
-        full,
-        expanded: false,
-      };
+      const entry = toolCallEntry(id, name, args, host.width());
       host.entries.push(entry);
       pendingToolCalls.set(id, entry);
       host.requestRender();
@@ -93,37 +73,19 @@ export function createTurnPresenter(
       const call = pendingToolCalls.get(id);
       if (call) {
         pendingToolCalls.delete(id);
-        const suffix = ok ? " ✅" : ` ❌ ${error ?? "failed"}`;
-        // Check goes into the label (before the args), keeping its position
-        // across collapse/expand; rebuild the collapsed line around it.
-        if (call.label !== undefined) {
-          call.label = `${call.label}${suffix}`;
-          call.lines[0] =
-            call.argsCompact === undefined
-              ? call.label
-              : `${call.label} ${call.argsCompact}`;
-        } else {
-          call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
-        }
+        annotateToolCall(call, ok, error);
       } else {
         host.append(
           "tool",
           [`${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`],
         );
       }
-      // The result itself: a tool-output block. Header carries the status
-      // (one space after the arrow); body is [] for status-only results —
-      // short blocks render full height, long ones stay collapsible.
+      // The result itself: a collapsible tool-output block. Header carries
+      // the status (one space after the arrow); body is [] for status-only
+      // results — short blocks render full height, long ones stay
+      // collapsible.
       if (result !== undefined && result !== null) {
-        const cols = host.width();
-        const body = resultPreview(result, cols);
-        const status = resultStatus(result);
-        const arrow = status ? ` → ${status}` : " →";
-        host.entries.push({
-          kind: "chunk",
-          lines: [`${name || "tool"}${arrow}`, ...body],
-          collapsed: true,
-        });
+        host.entries.push(toolResultChunk(name, result, host.width()));
       }
       host.requestRender();
     },
@@ -138,17 +100,130 @@ export function createTurnPresenter(
   return {
     events,
     begin: (input) => {
-      history.push({ role: "user", text: input });
       host.append("user", [input]);
       assistant.entry = undefined;
-      assistantText = "";
     },
     finish: () => {
       if (assistant.entry) assistant.entry.streaming = false;
-      if (assistantText !== "") history.push({ role: "assistant", text: assistantText });
     },
     fail: (detail) => {
       host.append("error", [detail]);
     },
   };
+}
+
+/**
+ * Build a tool-call log entry — the ⚙️ call line with compact args and the
+ * expandable full args. Shared by the live turn path and transcript
+ * rehydration so rehydrated rows are the same rich entries a live turn
+ * produces.
+ */
+export function toolCallEntry(id: string, name: string, args: unknown, cols: number): LogEntry {
+  const label = `⚙️ ${name || "tool"}`;
+  const full =
+    args === undefined || args === null
+      ? undefined
+      : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
+  // The rebuilt row (label + ✅ + space + args + 2 padding) must fit
+  // cols exactly: reserve 3 cells for the check landing in the label.
+  const argsCompact =
+    full === undefined
+      ? undefined
+      : prettyArgs(args, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
+  const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
+  return { kind: "tool", lines: [shown], label, argsCompact, full, expanded: false };
+}
+
+/**
+ * Annotate a tool-call entry with its outcome: the ✅/❌ marker lands in the
+ * label (before the args), keeping its position across collapse/expand, and
+ * the collapsed line is rebuilt around it.
+ */
+export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): void {
+  const suffix = ok ? " ✅" : ` ❌ ${error ?? "failed"}`;
+  if (call.label !== undefined) {
+    call.label = `${call.label}${suffix}`;
+    call.lines[0] =
+      call.argsCompact === undefined ? call.label : `${call.label} ${call.argsCompact}`;
+  } else {
+    call.lines[0] = `${call.lines[0] ?? ""}${suffix}`;
+  }
+}
+
+/**
+ * Build the collapsible tool-output chunk for a result: the header carries
+ * the tool name and status (`exit 0 · 42ms` when present); the body is []
+ * for status-only results — short blocks render full height, long ones stay
+ * collapsible. Shared by the live turn path and rehydration.
+ */
+export function toolResultChunk(name: string, result: unknown, cols: number): LogEntry {
+  const body = resultPreview(result, cols);
+  const status = resultStatus(result);
+  const arrow = status ? ` → ${status}` : " →";
+  return {
+    kind: "chunk",
+    lines: [`${name || "tool"}${arrow}`, ...body],
+    collapsed: true,
+  };
+}
+
+/**
+ * Convert rehydrated transcript entries into chat-log entries, reusing the
+ * live-turn builders: an assistant row carrying tool calls produces the same
+ * ⚙️ call lines, annotated ✅/❌ by their matching tool result rows (paired
+ * via `toolCallId`, consumed so nothing double-emits) followed by their
+ * collapsible result chunks; plain user/assistant/system rows render as
+ * their entry kinds. Orphan result rows (their call row predates the
+ * transcript) fall back to a standalone annotated result line + chunk.
+ * Width-aware like the live path; never throws on odd rows.
+ */
+export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): LogEntry[] {
+  const out: LogEntry[] = [];
+  let i = 0;
+  while (i < entries.length) {
+    const e = entries[i]!;
+    const calls = e.role === "assistant" ? decodeToolCalls(e.raw.toolCalls) : [];
+    if (calls.length > 0) {
+      const open = new Map<string, { entry: LogEntry; name: string }>();
+      for (const c of calls) {
+        const entry = toolCallEntry(c.id, c.name, parseToolArgs(c.arguments), cols);
+        out.push(entry);
+        open.set(c.id, { entry, name: c.name });
+      }
+      i += 1;
+      // Consume the tool result rows that answer these calls.
+      while (i < entries.length) {
+        const next = entries[i]!;
+        if (next.role !== "tool") break;
+        const id = next.raw.toolCallId;
+        if (id === undefined) break;
+        const call = open.get(id);
+        if (call === undefined) break;
+        open.delete(id);
+        const decoded = decodeToolResult(next.raw);
+        annotateToolCall(call.entry, decoded.ok, decoded.error);
+        if (decoded.value !== undefined && decoded.value !== null) {
+          out.push(toolResultChunk(call.name, decoded.value, cols));
+        }
+        i += 1;
+      }
+      // Calls left without a result row keep their bare call line.
+      continue;
+    }
+    if (e.role === "user" || e.role === "assistant") {
+      out.push({ kind: e.role, lines: [e.text] });
+    } else if (e.role === "tool") {
+      // Orphan result row: standalone annotated status line + chunk.
+      const decoded = decodeToolResult(e.raw);
+      const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
+      out.push({ kind: "tool", lines: [`${decoded.ok ? "✅" : "❌"} ${label}`] });
+      if (decoded.value !== undefined && decoded.value !== null) {
+        out.push(toolResultChunk(label, decoded.value, cols));
+      }
+    } else {
+      out.push({ kind: "system", lines: [e.text] });
+    }
+    i += 1;
+  }
+  return out;
 }
