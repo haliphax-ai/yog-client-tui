@@ -131,6 +131,16 @@ describe("createTurnPresenter", () => {
     turn.events.onError?.("boom_code", "bad");
     expect(entries.at(-1)).toEqual({ kind: "error", lines: ["boom_code: bad"] });
   });
+
+  it("emits no result chunk for a failed call — the ❌ line is the whole failure", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", false, { error: "boom" }, "boom");
+    const call = entries.find((e) => e.kind === "tool");
+    expect(call?.label).toBe("⚙️ bash ❌ boom");
+    expect(entries.filter((e) => e.kind === "chunk")).toHaveLength(0);
+  });
 });
 
 describe("transcriptLogEntries", () => {
@@ -210,7 +220,23 @@ describe("transcriptLogEntries", () => {
     expect((out[0] as LogEntry & { label?: string }).label).toBe("⚙️ bash");
   });
 
-  it("renders an orphan result row as a standalone annotated line + chunk", () => {
+  it("pairs a failed result row without emitting a chunk", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({
+          seq: 1,
+          role: "assistant",
+          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: "{}" } }],
+        }),
+        row({ seq: 2, role: "tool", toolCallId: "c1", name: "bash", content: '{"error":"boom"}' }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["tool"]);
+    expect((out[0] as LogEntry & { label?: string }).label).toBe("⚙️ bash ❌ boom");
+  });
+
+  it("renders an orphan SUCCESS result row as a standalone line + chunk", () => {
     const out = transcriptLogEntries(
       toTranscriptEntries([
         row({ seq: 1, role: "tool", toolCallId: "cx", name: "bash", content: '{"exitCode":0}' }),
@@ -219,6 +245,17 @@ describe("transcriptLogEntries", () => {
     );
     expect(out.map((e) => e.kind)).toEqual(["tool", "chunk"]);
     expect(out[0]?.lines[0]).toBe("✅ bash");
+  });
+
+  it("renders an orphan FAILED result row as a bare error line (no chunk)", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, role: "tool", toolCallId: "cx", name: "bash", content: '{"error":"boom"}' }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["tool"]);
+    expect(out[0]?.lines[0]).toBe("❌ bash boom");
   });
 
   it("tolerates unknown roles mixed with plain rows", () => {
