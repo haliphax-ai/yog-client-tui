@@ -23,7 +23,7 @@ export function statusBody(): string {
   parts.push(`model ${state.model}`);
   parts.push(state.connection === "connected" ? "session ok" : state.connection);
   parts.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
-  return parts.join("  ·  ");
+  return parts.join(" · ");
 }
 
 export class StatusComponent extends BaseComponent {
