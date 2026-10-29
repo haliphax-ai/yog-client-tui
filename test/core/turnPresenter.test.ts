@@ -141,6 +141,37 @@ describe("createTurnPresenter", () => {
     expect(call?.label).toBe("⚙️ bash ❌ boom");
     expect(entries.filter((e) => e.kind === "chunk")).toHaveLength(0);
   });
+
+  it("starts a fresh prose block after tool activity (no replayed text)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.begin("check it");
+    turn.events.onDelta?.("first prose");
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "out\n" });
+    turn.events.onDelta?.("second prose");
+    turn.finish();
+    const prose = entries.filter((e) => e.kind === "assistant");
+    // Two distinct blocks: pre-tool and post-tool prose, each holding only
+    // its own text.
+    expect(prose).toHaveLength(2);
+    expect(prose[0]?.lines.join("")).toBe("first prose");
+    expect(prose[1]?.lines.join("")).toBe("second prose");
+    expect(prose[0]).not.toBe(prose[1]);
+    expect(prose.every((e) => e.streaming === false)).toBe(true);
+  });
+
+  it("keeps streaming into one block while prose is the log tail", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.begin("q");
+    turn.events.onDelta?.("hel");
+    turn.events.onDelta?.("lo");
+    turn.finish();
+    const prose = entries.filter((e) => e.kind === "assistant");
+    expect(prose).toHaveLength(1);
+    expect(prose[0]?.lines.join("")).toBe("hello");
+  });
 });
 
 describe("transcriptLogEntries", () => {
