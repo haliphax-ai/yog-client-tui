@@ -80,11 +80,11 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
           [`${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`],
         );
       }
-      // The result itself: a collapsible tool-output block. Header carries
-      // the status (one space after the arrow); body is [] for status-only
-      // results — short blocks render full height, long ones stay
-      // collapsible.
-      if (result !== undefined && result !== null) {
+      // The result itself: a collapsible tool-output block. Only for
+      // successful calls — a failed call (invalid schema, unknown tool)
+      // has no stdout/stderr/exit data to show: the ❌ + error already on
+      // the call line is the whole failure display.
+      if (ok && result !== undefined && result !== null) {
         host.entries.push(toolResultChunk(name, result, host.width()));
       }
       host.requestRender();
@@ -174,8 +174,10 @@ export function toolResultChunk(name: string, result: unknown, cols: number): Lo
  * via `toolCallId`, consumed so nothing double-emits) followed by their
  * collapsible result chunks; plain user/assistant/system rows render as
  * their entry kinds. Orphan result rows (their call row predates the
- * transcript) fall back to a standalone annotated result line + chunk.
- * Width-aware like the live path; never throws on odd rows.
+ * transcript) render as a standalone ✅/❌ status line, plus an output
+ * chunk on success only — a failure has no result data beyond the error
+ * already shown on its line. Width-aware like the live path; never throws
+ * on odd rows.
  */
 export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): LogEntry[] {
   const out: LogEntry[] = [];
@@ -202,7 +204,7 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         open.delete(id);
         const decoded = decodeToolResult(next.raw);
         annotateToolCall(call.entry, decoded.ok, decoded.error);
-        if (decoded.value !== undefined && decoded.value !== null) {
+        if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           out.push(toolResultChunk(call.name, decoded.value, cols));
         }
         i += 1;
@@ -213,11 +215,16 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
     if (e.role === "user" || e.role === "assistant") {
       out.push({ kind: e.role, lines: [e.text] });
     } else if (e.role === "tool") {
-      // Orphan result row: standalone annotated status line + chunk.
+      // Orphan result row (its call row predates the transcript). Success:
+      // standalone status line + output chunk. Failure: nothing beyond the
+      // error itself to show — the ❌ line carries it, as with live calls.
       const decoded = decodeToolResult(e.raw);
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
-      out.push({ kind: "tool", lines: [`${decoded.ok ? "✅" : "❌"} ${label}`] });
-      if (decoded.value !== undefined && decoded.value !== null) {
+      out.push({
+        kind: "tool",
+        lines: [`${decoded.ok ? "✅" : "❌"} ${label}${decoded.ok ? "" : ` ${decoded.error ?? "failed"}`}`],
+      });
+      if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
         out.push(toolResultChunk(label, decoded.value, cols));
       }
     } else {

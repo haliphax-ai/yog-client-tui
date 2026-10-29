@@ -4,7 +4,9 @@
  * through untouched and plain runs are tokenized. Runs per display row: the
  * style's row prefix (pad + fg resets) is held and flushed first, then any
  * color carried from a string token split across a wrap is re-emitted — so
- * continuation rows keep their formatting.
+ * continuation rows keep their formatting. Escapes are honored: a \" never
+ * opens or closes a string, and a string whose backslash sits against a
+ * wrap split stays string-colored into the continuation row.
  */
 import { C } from "../theme.ts";
 
@@ -23,9 +25,19 @@ export function colorizeToolLine(text: string): string {
     const carry = pending;
     pending = "";
     const inStringInit = carry !== "";
-    if (inStringInit) pending = carry; // keep the string color alive
+    let escapedInit = false; // escape state carried across a row split
     let i = 0;
     let inString = inStringInit; // string carried across a row split
+    let escaped = false; // a backslash consumed an escape mid-scan
+    // A backslash immediately before the newline escapes the quote that
+    // would otherwise start the next row (JSON strings cannot contain a
+    // literal newline): restart the continuation in escape state.
+    if (escapedInit) {
+      escapedInit = false;
+      inString = true;
+      escaped = true;
+      pending = carry !== "" ? carry : C.str;
+    }
 
     const flushHead = (): void => {
       out += head;
@@ -63,15 +75,50 @@ export function colorizeToolLine(text: string): string {
         }
         flushHead();
       }
+      // An escape inside a string is copied verbatim (\" …); outside one,
+      // a backslash escapes the next character (e.g. the \\" before a
+      // wrapped-away quote) so the quote is not taken as a string opener.
+      if (ch === "\\") {
+        if (inString) {
+          if (!headDone) flushHead();
+          out += ch;
+          escaped = true;
+          i += 1;
+          continue;
+        }
+        if (escaped) {
+          // A backslash escaped by the previous backslash: emit it plain.
+          escaped = false;
+          if (!headDone) flushHead();
+          out += ch;
+          i += 1;
+          continue;
+        }
+        // Start of an escape sequence: emitted together with the next char.
+        escaped = true;
+        i += 1;
+        continue;
+      }
+      if (escaped && !inString) {
+        // Second character of an escape sequence outside a string.
+        escaped = false;
+        if (!headDone) flushHead();
+        out += ch;
+        i += 1;
+        continue;
+      }
       if (inString) {
-        // String continued from the previous row: keep carry color, skip
-        // tokenization; only a \" can close it.
-        if (ch === '"') {
+        // Inside a string (possibly carried from the previous row): copy
+        // verbatim; only an unescaped " can close it. The second character
+        // of an escape (e.g. the \" marker) passes through without closing.
+        if (ch === '"' && !escaped) {
           colorize('"', C.str);
           inString = false;
           pending = "";
         } else {
+          if (!headDone) flushHead();
           out += ch;
+          escaped = false;
         }
         i += 1;
         continue;
@@ -85,7 +132,7 @@ export function colorizeToolLine(text: string): string {
       }
       if (ch === '"') {
         if (inString) {
-          // Closing quote of a string carried across rows.
+          // Closing quote of a string (including one carried across rows).
           colorize('"', C.str);
           inString = false;
           pending = "";
@@ -94,12 +141,15 @@ export function colorizeToolLine(text: string): string {
         }
         let j = i + 1;
         let closed = false;
+        let danglingEscape = false;
         while (j < row.length) {
           const c = row[j] as string;
           if (c === "\\") {
-            j += 2;
+            danglingEscape = true;
+            j += 2; // \" and \\\\ pass through: they cannot close the string
             continue;
           }
+          danglingEscape = false;
           if (c === '"') {
             closed = true;
             j += 1;
@@ -109,7 +159,7 @@ export function colorizeToolLine(text: string): string {
         }
         if (closed) {
           let k = j;
-          while (k < row.length && (row[k] === " " || row[k] === "\t")) k += 1;
+          while (k < row.length && (row[k] === " " || row[k] === "\\t")) k += 1;
           colorize(row.slice(i, j), row[k] === ":" ? C.key : C.str);
           i = j;
           continue;
@@ -117,6 +167,10 @@ export function colorizeToolLine(text: string): string {
         // Open at row end (wrap split): color to end, re-emit next row.
         colorize(row.slice(i), C.str, true);
         inString = true;
+        // A trailing backslash escapes the (display-wrapped-away) quote
+        // before the newline: the continuation row starts inside the
+        // escaped character, mid-string.
+        escapedInit = danglingEscape;
         i = row.length;
         continue;
       }
