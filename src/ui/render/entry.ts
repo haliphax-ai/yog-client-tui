@@ -64,6 +64,9 @@ function kindStyle(kind: EntryKind): Style {
 /** Rows a tool-output block body shows before truncation (label excluded). */
 const COLLAPSE_LINES = 5;
 
+/** Left-border rune marking assistant prose (themed via ST.assistantBorder). */
+const BORDER_RUNE = "▐";
+
 /** Remove up to `n` leading plain spaces, keeping any embedded escapes. */
 function trimLeading(line: string, n: number): string {
   let out = "";
@@ -197,11 +200,11 @@ function flattenMarkdown(rows: string[]): string[] {
  * Render one entry to its styled block at `cols`. Prompts and responses go
  * through the glamour markdown renderer first: prompts render in a light-grey
  * padded bubble with theme colors flattened to the bubble's light-grey text
- * (emphasis kept); assistant replies keep full glamour styling on a plain
- * background. Tool-output blocks are always full height (header with exit
- * status + output, black bg, dark-grey text); headers show `↓` when expanded
- * (bodies <= COLLAPSE_LINES are always expanded), `→` when collapsed. Other
- * rows wrap plain.
+ * (emphasis kept); assistant replies keep full glamour styling, prefixed on
+ * every row by a themed half-block border. Tool-output blocks are always full
+ * height (header with exit status + output, black bg, dark-grey text);
+ * headers show `↓` when expanded (bodies <= COLLAPSE_LINES are always
+ * expanded), `→` when collapsed. Other rows wrap plain.
  */
 function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
@@ -209,13 +212,24 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const text = entry.lines.join("\n");
     // Prompt: 1-cell padding each side sits INSIDE the style width, so the
     // content wraps at cols-2 while the block spans the full terminal.
-    const bodyW = Math.max(1, isUser ? cols - 2 : cols);
+    // Assistant: rows are prefixed with the border cell + one space, so the
+    // prose wraps at cols-2 too and the border gutter survives wrapping.
+    const bodyW = Math.max(1, isUser ? cols - 2 : cols - 2);
     const md = renderMarkdown(text, bodyW);
     const content =
       md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(text, bodyW);
-    const style = isUser ? ST.user.width(cols) : ST.assistant;
-    const rendered = style.render(content.join("\n"));
-    return { rendered, rows: rendered.split("\n").length };
+    if (isUser) {
+      const rendered = ST.user.width(cols).render(content.join("\n"));
+      return { rendered, rows: rendered.split("\n").length };
+    }
+    // Style each prose row by itself, then glue the border in front — the
+    // border never crosses the prose styling and vice versa, and pre-wrapped
+    // rows (md or wrapText, both <= bodyW = cols-2 cells) leave room for the
+    // two-cell gutter on every row.
+    const border = ST.assistantBorder.render(BORDER_RUNE);
+    const rows = content.map((row) => `${border} ${row}`);
+    const rendered = rows.join("\n");
+    return { rendered, rows: rows.length };
   }
 
   if (entry.kind === "chunk") {

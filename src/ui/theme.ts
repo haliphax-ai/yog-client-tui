@@ -15,6 +15,8 @@ export const ST = {
     .padding(1),
   /** Response: normal background, white text; spacing comes from the uniform entry separator. */
   assistant: newStyle().foreground("#ffffff"),
+  /** Assistant prose left border: blue right-half block on every row. */
+  assistantBorder: newStyle().foreground("#60a5fa"),
   tool: newStyle().foreground("#a78bfa"),
   system: newStyle().foreground("#94a3b8"),
   error: newStyle().foreground("#ef4444").bold(true),
