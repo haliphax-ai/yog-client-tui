@@ -7,9 +7,10 @@
  * run the client from anywhere against different servers), then falls back
  * to the copy at the package root (resolved from this file's own URL).
  * Validation is strict: `model` is required because it is sent with every
- * turn, `baseUrl` is optional.
+ * turn, `baseUrl` and `session` are optional (`session` is the resume id —
+ * written back automatically after each startup, rewritten by `--new`).
  */
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,6 +20,10 @@ export interface Config {
   model: string;
   /** Optional server origin; overrides the `YOG_SERVER_URL` environment. */
   baseUrl?: string;
+  /** Session id to resume; absent/empty means "create a fresh session".
+   *  Rewritten automatically after each successful startup so the next
+   *  launch resumes the same server-owned session. */
+  session?: string;
 }
 
 /** Default daemon origin when neither config nor environment specifies one. */
@@ -52,11 +57,16 @@ function configError(detail: string, file: string): Error {
  * Load and validate `config.json`.
  *
  * Throws a descriptive error when the file is missing, is not valid JSON, or
- * does not contain a usable `model`.
+ * does not contain a usable `model`. `configExampleDir` overrides the
+ * package root for the bundled-copy fallback (tests use a scratch dir so
+ * the operator's live config is never read).
  */
-export async function loadConfig(cwd: string = process.cwd()): Promise<Config> {
+export async function loadConfig(
+  cwd: string = process.cwd(),
+  configExampleDir?: string,
+): Promise<Config> {
   const local = resolveConfigPath(cwd);
-  const bundled = path.join(packageRoot(), CONFIG_FILE);
+  const bundled = path.join(configExampleDir ?? packageRoot(), CONFIG_FILE);
 
   let file = local;
   let raw: string;
@@ -96,10 +106,15 @@ export async function loadConfig(cwd: string = process.cwd()): Promise<Config> {
   if (baseUrl !== undefined && (typeof baseUrl !== "string" || baseUrl.trim() === "")) {
     throw configError('"baseUrl" must be a non-empty string when present', file);
   }
+  const session = obj["session"];
+  if (session !== undefined && (typeof session !== "string" || session.trim() === "")) {
+    throw configError('"session" must be a non-empty string when present', file);
+  }
 
   return {
     model: model.trim(),
     ...(typeof baseUrl === "string" ? { baseUrl: baseUrl.trim() } : {}),
+    ...(typeof session === "string" ? { session: session.trim() } : {}),
   };
 }
 
@@ -110,4 +125,37 @@ export async function loadConfig(cwd: string = process.cwd()): Promise<Config> {
 export function resolveBaseUrl(config: Config, env: NodeJS.ProcessEnv = process.env): string {
   const raw = config.baseUrl ?? env["YOG_SERVER_URL"] ?? DEFAULT_BASE_URL;
   return raw.replace(/\/+$/, "");
+}
+
+/**
+ * Persist the resolved session id back into `config.json` (§5.5 item 4 of
+ * PLAN.md): unknown keys and the existing pretty-print style (2-space
+ * indent, trailing newline) are preserved, so resume happens automatically
+ * on the next launch. The local copy wins when one exists (the file the
+ * client reads); otherwise the package-root copy is written — the same
+ * lookup order `loadConfig` uses. A write failure is swallowed: persistence
+ * is a convenience, never a reason to fail the session.
+ *
+ * `bundledDir` overrides the package root (tests pass a scratch dir so the
+ * operator's live config is never touched).
+ */
+export async function persistSessionKey(
+  sessionId: string,
+  cwd: string = process.cwd(),
+  bundledDir?: string,
+): Promise<void> {
+  const local = resolveConfigPath(cwd);
+  const target = path.join(bundledDir ?? packageRoot(), CONFIG_FILE);
+  for (const file of [local, target]) {
+    try {
+      const raw = await readFile(file, "utf8");
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return;
+      const next = { ...(parsed as Record<string, unknown>), session: sessionId };
+      await writeFile(file, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+      return;
+    } catch {
+      /* try the next lookup location; persistence stays best effort */
+    }
+  }
 }

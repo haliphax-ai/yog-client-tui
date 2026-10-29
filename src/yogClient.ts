@@ -1,9 +1,13 @@
 /**
  * yog HTTP/SSE client — every server interaction lives here.
  *
- * Flow: capabilities probe → create session → POST turns (SSE) → delete
- * session. If the SSE stream dies after `turn.started`, the turn is replayed
- * from the turn-status endpoint so the turn still reaches a terminal state.
+ * Flow: capabilities probe → resume-or-create session → prompt-only turns
+ * (SSE) → transcript rehydration. The server owns the canonical transcript
+ * and hydrates prior context itself, so a turn request carries only the new
+ * prompt, and the session outlives the client: the server's DELETE is a
+ * detach (dormant, kept), and only a server-side purge truly ends a session.
+ * If the SSE stream dies after `turn.started`, the turn is replayed from the
+ * turn-status endpoint so the turn still reaches a terminal state.
  *
  * This module deals in plain data only: it knows nothing about the terminal,
  * styling, or rendering. The UI drives it through the `TurnEvents` callbacks.
@@ -15,6 +19,31 @@ export interface Capabilities {
   models: string[];
   tools: string[];
   features: string[];
+}
+
+/** One canonical transcript row, verbatim from the wire (§5.1 of PLAN.md).
+ *  `role` is "user" | "assistant" | "system" | "tool"; the optional payload
+ *  fields carry tool-call data: an assistant row's `toolCalls` array
+ *  (`{ id, type, function: { name, arguments } }`, arguments as a JSON
+ *  string) and a tool result row's `toolCallId`. */
+export interface TranscriptMessage {
+  seq: number;
+  turnId?: string;
+  /** Row creation time (epoch milliseconds) when the server stamps one. */
+  ts?: number;
+  role: string;
+  content?: string;
+  name?: string;
+  toolCallId?: string;
+  toolCalls?: unknown;
+}
+
+/** Result of the transcript rehydration dump: the session plus its ordered
+ *  rows (conversation order, monotonic per-session `seq`). */
+export interface TranscriptResult {
+  sessionId: string;
+  status: string;
+  messages: TranscriptMessage[];
 }
 
 /** Well-known event types on the turn stream. */
@@ -284,15 +313,64 @@ export class YogClient {
     return id;
   }
 
-  /** Close the session (`DELETE /v1/sessions/{id}`), best effort. */
-  async close(): Promise<void> {
-    if (!this.sessionId) return;
-    const id = this.sessionId;
-    this.sessionId = undefined;
-    await fetch(`${this.baseUrl}/v1/sessions/${id}`, {
-      method: "DELETE",
-      headers: this.headers(),
-    }).catch(() => undefined);
+  /**
+   * Adopt an existing session after a cheap validity check (§5.2 of
+   * PLAN.md): `GET /v1/sessions/{id}` — 200 adopts the id, 404 clears it
+   * and resolves `undefined` so the caller falls back to `open()`.
+   * Dormancy is not an obstacle: reviving is implicit in the next turn and
+   * reads work on dormant sessions. Reusing the id *is* the reopen — the
+   * server keeps the transcript.
+   */
+  async reopen(sessionId: string): Promise<string | undefined> {
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}`, {
+        headers: this.headers(),
+      });
+    } catch (err) {
+      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+    }
+    if (res.status === 404) {
+      this.sessionId = undefined;
+      return undefined;
+    }
+    if (!res.ok) throw await toYogError(res, "session reopen check failed");
+    this.sessionId = sessionId;
+    return sessionId;
+  }
+
+  /**
+   * Transcript rehydration dump: `GET /v1/sessions/{id}/transcript` with
+   * optional `after` / `limit` pagination (the TUI fetches the full dump;
+   * the params exist for future use). `unknown_session` (404) surfaces as a
+   * `YogError` so the caller can distinguish a stale id from a transport
+   * failure. Works on dormant sessions — dormancy never blocks reads.
+   */
+  async getTranscript(after?: number, limit?: number): Promise<TranscriptResult> {
+    if (!this.sessionId) throw new Error("getTranscript called before open() or reopen()");
+    const sessionId = this.sessionId;
+    const params = new URLSearchParams();
+    if (after !== undefined) params.set("after", String(after));
+    if (limit !== undefined) params.set("limit", String(limit));
+    const qs = params.toString();
+    let res: Response;
+    try {
+      res = await fetch(
+        `${this.baseUrl}/v1/sessions/${sessionId}/transcript${qs === "" ? "" : `?${qs}`}`,
+        { headers: this.headers() },
+      );
+    } catch (err) {
+      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+    }
+    if (!res.ok) throw await toYogError(res, "fetching transcript failed");
+    const body = (await res.json()) as {
+      session?: { id?: unknown; status?: unknown };
+      messages?: unknown;
+    };
+    const id = typeof body.session?.id === "string" ? body.session.id : sessionId;
+    const status = typeof body.session?.status === "string" ? body.session.status : "open";
+    const rows = Array.isArray(body.messages) ? body.messages : [];
+    return { sessionId: id, status, messages: rows as TranscriptMessage[] };
   }
 
   /**

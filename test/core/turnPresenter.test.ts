@@ -1,0 +1,234 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  annotateToolCall,
+  createTurnPresenter,
+  toolCallEntry,
+  toolResultChunk,
+  transcriptLogEntries,
+} from "../../src/core/turnPresenter.ts";
+import {
+  toTranscriptEntries,
+} from "../../src/core/transcript.ts";
+import type { TranscriptMessage } from "../../src/yogClient.ts";
+import type { LogEntry } from "../../src/ui/render/index.ts";
+import { parseToolArgs } from "../../src/yogClient.ts";
+
+/** Column width used across these tests. */
+const COLS = 80;
+
+/** A transcript row with defaults and overrides. */
+function row(overrides: Partial<TranscriptMessage>): TranscriptMessage {
+  return { seq: 1, role: "user", content: "hello", ...overrides };
+}
+
+describe("toolCallEntry", () => {
+  it("builds the ⚙️ call line with compact + full args", () => {
+    const entry = toolCallEntry("c1", "bash", parseToolArgs('{"cmd":"ls"}'), COLS);
+    expect(entry.kind).toBe("tool");
+    expect(entry.label).toBe("⚙️ bash");
+    expect(entry.argsCompact).toContain("ls");
+    expect(entry.full).toBe('{\n  "cmd": "ls"\n}');
+    expect(entry.expanded).toBe(false);
+  });
+
+  it("omits args from the line when there are none", () => {
+    const entry = toolCallEntry("c1", "bash", undefined, COLS);
+    expect(entry.label).toBe("⚙️ bash");
+    expect(entry.argsCompact).toBeUndefined();
+    expect(entry.lines[0]).toBe("⚙️ bash");
+  });
+
+  it("falls back to a generic label for a nameless call", () => {
+    const entry = toolCallEntry("c1", "", {}, COLS);
+    expect(entry.label).toBe("⚙️ tool");
+  });
+});
+
+describe("annotateToolCall", () => {
+  it("appends ✅ into the label and rebuilds the collapsed line", () => {
+    const entry = toolCallEntry("c1", "bash", parseToolArgs('{"cmd":"ls"}'), COLS);
+    annotateToolCall(entry, true);
+    expect(entry.label).toBe("⚙️ bash ✅");
+    expect(entry.lines[0]).toBe(`⚙️ bash ✅ ${entry.argsCompact}`);
+  });
+
+  it("appends ❌ with the failure detail", () => {
+    const entry = toolCallEntry("c1", "bash", undefined, COLS);
+    annotateToolCall(entry, false, "boom");
+    expect(entry.label).toBe("⚙️ bash ❌ boom");
+    expect(entry.lines[0]).toBe("⚙️ bash ❌ boom");
+  });
+
+  it("annotates the bare line when no label exists", () => {
+    const entry: LogEntry = { kind: "tool", lines: ["raw line"] };
+    annotateToolCall(entry, false);
+    expect(entry.lines[0]).toBe("raw line ❌ failed");
+  });
+});
+
+describe("toolResultChunk", () => {
+  it("renders a bash-shaped result as text with the exit status", () => {
+    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 42, stdout: "out\n" }, COLS);
+    expect(chunk.kind).toBe("chunk");
+    expect(chunk.collapsed).toBe(true);
+    expect(chunk.lines[0]).toBe("bash → exit 0 · 42ms");
+    expect(chunk.lines).toContain("out");
+  });
+
+  it("renders a status-only result with its highlighted JSON body", () => {
+    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 1 }, COLS);
+    expect(chunk.lines[0]).toBe("bash → exit 0 · 1ms");
+    // Same as the live path: the JSON body renders as a styled block.
+    expect(chunk.lines.length).toBeGreaterThan(1);
+  });
+});
+
+/** Host that records appended log entries. */
+function makeHost() {
+  const entries: LogEntry[] = [];
+  const appended: LogEntry[] = [];
+  const host = {
+    entries,
+    append: (kind: LogEntry["kind"], lines: string[]) => {
+      const e: LogEntry = { kind, lines };
+      entries.push(e);
+      appended.push(e);
+    },
+    width: () => COLS,
+    requestRender: () => {},
+  };
+  return { host, entries, appended };
+}
+
+describe("createTurnPresenter", () => {
+  it("appends the user entry on begin() and resets streaming on finish()", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.begin("hi");
+    expect(entries.at(-1)).toEqual({ kind: "user", lines: ["hi"] });
+    turn.events.onDelta?.("hello");
+    turn.finish();
+    const assistant = entries.find((e) => e.kind === "assistant");
+    expect(assistant?.streaming).toBe(false);
+    expect(assistant?.lines.join("")).toBe("hello");
+  });
+
+  it("pairs tool calls with results via annotate (✅ lands in the label)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "out\n" });
+    const call = entries.find((e) => e.kind === "tool");
+    expect(call?.label).toBe("⚙️ bash ✅");
+    const chunk = entries.find((e) => e.kind === "chunk");
+    expect(chunk?.lines[0]).toBe("bash → exit 0");
+  });
+
+  it("logs an error event as an error entry", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onError?.("boom_code", "bad");
+    expect(entries.at(-1)).toEqual({ kind: "error", lines: ["boom_code: bad"] });
+  });
+});
+
+describe("transcriptLogEntries", () => {
+  it("renders plain rows as user/assistant/system entries", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ role: "user", content: "q" }),
+        row({ role: "assistant", content: "a" }),
+        row({ role: "system", content: "s" }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => [e.kind, e.lines[0]])).toEqual([
+      ["user", "q"],
+      ["assistant", "a"],
+      ["system", "s"],
+    ]);
+  });
+
+  it("rehydrates call+result rows as annotated call lines and chunks", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, role: "user", content: "run ls" }),
+        row({
+          seq: 2,
+          role: "assistant",
+          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: '{"cmd":"ls"}' } }],
+        }),
+        row({ seq: 3, role: "tool", toolCallId: "c1", name: "bash", content: '{"exitCode":0,"stdout":"out\\n"}' }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["user", "tool", "chunk"]);
+    const call = out[1] as LogEntry & { label?: string };
+    expect(call.label).toBe("⚙️ bash ✅");
+    expect(call.full).toBe('{\n  "cmd": "ls"\n}');
+    const chunk = out[2] as LogEntry & { lines: string[] };
+    expect(chunk.lines[0]).toBe("bash → exit 0");
+    expect(chunk.lines).toContain("out");
+  });
+
+  it("pairs multiple calls with their results by toolCallId", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({
+          seq: 1,
+          role: "assistant",
+          toolCalls: [
+            { id: "c1", type: "function", function: { name: "bash", arguments: "{}" } },
+            { id: "c2", type: "function", function: { name: "read", arguments: "{}" } },
+          ],
+        }),
+        row({ seq: 2, role: "tool", toolCallId: "c1", name: "bash", content: '{"exitCode":0}' }),
+        row({ seq: 3, role: "tool", toolCallId: "c2", name: "read", content: '{"error":"no file"}' }),
+      ]),
+      COLS,
+    );
+    expect(out.filter((e) => e.kind === "tool")).toHaveLength(2);
+    const calls = out.filter((e) => e.kind === "tool") as Array<LogEntry & { label?: string }>;
+    expect(calls[0]?.label).toBe("⚙️ bash ✅");
+    expect(calls[1]?.label).toBe("⚙️ read ❌ no file");
+  });
+
+  it("keeps bare call lines when no result row follows", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({
+          seq: 1,
+          role: "assistant",
+          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: "{}" } }],
+        }),
+      ]),
+      COLS,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]?.kind).toBe("tool");
+    expect((out[0] as LogEntry & { label?: string }).label).toBe("⚙️ bash");
+  });
+
+  it("renders an orphan result row as a standalone annotated line + chunk", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, role: "tool", toolCallId: "cx", name: "bash", content: '{"exitCode":0}' }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["tool", "chunk"]);
+    expect(out[0]?.lines[0]).toBe("✅ bash");
+  });
+
+  it("tolerates unknown roles mixed with plain rows", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ role: "mystery" as "user", content: "?" }),
+        row({ role: "user", content: "still works" }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.lines[0])).toEqual(["?", "still works"]);
+  });
+});
