@@ -12,8 +12,8 @@ describe("parseTable — GFM pipe tables", () => {
     const t = parseTable(md);
     expect(t).not.toBeNull();
     expect(t!.columns).toEqual([
-      { title: "Name", width: 5 },
-      { title: "Age", width: 3 },
+      { title: "Name", width: 5, align: "left" },
+      { title: "Age", width: 3, align: "left" },
     ]);
     expect(t!.rows).toEqual([["Alice", "30"], ["Bob", "25"]]);
   });
@@ -27,8 +27,8 @@ Bob | 25`;
     const t = parseTable(md);
     expect(t).not.toBeNull();
     expect(t!.columns).toEqual([
-      { title: "Name", width: 5 },
-      { title: "Age", width: 3 },
+      { title: "Name", width: 5, align: "left" },
+      { title: "Age", width: 3, align: "left" },
     ]);
   });
 
@@ -40,8 +40,8 @@ Bob | 25`;
 
     const t = parseTable(md);
     expect(t!.columns).toEqual([
-      { title: "Name", width: 5 },
-      { title: "Value", width: 11 },
+      { title: "Name", width: 5, align: "left" },
+      { title: "Value", width: 11, align: "left" },
     ]);
   });
 
@@ -54,7 +54,7 @@ Bob | 25`;
     expect(t!.rows).toEqual([["x|y", "z"]]);
   });
 
-  it("handles left/right/center alignment in the delimiter", () => {
+  it("parses left/center/right alignment from the delimiter row", () => {
     const md = `| left | center | right |
 | :--- | :---: | ---: |
 | a | b | c |`;
@@ -62,8 +62,22 @@ Bob | 25`;
     const t = parseTable(md);
     expect(t).not.toBeNull();
     expect(t!.columns).toHaveLength(3);
-    // Alignment is cosmetic — the parser doesn't need to preserve it
+    expect(t!.columns.map((c) => c.align)).toEqual([
+      "left",
+      "center",
+      "right",
+    ]);
     expect(t!.rows).toEqual([["a", "b", "c"]]);
+  });
+
+  it("defaults to left alignment when the delimiter has no colons", () => {
+    const md = `| Name | Age |
+| --- | --- |
+| Alice | 30 |`;
+
+    const t = parseTable(md);
+    expect(t).not.toBeNull();
+    expect(t!.columns.every((c) => c.align === "left")).toBe(true);
   });
 
   it("returns null when there is no delimiter row", () => {
@@ -88,8 +102,8 @@ Bob | 25`;
     const t = parseTable(md);
     expect(t).not.toBeNull();
     expect(t!.columns).toEqual([
-      { title: "Name", width: 4 },
-      { title: "Age", width: 3 },
+      { title: "Name", width: 4, align: "left" },
+      { title: "Age", width: 3, align: "left" },
     ]);
     expect(t!.rows).toEqual([]);
   });
@@ -124,8 +138,8 @@ This is not a table row
 
     const t = parseTable(md);
     expect(t!.columns).toEqual([
-      { title: "Name", width: 5 },
-      { title: "Age", width: 3 },
+      { title: "Name", width: 5, align: "left" },
+      { title: "Age", width: 3, align: "left" },
     ]);
   });
 
@@ -147,9 +161,35 @@ This is not a table row
 
     const t = parseTable(md);
     expect(t!.columns).toEqual([
-      { title: "Name", width: 5 },
-      { title: "Description", width: 19 },
+      { title: "Name", width: 5, align: "left" },
+      { title: "Description", width: 19, align: "left" },
     ]);
+  });
+
+  it("parses left/center/right alignment from the delimiter row", () => {
+    const md = `| left | center | right |
+| :--- | :---: | ---: |
+| a | b | c |`;
+
+    const t = parseTable(md);
+    expect(t).not.toBeNull();
+    expect(t!.columns).toHaveLength(3);
+    expect(t!.columns.map((c) => c.align)).toEqual([
+      "left",
+      "center",
+      "right",
+    ]);
+    expect(t!.rows).toEqual([["a", "b", "c"]]);
+  });
+
+  it("defaults to left alignment when the delimiter has no colons", () => {
+    const md = `| Name | Age |
+| --- | --- |
+| Alice | 30 |`;
+
+    const t = parseTable(md);
+    expect(t).not.toBeNull();
+    expect(t!.columns.every((c) => c.align === "left")).toBe(true);
   });
 });
 
