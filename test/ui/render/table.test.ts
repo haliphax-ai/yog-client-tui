@@ -585,6 +585,12 @@ describe("renderTable — styled output", () => {
     // Table then prose: table FIRST — no top margin.
     const tableThenProse = cachedRows(entry([...tableMd, "Outro prose."]), 60);
     expect(stripAnsi(tableThenProse[0]!).startsWith("▐ ┌")).toBe(true);
+    // Table ONLY: both first and last — no top OR bottom margin. Rows are
+    // top border, header, separator, data, bottom border (5).
+    const tableOnly = cachedRows(entry([...tableMd]), 60);
+    expect(tableOnly).toHaveLength(5);
+    expect(stripAnsi(tableOnly[0]!).startsWith("▐ ┌")).toBe(true);
+    expect(stripAnsi(tableOnly[tableOnly.length - 1]!).endsWith("┘")).toBe(true);
   });
 
   it("cellLines splits on newlines only", () => {
