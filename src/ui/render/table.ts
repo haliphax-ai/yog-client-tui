@@ -388,6 +388,12 @@ export function renderTable(
         scrollX > 0 ? line.slice(scrollX).padEnd(totalWidth, " ") : line;
       rows.push(style ? style.render(scrolled) : scrolled);
     }
+    // Divider between data rows (after the WHOLE logical row, never inside
+    // a multi-line row): same runes as the header separator, and never
+    // zebra/selected striped — striping is for content rows only.
+    if (r < table.rows.length - 1) {
+      rows.push(hr(ml, cross, mr));
+    }
   }
 
   // Bottom border.

@@ -331,10 +331,11 @@ describe("renderTable — styled output", () => {
 
   it("applies zebra background to odd data rows", () => {
     const rows = renderTable(table, 80, false, 0);
-    // Row 4 = data row 0 (even, no zebra), row 5 = data row 1 (odd, zebra)
-    // ST.tableZebra bg is #1a1a2e → ANSI 48;2;26;26;46
+    // Row 4 = data row 0 (even, no zebra), row 5 = divider, row 6 = data
+    // row 1 (odd, zebra). ST.tableZebra bg is #1a1a2e → ANSI 48;2;26;26;46
     expect(rows[4]).not.toMatch(/48;2;26;26;46/);
-    expect(rows[5]).toMatch(/48;2;26;26;46/);
+    expect(rows[5]).toContain("├");
+    expect(rows[6]).toMatch(/48;2;26;26;46/);
   });
 
 
@@ -344,9 +345,9 @@ describe("renderTable — styled output", () => {
     // ST.tableSelected bg is #1e3a8a → ANSI 48;2;30;58;138
     expect(focused[4]).toMatch(/48;2;30;58;138/);
     expect(unfocused[4]).not.toMatch(/1e3a8a/);
-    // Row 1 (odd) gets zebra, not selected, in both modes
-    expect(focused[5]).toMatch(/48;2;26;26;46/);
-    expect(focused[5]).not.toMatch(/1e3a8a/);
+    // Row 1 (odd) gets zebra, not selected, in both modes (row 5 = divider)
+    expect(focused[6]).toMatch(/48;2;26;26;46/);
+    expect(focused[6]).not.toMatch(/1e3a8a/);
   });
 
   it("scrollX truncates leading cells from each line", () => {
@@ -385,6 +386,7 @@ describe("renderTable — styled output", () => {
 | line1<br>line2 | single |`;
     const rows = renderTable(parseTable(md)!, 80, false, 0);
     // margins(2) + borders(2) + header(1) + separator(1) + 2 physical lines
+    // (single-row table: no divider after the last row)
     expect(rows.length).toBe(8);
     // Data lines follow the separator (0 margin, 1 top, 2 header, 3 separator)
     expect(rows[4]).toContain("line1");
@@ -402,12 +404,15 @@ describe("renderTable — styled output", () => {
 | one | x |
 | two<br>two-b | y |`;
     const rows = renderTable(parseTable(md)!, 80, false, 0);
-    // rows: 0 margin, 1 top, 2 header, 3 separator, 4 data0, 5 data1a, 6 data1b, 7 bottom, 8 margin
+    // rows: 0 margin, 1 top, 2 header, 3 separator, 4 data0, 5 divider,
+    // 6-7 data1's two physical lines, 8 bottom, 9 margin
     // data1 is logical row index 1 → zebra on BOTH its physical lines
     const zebra = "48;2;26;26;46";
-    expect(rows[5]).toMatch(zebra);
     expect(rows[6]).toMatch(zebra);
+    expect(rows[7]).toMatch(zebra);
     expect(rows[4]).not.toMatch(zebra);
+    expect(rows[5]).toContain("├");
+    expect(rows[5]).not.toMatch(zebra);
   });
 
   it("splits <br> in header cells into stacked lines", () => {
@@ -421,6 +426,36 @@ describe("renderTable — styled output", () => {
     expect(rows[3]).toContain("Second");
     // Data row starts after the separator (row 5)
     expect(rows[5]).toContain("a");
+  });
+
+  it("draws dividers between data rows only (not after the last)", () => {
+    const md = `| A |
+| --- |
+| one |
+| two |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    // 0 margin, 1 top, 2 header, 3 sep, 4 data0, 5 divider, 6 data1,
+    // 7 bottom, 8 margin
+    expect(rows.length).toBe(9);
+    expect(rows[5]).toMatch(/^├─+┤$/);
+  });
+
+  it("never stripes dividers (zebra is for content rows only)", () => {
+    const md = `| A |
+| --- |
+| one |
+| two |
+| three |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const zebra = "48;2;26;26;46";
+    // Layout: 4 data0, 5 divider, 6 data1, 7 divider, 8 data2,
+    // 9 bottom, 10 margin
+    expect(rows[6]).toMatch(zebra);
+    expect(rows[8]).not.toMatch(zebra);
+    for (const idx of [5, 7]) {
+      expect(rows[idx]).toMatch(/^├─+┤$/);
+      expect(rows[idx]).not.toMatch(zebra);
+    }
   });
 
   it("treats a trailing <br> as a hard cap, not padding", () => {
