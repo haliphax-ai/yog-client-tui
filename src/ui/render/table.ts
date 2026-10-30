@@ -375,7 +375,7 @@ export function renderTable(
     const style =
       focused && r === 0
         ? ST.tableSelected
-        : r % 2 === 1
+        : r % 2 === 0
           ? ST.tableZebra
           : undefined;
     for (let sl = 0; sl < rowHeight; sl++) {

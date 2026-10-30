@@ -329,13 +329,13 @@ describe("renderTable — styled output", () => {
     expect(rows[2]).toContain("\x1b[m"); // SGR reset (lipgloss emits \x1b[m, not \x1b[22m)
   });
 
-  it("applies zebra background to odd data rows", () => {
+  it("applies zebra background starting on the first data row", () => {
     const rows = renderTable(table, 80, false, 0);
-    // Row 4 = data row 0 (even, no zebra), row 5 = divider, row 6 = data
-    // row 1 (odd, zebra). ST.tableZebra bg is #1a1a2e → ANSI 48;2;26;26;46
-    expect(rows[4]).not.toMatch(/48;2;26;26;46/);
+    // Row 4 = data row 0 (striped), row 5 = divider, row 6 = data row 1
+    // (not striped). ST.tableZebra bg is #1a1a2e → ANSI 48;2;26;26;46
+    expect(rows[4]).toMatch(/48;2;26;26;46/);
     expect(rows[5]).toContain("├");
-    expect(rows[6]).toMatch(/48;2;26;26;46/);
+    expect(rows[6]).not.toMatch(/48;2;26;26;46/);
   });
 
 
@@ -345,8 +345,8 @@ describe("renderTable — styled output", () => {
     // ST.tableSelected bg is #1e3a8a → ANSI 48;2;30;58;138
     expect(focused[4]).toMatch(/48;2;30;58;138/);
     expect(unfocused[4]).not.toMatch(/1e3a8a/);
-    // Row 1 (odd) gets zebra, not selected, in both modes (row 5 = divider)
-    expect(focused[6]).toMatch(/48;2;26;26;46/);
+    // Row 1 gets NO zebra, not selected, in both modes (row 5 = divider)
+    expect(focused[6]).not.toMatch(/48;2;26;26;46/);
     expect(focused[6]).not.toMatch(/1e3a8a/);
   });
 
@@ -354,8 +354,8 @@ describe("renderTable — styled output", () => {
     const noScroll = renderTable(table, 80, false, 0);
     const scrolled = renderTable(table, 80, false, 3);
     // scrollX=3 slices the first 3 chars off data rows: "│ Alice..." → "lice..."
-    expect(noScroll[4]!.charAt(0)).toBe("│");
-    expect(scrolled[4]!.startsWith("lice")).toBe(true);
+    expect(stripAnsi(noScroll[4]!).charAt(0)).toBe("│");
+    expect(stripAnsi(scrolled[4]!).startsWith("lice")).toBe(true);
     // The scrolled data row differs from the unscrolled one
     expect(scrolled[4]).not.toBe(noScroll[4]);
   });
@@ -406,13 +406,14 @@ describe("renderTable — styled output", () => {
     const rows = renderTable(parseTable(md)!, 80, false, 0);
     // rows: 0 margin, 1 top, 2 header, 3 separator, 4 data0, 5 divider,
     // 6-7 data1's two physical lines, 8 bottom, 9 margin
-    // data1 is logical row index 1 → zebra on BOTH its physical lines
+    // data0 is logical row index 0 → zebra on BOTH its physical lines;
+    // data1 is unstriped
     const zebra = "48;2;26;26;46";
-    expect(rows[6]).toMatch(zebra);
-    expect(rows[7]).toMatch(zebra);
-    expect(rows[4]).not.toMatch(zebra);
+    expect(rows[4]).toMatch(zebra);
     expect(rows[5]).toContain("├");
     expect(rows[5]).not.toMatch(zebra);
+    expect(rows[6]).not.toMatch(zebra);
+    expect(rows[7]).not.toMatch(zebra);
   });
 
   it("splits <br> in header cells into stacked lines", () => {
@@ -449,9 +450,10 @@ describe("renderTable — styled output", () => {
     const rows = renderTable(parseTable(md)!, 80, false, 0);
     const zebra = "48;2;26;26;46";
     // Layout: 4 data0, 5 divider, 6 data1, 7 divider, 8 data2,
-    // 9 bottom, 10 margin
-    expect(rows[6]).toMatch(zebra);
-    expect(rows[8]).not.toMatch(zebra);
+    // 9 bottom, 10 margin — striped rows are 0 and 2 (even indices)
+    expect(rows[4]).toMatch(zebra);
+    expect(rows[6]).not.toMatch(zebra);
+    expect(rows[8]).toMatch(zebra);
     for (const idx of [5, 7]) {
       expect(rows[idx]).toMatch(/^├─+┤$/);
       expect(rows[idx]).not.toMatch(zebra);
