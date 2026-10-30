@@ -13,13 +13,7 @@ import { GLAMOUR_THEME, ST, CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import type { EntryKind, LogEntry } from "./types.ts";
-import {
-  newTable,
-  withTableFocused,
-  withTableStyles,
-  withTableWidth,
-} from "@oakoliver/bubbles";
-import { parseTable, splitTableSections, type ParsedTable } from "./table.ts";
+import { parseTable, renderTable, splitTableSections, type ParsedTable } from "./table.ts";
 
 /** Memoized glamour renderers, keyed by wrap width (max 8 before reuse). */
 const mdRenderers = new Map<number, TermRenderer>();
@@ -182,28 +176,9 @@ interface EntryRender {
 }
 
 /**
- * Render a parsed table through Bubbles at `cols`, returning rows.
- *
- * Uses our `ST.assistant` styles for header/cell/selected — the same
- * white-on-normal palette as the surrounding prose, so a table never
- * looks like a foreign element inside an assistant entry.
- */
-function renderTable(table: ParsedTable, cols: number, focused: boolean): string[] {
-  const styles = {
-    header: ST.assistant.bold(true),
-    cell: ST.assistant,
-    selected: ST.assistant.background("#1e3a8a").foreground("#ffffff"),
-  };
-  const t = newTable(
-    withTableWidth(Math.max(1, cols)),
-    withTableFocused(focused),
-    withTableStyles(styles),
-  );
-  t.setColumns(table.columns);
-  t.setRows(table.rows);
-  const out = t.view();
-  return out.split("\n");
-}
+ * Render a parsed table as styled rows: box-drawing borders, bold header,
+ * zebra-striped data rows, and 1-cell top/bottom margins. Width-capped to
+ * `cols` — columns scale proportionally when the table is too wide.
 
 /**
  * Flatten glamour's theme colors out of a rendered markdown row, keeping only

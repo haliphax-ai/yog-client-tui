@@ -75,6 +75,191 @@ function isTableDelimiter(line: string): boolean {
   return cells.every((c) => /^:?-+:?$/.test(c));
 }
 
+import { newStyle } from "@oakoliver/lipgloss";
+import { BaseComponent, type KeyResult, type RenderContext } from "../components/Component.ts";
+import { ST } from "../theme.ts";
+
+/**
+ * A hand-rolled table component: box-drawing borders, bold header,
+ * zebra-striped data rows, 1-cell top/bottom margins, and horizontal
+ * scroll via the arrow keys. Replaces Bubbles Table — Bubbles gives us
+ * layout but no styling hooks, and we need borders, zebra, and scroll.
+ *
+ * The component is self-contained: it owns its scroll offset, renders its
+ * own rows, and handles its own keys. It is not store-bound — the entry
+ * that contains it owns the table data and passes it in.
+ */
+export class TableComponent extends BaseComponent {
+  private table: ParsedTable | null = null;
+  private scrollX = 0;
+  private cols = 80;
+  private tableFocused = false;
+
+  /** Set the table data (re-renders on next `render` call). */
+  setTable(table: ParsedTable): void {
+    this.table = table;
+    this.scrollX = 0; // reset scroll when data changes
+  }
+
+  /** Current horizontal scroll offset (in cells). */
+  getScrollX(): number {
+    return this.scrollX;
+  }
+
+  /** Total rendered width of the table (including borders and margins). */
+  totalWidth(): number {
+    if (!this.table) return 0;
+    const colWidths = this.table.columns.map((c) => c.width);
+    const numCols = colWidths.length;
+    return colWidths.reduce((s, w) => s + w, 0) + 2 * numCols + 2;
+  }
+
+  override render(ctx: RenderContext): string[] {
+    this.cols = Math.max(1, ctx.cols);
+    if (!this.table) return [];
+    return renderTable(this.table, this.cols, this.tableFocused, this.scrollX);
+  }
+
+  override handleKey(seq: string): KeyResult {
+    // Horizontal scroll: Left/Right move by one cell, Home/End jump.
+    switch (seq) {
+      case "\x1bOD": // Left (application mode)
+      case "\x1b[D": // Left
+        if (this.scrollX > 0) {
+          this.scrollX = Math.max(0, this.scrollX - 1);
+          return "handled";
+        }
+        return "unhandled";
+      case "\x1bOC": // Right (application mode)
+      case "\x1b[C": // Right
+        if (this.totalWidth() > this.cols) {
+          this.scrollX = Math.min(this.totalWidth() - this.cols, this.scrollX + 1);
+          return "handled";
+        }
+        return "unhandled";
+      case "\x1b[1~": // Home
+        this.scrollX = 0;
+        return "handled";
+      case "\x1b[4~": // End
+        this.scrollX = Math.max(0, this.totalWidth() - this.cols);
+        return "handled";
+      default:
+        return "unhandled";
+    }
+  }
+
+  override handleChar(ch: string): KeyResult {
+    // h/l for fine-grained horizontal scroll (vim-style).
+    if (ch === "h" && this.scrollX > 0) {
+      this.scrollX = Math.max(0, this.scrollX - 1);
+      return "handled";
+    }
+    if (ch === "l" && this.totalWidth() > this.cols) {
+      this.scrollX = Math.min(this.totalWidth() - this.cols, this.scrollX + 1);
+      return "handled";
+    }
+    return "unhandled";
+  }
+
+  protected override focusChanged(gain: boolean): void {
+    this.tableFocused = gain;
+  }
+}
+
+/**
+ * Render a parsed table as styled rows: box-drawing borders, bold header,
+ * zebra-striped data rows, and 1-cell top/bottom margins. Width-capped to
+ * `cols` — columns scale proportionally when the table is too wide.
+ *
+ * `scrollX` shifts the rendered content left by that many cells; the caller
+ * is responsible for clamping it to `[0, totalWidth - cols]`.
+ */
+export function renderTable(
+  table: ParsedTable,
+  cols: number,
+  focused = false,
+  scrollX = 0,
+): string[] {
+  const colWidths = table.columns.map((c) => c.width);
+  const numCols = colWidths.length;
+
+  // Total table width: │ cell1 │ cell2 │ ... │
+  // Each cell block = " content " (width + 2), cells adjacent, outer "│" each side.
+  // Total = 2 + sum(widths + 2) = sum(widths) + 2*numCols + 2
+  const totalWidth = colWidths.reduce((s, w) => s + w, 0) + 2 * numCols + 2;
+
+  // Scale columns proportionally when the table doesn't fit.
+  const scale = totalWidth > cols ? cols / totalWidth : 1;
+  const w = colWidths.map((cw) => Math.max(1, Math.floor(cw * scale)));
+
+  const border = focused ? "┃" : "│";
+  const hBorder = focused ? "━" : "─";
+  const tl = focused ? "┏" : "┌";
+  const tr = focused ? "┓" : "┐";
+  const ml = focused ? "┣" : "├";
+  const mr = focused ? "┫" : "┤";
+  const bl = focused ? "┗" : "└";
+  const br = focused ? "┛" : "┘";
+  const cross = focused ? "╋" : "┼";
+  const tCross = focused ? "┳" : "┬";
+  const bCross = focused ? "┻" : "┴";
+
+  const cell = (text: string, width: number): string =>
+    ` ${text.padEnd(width)} `;
+
+  const row = (cells: string[]): string =>
+    border + cells.join(border) + border;
+
+  const hr = (crossChar: string): string =>
+    crossChar +
+    w.map((cw) => hBorder.repeat(cw + 2)).join(crossChar) +
+    crossChar;
+
+  const rows: string[] = [];
+
+  // Top margin.
+  rows.push("");
+
+  // Top border.
+  rows.push(hr(tl));
+
+  // Header.
+  const headerCells = table.columns.map((c, i) =>
+    ST.assistant.bold(true).render(cell(c.title, w[i]!)),
+  );
+  rows.push(row(headerCells));
+
+  // Header separator.
+  rows.push(hr(ml));
+
+  // Zebra style: alternating dark-blue background on data rows.
+  const zebra = newStyle()
+    .foreground("#ffffff")
+    .background("#1a1a2e");
+
+  // Data rows.
+  for (let r = 0; r < table.rows.length; r++) {
+    const src = table.rows[r]!;
+    const cells = src.map((c, i) => cell(c ?? "", w[i]!));
+    const line = row(cells);
+    // Apply horizontal scroll: drop the first `scrollX` cells, pad the right.
+    const scrolled =
+      scrollX > 0
+        ? line.slice(scrollX).padEnd(totalWidth, " ")
+        : line;
+    const style = r % 2 === 1 ? zebra : undefined;
+    rows.push(style ? style.render(scrolled) : scrolled);
+  }
+
+  // Bottom border.
+  rows.push(hr(bl));
+
+  // Bottom margin.
+  rows.push("");
+
+  return rows;
+}
+
 /**
  * A section of split text: either prose or a parsed table.
  *
