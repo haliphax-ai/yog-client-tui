@@ -11,7 +11,9 @@ import type { EntryKind, LogEntry } from "./types.ts";
 import {
   parseTable,
   renderTable,
+  resolveTableLayout,
   splitTableSections,
+  tableRowWidth,
   TableComponent,
   type ParsedTable,
 } from "./table.ts";
@@ -116,14 +118,28 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
         );
       } else {
         // Route table sections through TableComponent so the shared viewport
-        // logic (clamp/slice/pad) is used instead of a bypass call.
+        // logic (clamp/slice/pad) is used instead of a bypass call. The
+        // column layout comes from resolveTableLayout: reflowed columns keep
+        // the shrink-to-fit widths while focused-collapsed, and render at the
+        // 30-cell floor once the entry's tableExpanded flag is set. The
+        // expanded row may exceed `cols` — horizontal scroll reveals it.
         const tc = new TableComponent();
         tc.setTable(section.table);
         tc.setMargin({
           top: section !== first,
           bottom: section !== last,
         });
+        const layout = resolveTableLayout(
+          section.table.columns.map((c) => c.width),
+          bodyW,
+          entry.tableExpanded === true,
+        );
+        tc.setFitWidths(layout.widths);
         tc.onFocus(focused);
+        if (entry.tableScrollX !== undefined && layout.expandable) {
+          const totalW = tableRowWidth(layout.widths);
+          tc.scrollX = Math.max(0, Math.min(entry.tableScrollX, Math.max(0, totalW - bodyW)));
+        }
         parts.push(...tc.render({ cols: bodyW }));
       }
     }
@@ -213,14 +229,19 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
 
 /**
  * Table signature for the cache key: column count + row count + per-column
- * widths. Captures everything `renderTable` derives output from — if any
- * of these change, the rendered table changes too.
+ * widths, plus the entry's table flags. Captures everything `renderEntry`'s
+ * table path derives output from — if any of these change, the rendered
+ * table changes too.
  */
-function tableSignature(lines: string[]): string {
+function tableSignature(
+  lines: string[],
+  tableExpanded: boolean | undefined,
+  tableScrollX: number | undefined,
+): string {
   const t = parseTable(lines.join("\n"));
   if (!t) return "0";
   const widths = t.columns.map((c) => c.width).join(",");
-  return `${t.columns.length}:${t.rows.length}:${widths}`;
+  return `${t.columns.length}:${t.rows.length}:${widths}:${tableExpanded ? 1 : 0}:${tableScrollX ?? 0}`;
 }
 
 /**
@@ -240,7 +261,7 @@ export function cachedRows(entry: LogEntry, cols: number, focused = false): stri
     entry.expanded ? 1 : 0
   }|${lines.length}|${lines[0]?.length ?? 0}|${lines[lines.length - 1]?.length ?? 0}|${
     entry.label ?? ""
-  }|${tableSignature(lines)}`;
+  }|${tableSignature(lines, entry.tableExpanded, entry.tableScrollX)}`;
   const hit = entry.cache;
   if (hit !== undefined && hit.entry === entry && hit.key === key) return hit.rows;
   const rows = renderEntry(entry, cols, focused).rendered.split("\n");

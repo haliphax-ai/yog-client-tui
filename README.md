@@ -85,14 +85,24 @@ to run `cp config.example.json config.json`.
 
 | Key                                               | Action                                                                           |
 | ------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `Enter`                                           | Send the current input (on a focused chunk / tool call: expand/collapse it)      |
+| `Enter`                                           | Send the current input (on a focused chunk / tool call: expand/collapse it; on a focused message containing a table: expand its reflowed columns) |
 | `Ctrl+C`                                          | Quit                                                                             |
-| `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input                                                                       |
+| `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input (on a focused expanded table: scroll columns horizontally)            |
 | `PageUp` / `PageDown`, `↑` / `↓`                  | Scroll the log viewport                                                          |
 | `Ctrl+Home` / `Ctrl+End`                          | Jump to top / bottom of the log                                                  |
-| `Tab`                                             | Focus the next expandable entry (tool call / output chunk; wraps through "none") |
+| `Tab`                                             | Focus the next expandable entry (tool call / output chunk / table message; wraps through "none") |
 | `Shift+Tab`                                       | Focus the previous entry (wraps through "none")                                  |
 | `Esc`                                             | Leave focus mode · abort the in-flight turn (idle → no-op)                       |
+
+### Tables
+
+Messages containing a GFM pipe table are focusable when the table engine had
+to reflow a column to fit the viewport **and** could not give it at least 30
+display cells. Focused tables draw heavy borders; `Enter` expands — reflow
+still runs, but reflowed columns render at a 30-cell floor, letting the table
+extend horizontally past the viewport; `←`/`→` (or `h`/`l`) scroll it.
+Columns the reflow never reshaped are left alone, and tables that fit without
+squeezing are never expandable.
 
 Input keystrokes are ignored while a turn is in flight (one turn at a time); the
 status line shows a spinner and key hints — including `Esc abort` while busy.

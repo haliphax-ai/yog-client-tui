@@ -142,9 +142,9 @@ function cellWidth(cell: string): number {
  * does — floored at 3 so cells still wrap readably. Cell content wraps to
  * its column width when capping squeezes it below the text's width.
  */
-function capWidths(colWidths: number[], cols: number): number[] {
-  // Row geometry: Σ(width+2) + (n+1) border runes = Σw + 3n + 1.
-  const fits = (ws: number[]): boolean => ws.reduce((s, x) => s + x, 0) + 3 * ws.length + 1 <= cols;
+export function capWidths(colWidths: number[], cols: number): number[] {
+  // Row geometry: │ w1 │ w2 │ = Σ(w + 2) + 2 borders = Σw + 2n + 2.
+  const fits = (ws: number[]): boolean => tableRowWidth(ws) <= cols;
   if (fits(colWidths)) return [...colWidths];
   const w = [...colWidths];
   while (!fits(w) && w.some((x) => x > 3)) {
@@ -155,6 +155,61 @@ function capWidths(colWidths: number[], cols: number): number[] {
     }
   }
   return w;
+}
+
+/** Minimum column width (cells) the viewport layout guarantees an expanded,
+ *  reflowed column. Below this, focusing the table unlocks horizontal
+ *  expansion instead of squeezing the column to unreadable wraps. */
+export const TABLE_MIN_COL = 30;
+
+/** Rendered width of a table row in cells: Σ(width + 2 padding) + (n+1)
+ *  border runes — │ c1 │ c2 │ has a separator between every pair of cells
+ *  plus the two outer corners (Σw + 3n + 1). */
+export function tableRowWidth(colWidths: readonly number[]): number {
+  return colWidths.reduce((s, w) => s + w + 2, 0) + colWidths.length + 1;
+}
+
+/**
+ * Layout decision for one table: whether the entry is focus-expandable and,
+ * when expanded, the per-column widths reflow should render at.
+ *
+ * Reflow runs exactly as in the collapsed layout (shrink widest first,
+ * floor 3) to classify which columns had to reshape. A table is expandable
+ * when at least one reshaped column ended up below the 30-cell guarantee —
+ * that is the case expansion fixes. When expanded, every reshaped column
+ * renders at `max(fit, 30)` cells; columns reflow never touched (already at
+ * or under their natural width) keep the fit width — expansion only relieves
+ * squeezed columns, never widens tidy ones. The expanded row may extend
+ * horizontally past the viewport; scroll reveals it.
+ */
+export function resolveTableLayout(
+  colWidths: readonly number[],
+  cols: number,
+  tableExpanded: boolean,
+): { expandable: boolean; widths: number[] } {
+  if (colWidths.length === 0) return { expandable: false, widths: [] };
+  const fit = capWidths([...colWidths], cols);
+  const squeezed = colWidths.some(
+    (natural, i) => fit[i] !== undefined && (fit[i] as number) < natural,
+  );
+  if (!squeezed) return { expandable: false, widths: [...colWidths] };
+  if (!tableExpanded) {
+    // Expandable only when some squeezed column lost the 30-cell guarantee.
+    const undersized = colWidths.some(
+      (natural, i) =>
+        fit[i] !== undefined && (fit[i] as number) < natural && (fit[i] as number) < TABLE_MIN_COL,
+    );
+    return { expandable: undersized, widths: [...fit] };
+  }
+  // Expanded: reflow still runs, but squeezed columns render at the 30-cell
+  // floor; untouched fit widths carry over unchanged.
+  const widths = [...fit];
+  for (let i = 0; i < widths.length; i++) {
+    if (fit[i] !== undefined && (fit[i] as number) < colWidths[i]!) {
+      widths[i] = Math.max(TABLE_MIN_COL, fit[i] as number);
+    }
+  }
+  return { expandable: true, widths };
 }
 
 /** True if the line looks like a table row (has pipes and at least one non-empty cell). */
@@ -219,6 +274,7 @@ function backgroundSafe(text: string): string {
 export class TableComponent extends ViewportComponent {
   private table: ParsedTable | null = null;
   private margin: TableMargin = { top: true, bottom: true };
+  private fitWidths: readonly number[] | undefined = undefined;
 
   /** Set the table data (re-renders on next `render` call). */
   setTable(table: ParsedTable): void {
@@ -231,6 +287,11 @@ export class TableComponent extends ViewportComponent {
     this.margin = margin;
   }
 
+  /** Pin the column layout (resolveTableLayout output) — omit to fit-to-viewport. */
+  setFitWidths(widths: readonly number[] | undefined): void {
+    this.fitWidths = widths === undefined ? undefined : [...widths];
+  }
+
   /** Current horizontal scroll offset (in cells). */
   getScrollX(): number {
     return this.scrollX;
@@ -240,58 +301,72 @@ export class TableComponent extends ViewportComponent {
    * `renderTable` never emits lines wider than `cols` (it wraps instead). */
   override totalWidth(): number {
     if (!this.table) return 0;
-    const colWidths = this.table.columns.map((c) => c.width);
-    const numCols = colWidths.length;
-    const natural = colWidths.reduce((s, w) => s + w, 0) + 3 * numCols + 1;
-    return Math.min(natural, this.cols);
+    const widths = this.fitWidths ?? this.table.columns.map((c) => c.width);
+    return Math.min(tableRowWidth(widths), this.cols);
   }
 
   /** Produce all content rows at `cols` (before viewport slicing). */
   override produceRows(cols: number): string[] {
     if (!this.table) return [];
-    return renderTable(this.table, cols, this.isFocused, this.scrollX, this.margin);
+    return renderTable(this.table, cols, this.isFocused, this.scrollX, this.margin, this.fitWidths);
   }
 
   override handleKey(seq: string): KeyResult {
-    // Horizontal scroll: Left/Right move by one cell, Home/End jump.
-    switch (seq) {
-      case "\x1bOD": // Left (application mode)
-      case "\x1b[D": // Left
-        if (this.scrollX > 0) {
-          this.scrollX = Math.max(0, this.scrollX - 1);
-          return "handled";
-        }
-        return "unhandled";
-      case "\x1bOC": // Right (application mode)
-      case "\x1b[C": // Right
-        if (this.totalWidth() > this.cols) {
-          this.scrollX = Math.min(this.totalWidth() - this.cols, this.scrollX + 1);
-          return "handled";
-        }
-        return "unhandled";
-      case "\x1b[1~": // Home
-        this.scrollX = 0;
-        return "handled";
-      case "\x1b[4~": // End
-        this.scrollX = Math.max(0, this.totalWidth() - this.cols);
-        return "handled";
-      default:
-        return "unhandled";
-    }
+    const step = tableScrollKey(seq, this.scrollX, this.totalWidth(), this.cols);
+    if (step === null) return "unhandled";
+    this.scrollX = step.scrollX;
+    return "handled";
   }
 
   override handleChar(ch: string): KeyResult {
-    // h/l for fine-grained horizontal scroll (vim-style).
-    if (ch === "h" && this.scrollX > 0) {
-      this.scrollX = Math.max(0, this.scrollX - 1);
-      return "handled";
-    }
-    if (ch === "l" && this.totalWidth() > this.cols) {
-      this.scrollX = Math.min(this.totalWidth() - this.cols, this.scrollX + 1);
-      return "handled";
-    }
-    return "unhandled";
+    const step = tableScrollChar(ch, this.scrollX, this.totalWidth(), this.cols);
+    if (step === null) return "unhandled";
+    this.scrollX = step.scrollX;
+    return "handled";
   }
+}
+
+/** Outcome of one table horizontal-scroll key: the new offset (when the key
+ *  moved the view) or null (key not claimed — bubble it). */
+export type TableScrollStep = { scrollX: number } | null;
+
+/** Pure horizontal-scroll handler for a focused table: Left/Right move by one
+ *  cell, Home/End jump; unclaimed sequences return null. `totalW` bounds the
+ *  offset at `totalW - cols` (0 when the row fits the viewport). */
+export function tableScrollKey(
+  seq: string,
+  scrollX: number,
+  totalW: number,
+  cols: number,
+): TableScrollStep {
+  const max = Math.max(0, totalW - cols);
+  switch (seq) {
+    case "\x1bOD": // Left (application mode)
+    case "\x1b[D": // Left
+      return scrollX > 0 ? { scrollX: Math.max(0, scrollX - 1) } : null;
+    case "\x1bOC": // Right (application mode)
+    case "\x1b[C": // Right
+      return max > 0 ? { scrollX: Math.min(max, scrollX + 1) } : null;
+    case "\x1b[1~": // Home
+      return { scrollX: 0 };
+    case "\x1b[4~": // End
+      return { scrollX: max };
+    default:
+      return null;
+  }
+}
+
+/** Char-level companion: h/l for fine-grained horizontal scroll. */
+export function tableScrollChar(
+  ch: string,
+  scrollX: number,
+  totalW: number,
+  cols: number,
+): TableScrollStep {
+  const max = Math.max(0, totalW - cols);
+  if (ch === "h") return scrollX > 0 ? { scrollX: Math.max(0, scrollX - 1) } : null;
+  if (ch === "l") return max > 0 ? { scrollX: Math.min(max, scrollX + 1) } : null;
+  return null;
 }
 
 /**
@@ -320,19 +395,24 @@ export function renderTable(
   focused = false,
   scrollX = 0,
   margin: TableMargin = FULL_MARGIN,
+  fitWidths?: readonly number[],
 ): string[] {
-  const colWidths = table.columns.map((c) => c.width);
+  // Column widths: the caller's resolved layout when given (the entry
+  // renderer derives them from resolveTableLayout — expansion may push the
+  // row past `cols`, which is the point), else fit-to-viewport.
+  const w =
+    fitWidths !== undefined
+      ? [...fitWidths]
+      : capWidths(
+          table.columns.map((c) => c.width),
+          cols,
+        );
+  const colWidths = w;
   const numCols = colWidths.length;
 
-  // Total table width: │ cell1 │ cell2 │ ... │
-  // Each cell block = " content " (width + 2), cells adjacent, outer "│" each side.
-  // Total = 2 + sum(widths + 2) = sum(widths) + 2*numCols + 2
-  const totalWidth = colWidths.reduce((s, w) => s + w, 0) + 2 * numCols + 2;
-
-  // Cap to the viewport: when the table doesn't fit, shrink the WIDEST
-  // columns first (floor 3) instead of proportionally squeezing everything;
-  // over-long cell text wraps to its capped width below.
-  const w = capWidths(colWidths, cols);
+  // Total table width: │ cell1 │ cell2 │ ... │ — Σ(w+2) per cell block plus
+  // the (n+1) border runes (corners + one between every cell pair).
+  const totalWidth = tableRowWidth(colWidths);
 
   const border = focused ? "┃" : "│";
   const hBorder = focused ? "━" : "─";
@@ -425,7 +505,11 @@ export function renderTable(
       // Short cells fill their missing lines with blank padded cells so the
       // dividers stay aligned (a bare "" would collapse the cell entirely).
       const line = row(cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")));
-      const scrolled = scrollX > 0 ? sliceAnsi(line, scrollX).padEnd(totalWidth, " ") : line;
+      // Cell-accurate pad-back: padEnd counts characters (escape bytes
+      // included), so a sliced line bearing SGR/OSC runs would pad short.
+      const sliced = scrollX > 0 ? sliceAnsi(line, scrollX) : line;
+      const padBack = Math.max(0, totalWidth - displayWidth(stripAnsi(sliced)));
+      const scrolled = sliced + " ".repeat(padBack);
       rows.push(style ? style.render(scrolled) : scrolled);
     }
     // Divider between data rows (after the WHOLE logical row, never inside
