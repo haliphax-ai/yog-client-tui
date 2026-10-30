@@ -48,10 +48,7 @@ beforeAll(async () => {
     const actual = await importOriginal<typeof import("node:fs/promises")>();
     return {
       ...actual,
-      readFile: (async (
-        file: Parameters<typeof actual.readFile>[0],
-        ...rest: unknown[]
-      ) => {
+      readFile: (async (file: Parameters<typeof actual.readFile>[0], ...rest: unknown[]) => {
         if (fsState.denyBundledRead && String(file) === bundledConfigPath) {
           throw Object.assign(new Error("bundled config denied by test"), {
             code: "ENOENT",
@@ -173,9 +170,7 @@ describe("loadConfig", () => {
         "or drop a config.json in the current directory",
     );
     // the local (cwd) path is mentioned first, the bundled path second
-    expect(err?.message.indexOf(local)).toBeLessThan(
-      err?.message.indexOf(bundledConfigPath) ?? -1,
-    );
+    expect(err?.message.indexOf(local)).toBeLessThan(err?.message.indexOf(bundledConfigPath) ?? -1);
   });
 
   it("throws for invalid JSON, naming the file that was read", async () => {
@@ -220,36 +215,28 @@ describe("loadConfig", () => {
     const dir = await tempDir();
     const file = await writeConfig(dir, '{"baseUrl":"http://example.test"}');
     const err = await loadError(dir);
-    expect(err.message).toBe(
-      `invalid configuration (${file}): "model" must be a non-empty string`,
-    );
+    expect(err.message).toBe(`invalid configuration (${file}): "model" must be a non-empty string`);
   });
 
   it("rejects an empty model", async () => {
     const dir = await tempDir();
     const file = await writeConfig(dir, '{"model":""}');
     const err = await loadError(dir);
-    expect(err.message).toBe(
-      `invalid configuration (${file}): "model" must be a non-empty string`,
-    );
+    expect(err.message).toBe(`invalid configuration (${file}): "model" must be a non-empty string`);
   });
 
   it("rejects a whitespace-only model", async () => {
     const dir = await tempDir();
     const file = await writeConfig(dir, '{"model":"   "}');
     const err = await loadError(dir);
-    expect(err.message).toBe(
-      `invalid configuration (${file}): "model" must be a non-empty string`,
-    );
+    expect(err.message).toBe(`invalid configuration (${file}): "model" must be a non-empty string`);
   });
 
   it("rejects a non-string model", async () => {
     const dir = await tempDir();
     const file = await writeConfig(dir, '{"model":42}');
     const err = await loadError(dir);
-    expect(err.message).toBe(
-      `invalid configuration (${file}): "model" must be a non-empty string`,
-    );
+    expect(err.message).toBe(`invalid configuration (${file}): "model" must be a non-empty string`);
   });
 
   it("rejects an empty baseUrl", async () => {
@@ -421,7 +408,9 @@ describe("persistSessionKey", () => {
     expect(parsed["session"]).toBe("sess-9");
     expect(parsed["model"]).toBe("m-1");
     expect(parsed["custom"]).toEqual({ a: 1 });
-    expect(raw).toBe('{\n  "model": "m-1",\n  "custom": {\n    "a": 1\n  },\n  "session": "sess-9"\n}\n');
+    expect(raw).toBe(
+      '{\n  "model": "m-1",\n  "custom": {\n    "a": 1\n  },\n  "session": "sess-9"\n}\n',
+    );
   });
 
   it("falls back to the bundled-dir copy when the cwd has none", async () => {

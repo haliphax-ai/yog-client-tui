@@ -70,9 +70,7 @@ function cellTextWidth(text: string): number {
   if (hit !== undefined) return hit;
   const rendered = renderInlineMarkdown(text, displayWidth(text) + 16);
   const width =
-    rendered.length === 0
-      ? displayWidth(text)
-      : displayWidth(stripAnsi(rendered.join("")));
+    rendered.length === 0 ? displayWidth(text) : displayWidth(stripAnsi(rendered.join("")));
   if (cellWidthCache.size >= 1024) cellWidthCache.clear();
   cellWidthCache.set(text, width);
   return width;
@@ -146,8 +144,7 @@ function cellWidth(cell: string): number {
  */
 function capWidths(colWidths: number[], cols: number): number[] {
   // Row geometry: Σ(width+2) + (n+1) border runes = Σw + 3n + 1.
-  const fits = (ws: number[]): boolean =>
-    ws.reduce((s, x) => s + x, 0) + 3 * ws.length + 1 <= cols;
+  const fits = (ws: number[]): boolean => ws.reduce((s, x) => s + x, 0) + 3 * ws.length + 1 <= cols;
   if (fits(colWidths)) return [...colWidths];
   const w = [...colWidths];
   while (!fits(w) && w.some((x) => x > 3)) {
@@ -204,7 +201,6 @@ import { renderInlineMarkdown } from "./markdown.ts";
  * that contains it owns the table data and passes it in.
  */
 
-
 /** Background-safe post-process: strip inner bg SGRs, replace glamour's
  * full resets with attr-off + fg resets so the outer zebra/selected
  * background survives AND underlined link runs close cleanly (24) without
@@ -216,10 +212,7 @@ function backgroundSafe(text: string): string {
       .replaceAll("\x1b[0m", "\x1b[22;23;24;25;27;29;39m")
       .replaceAll("\x1b[m", "\x1b[22;23;24;25;27;29;39m")
       // strip any remaining background SGRs (48;2;... / 48;5;...)
-      .replace(
-        /\x1b\[(?:48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})(?:;\d+)*m/g,
-        "",
-      )
+      .replace(/\x1b\[(?:48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})(?:;\d+)*m/g, "")
   );
 }
 
@@ -380,15 +373,12 @@ export function renderTable(
     return ` ${body} `;
   };
 
-  const row = (cells: string[]): string =>
-    border + cells.join(border) + border;
+  const row = (cells: string[]): string => border + cells.join(border) + border;
 
   // Horizontal rule: left corner, interior cross between segments, right corner.
   // Top border ┌─┬─┐, separator ├─┼─┤, bottom └─┴─┘ (heavy variants when focused).
   const hr = (left: string, mid: string, right: string): string =>
-    left +
-    w.map((cw) => hBorder.repeat(cw + 2)).join(mid) +
-    right;
+    left + w.map((cw) => hBorder.repeat(cw + 2)).join(mid) + right;
 
   const rows: string[] = [];
 
@@ -427,27 +417,15 @@ export function renderTable(
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
     const cellLinesArr = src.map((c, i) =>
-      styleCell(c ?? "", w[i]!).map((rl) =>
-        padCellLine(rl, w[i]!, table.columns[i]!.align),
-      ),
+      styleCell(c ?? "", w[i]!).map((rl) => padCellLine(rl, w[i]!, table.columns[i]!.align)),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
-    const style =
-      focused && r === 0
-        ? ST.tableSelected
-        : r % 2 === 0
-          ? ST.tableZebra
-          : undefined;
+    const style = focused && r === 0 ? ST.tableSelected : r % 2 === 0 ? ST.tableZebra : undefined;
     for (let sl = 0; sl < rowHeight; sl++) {
       // Short cells fill their missing lines with blank padded cells so the
       // dividers stay aligned (a bare "" would collapse the cell entirely).
-      const line = row(
-        cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")),
-      );
-      const scrolled =
-        scrollX > 0
-          ? sliceAnsi(line, scrollX).padEnd(totalWidth, " ")
-          : line;
+      const line = row(cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")));
+      const scrolled = scrollX > 0 ? sliceAnsi(line, scrollX).padEnd(totalWidth, " ") : line;
       rows.push(style ? style.render(scrolled) : scrolled);
     }
     // Divider between data rows (after the WHOLE logical row, never inside
@@ -473,9 +451,7 @@ export function renderTable(
  * Produced by {@link splitTableSections}; consumed by the entry
  * renderer to route prose through glamour and tables through Bubbles.
  */
-export type TableSection =
-  | { kind: "prose"; text: string }
-  | { kind: "table"; table: ParsedTable };
+export type TableSection = { kind: "prose"; text: string } | { kind: "table"; table: ParsedTable };
 
 /**
  * Split raw markdown text into alternating prose and table sections.

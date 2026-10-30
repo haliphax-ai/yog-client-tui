@@ -94,9 +94,9 @@ describe("decodeToolCalls", () => {
     expect(decodeToolCalls(null)).toEqual([]);
     expect(decodeToolCalls("nope")).toEqual([]);
     expect(decodeToolCalls({ id: "x" })).toEqual([]);
-    expect(
-      decodeToolCalls([null, 7, "str", { function: { name: "solo" } }]),
-    ).toEqual([{ id: "", name: "solo", arguments: "" }]);
+    expect(decodeToolCalls([null, 7, "str", { function: { name: "solo" } }])).toEqual([
+      { id: "", name: "solo", arguments: "" },
+    ]);
   });
 
   it("skips calls with neither an id nor a name", () => {

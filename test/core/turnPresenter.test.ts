@@ -7,9 +7,7 @@ import {
   toolResultChunk,
   transcriptLogEntries,
 } from "../../src/core/turnPresenter.ts";
-import {
-  toTranscriptEntries,
-} from "../../src/core/transcript.ts";
+import { toTranscriptEntries } from "../../src/core/transcript.ts";
 import type { TranscriptMessage } from "../../src/yogClient.ts";
 import type { LogEntry } from "../../src/ui/render/index.ts";
 import { parseToolArgs } from "../../src/yogClient.ts";
@@ -225,9 +223,17 @@ describe("transcriptLogEntries", () => {
         row({
           seq: 2,
           role: "assistant",
-          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: '{"cmd":"ls"}' } }],
+          toolCalls: [
+            { id: "c1", type: "function", function: { name: "bash", arguments: '{"cmd":"ls"}' } },
+          ],
         }),
-        row({ seq: 3, role: "tool", toolCallId: "c1", name: "bash", content: '{"exitCode":0,"stdout":"out\\n"}' }),
+        row({
+          seq: 3,
+          role: "tool",
+          toolCallId: "c1",
+          name: "bash",
+          content: '{"exitCode":0,"stdout":"out\\n"}',
+        }),
       ]),
       COLS,
     );
@@ -252,7 +258,13 @@ describe("transcriptLogEntries", () => {
           ],
         }),
         row({ seq: 2, role: "tool", toolCallId: "c1", name: "bash", content: '{"exitCode":0}' }),
-        row({ seq: 3, role: "tool", toolCallId: "c2", name: "read", content: '{"error":"no file"}' }),
+        row({
+          seq: 3,
+          role: "tool",
+          toolCallId: "c2",
+          name: "read",
+          content: '{"error":"no file"}',
+        }),
       ]),
       COLS,
     );

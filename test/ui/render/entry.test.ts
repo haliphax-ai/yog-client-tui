@@ -70,10 +70,7 @@ describe("assistant prose left border", () => {
 
 describe("terminal-state notice", () => {
   it("renders one line: padded label, default-fg dot, dimmed detail", () => {
-    const rows = cachedRows(
-      { kind: "notice", lines: ["⏹ turn aborted", "by operator"] },
-      40,
-    );
+    const rows = cachedRows({ kind: "notice", lines: ["⏹ turn aborted", "by operator"] }, 40);
     expect(rows).toHaveLength(1);
     // Padding, label, mid-dot separator, dimmed detail — single line.
     expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹ turn aborted · by operator");

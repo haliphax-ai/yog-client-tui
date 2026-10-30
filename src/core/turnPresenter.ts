@@ -11,11 +11,7 @@
 import { parseToolArgs, type TurnEvents } from "../yogClient.ts";
 import { prettyArgs, resultPreview, resultStatus, type LogEntry } from "../ui/render/index.ts";
 import { displayWidth } from "../util/ansi.ts";
-import {
-  decodeToolCalls,
-  decodeToolResult,
-  type TranscriptEntry,
-} from "./transcript.ts";
+import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
 
 /** Anything that can be pushed to the log and schedules a redraw. */
 export type AppendEntry = (kind: LogEntry["kind"], lines: string[]) => void;
@@ -94,10 +90,9 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
       } else {
-        host.append(
-          "tool",
-          [`${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`],
-        );
+        host.append("tool", [
+          `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
+        ]);
       }
       // The result itself: a collapsible tool-output block. Only for
       // successful calls — a failed call (invalid schema, unknown tool)
@@ -247,7 +242,9 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
       out.push({
         kind: "tool",
-        lines: [`${decoded.ok ? "✅" : "❌"} ${label}${decoded.ok ? "" : ` ${decoded.error ?? "failed"}`}`],
+        lines: [
+          `${decoded.ok ? "✅" : "❌"} ${label}${decoded.ok ? "" : ` ${decoded.error ?? "failed"}`}`,
+        ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
         out.push(toolResultChunk(label, decoded.value, cols));

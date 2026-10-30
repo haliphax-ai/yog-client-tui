@@ -33,7 +33,8 @@ export function moveFocus(
   const targets = focusableChunks(entries);
   if (targets.length === 0) return FOCUS_NONE;
   const pos = targets.indexOf(current);
-  if (pos === -1) return dir === 1 ? (targets[0] as number) : (targets[targets.length - 1] as number);
+  if (pos === -1)
+    return dir === 1 ? (targets[0] as number) : (targets[targets.length - 1] as number);
   if (dir === 1) return pos === targets.length - 1 ? FOCUS_NONE : (targets[pos + 1] as number);
   return pos === 0 ? FOCUS_NONE : (targets[pos - 1] as number);
 }

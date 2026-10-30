@@ -54,15 +54,11 @@ describe("prettyArgs", () => {
 
   it("pretty mode returns 2-space indented JSON with no cap", () => {
     expect(prettyArgs({ a: 1 }, 5, "pretty")).toBe('{\n  "a": 1\n}');
-    expect(prettyArgs({ n: 1, s: "a b" }, 100, "pretty")).toBe(
-      '{\n  "n": 1,\n  "s": "a b"\n}',
-    );
+    expect(prettyArgs({ n: 1, s: "a b" }, 100, "pretty")).toBe('{\n  "n": 1,\n  "s": "a b"\n}');
   });
 
   it("pretty mode leaves raw strings untouched", () => {
-    expect(prettyArgs("  hello   world  ", 100, "pretty")).toBe(
-      "  hello   world  ",
-    );
+    expect(prettyArgs("  hello   world  ", 100, "pretty")).toBe("  hello   world  ");
   });
 
   it("falls back to String() when JSON serialization fails", () => {
@@ -124,16 +120,12 @@ describe("totalRows", () => {
   });
 
   it("adds one separator row between entries", () => {
-    expect(
-      totalRows([entry({ lines: ["hi"] }), entry({ lines: ["x", "y"] })], 40),
-    ).toBe(5);
+    expect(totalRows([entry({ lines: ["hi"] }), entry({ lines: ["x", "y"] })], 40)).toBe(5);
   });
 
   it("counts wrapped rows", () => {
     expect(totalRows([entry({ lines: ["w".repeat(100)] })], 40)).toBe(4);
-    expect(
-      totalRows([entry({ lines: ["w".repeat(100), "w".repeat(100)] })], 40),
-    ).toBe(7);
+    expect(totalRows([entry({ lines: ["w".repeat(100), "w".repeat(100)] })], 40)).toBe(7);
     expect(totalRows([entry({ lines: ["你好世界再见世界"] })], 6)).toBe(4);
   });
 
@@ -143,12 +135,7 @@ describe("totalRows", () => {
 
   it("counts chunk blocks including their vertical padding", () => {
     // header + 2 body rows + 1 padding row above/below + separator
-    expect(
-      totalRows(
-        [entry({ kind: "chunk", lines: ["cmd exit 0", "l1", "l2"] })],
-        40,
-      ),
-    ).toBe(6);
+    expect(totalRows([entry({ kind: "chunk", lines: ["cmd exit 0", "l1", "l2"] })], 40)).toBe(6);
   });
 
   it("counts tool call lines as one row", () => {
@@ -239,9 +226,7 @@ describe("renderMarkdown", () => {
 
   it("is deterministic for the same input", () => {
     expect(renderMarkdown(sample, 40)).toEqual(renderMarkdown(sample, 40));
-    expect(renderMarkdown(sample, 40).join("\n")).toBe(
-      renderMarkdown(sample, 40).join("\n"),
-    );
+    expect(renderMarkdown(sample, 40).join("\n")).toBe(renderMarkdown(sample, 40).join("\n"));
   });
 
   it("returns [] for oversized input", () => {
@@ -286,18 +271,10 @@ describe("resultStatus", () => {
 
 describe("resultPreview", () => {
   it("renders bash stdout/stderr as plain text rows", () => {
-    expect(
-      resultPreview({ stdout: "line1\nline2\n", stderr: "" }, 40),
-    ).toEqual(["line1", "line2"]);
-    expect(resultPreview({ stdout: "", stderr: "err line\n" }, 40)).toEqual([
-      "err line",
-    ]);
+    expect(resultPreview({ stdout: "line1\nline2\n", stderr: "" }, 40)).toEqual(["line1", "line2"]);
+    expect(resultPreview({ stdout: "", stderr: "err line\n" }, 40)).toEqual(["err line"]);
     // stdout rows come before stderr rows
-    expect(resultPreview({ stdout: "a\nb", stderr: "e" }, 40)).toEqual([
-      "a",
-      "b",
-      "e",
-    ]);
+    expect(resultPreview({ stdout: "a\nb", stderr: "e" }, 40)).toEqual(["a", "b", "e"]);
   });
 
   it("returns [] when the bash output is blank", () => {
@@ -328,13 +305,19 @@ describe("resultPreview", () => {
 
   it("renders scalar fallbacks as visible text", () => {
     expect(
-      resultPreview("text result", 40).map((r) => stripAnsi(r)).join("\n"),
+      resultPreview("text result", 40)
+        .map((r) => stripAnsi(r))
+        .join("\n"),
     ).toContain("text result");
     expect(
-      resultPreview(undefined, 40).map((r) => stripAnsi(r)).join("\n"),
+      resultPreview(undefined, 40)
+        .map((r) => stripAnsi(r))
+        .join("\n"),
     ).toContain("undefined");
     expect(
-      resultPreview(null, 40).map((r) => stripAnsi(r)).join("\n"),
+      resultPreview(null, 40)
+        .map((r) => stripAnsi(r))
+        .join("\n"),
     ).toContain("null");
   });
 
@@ -347,7 +330,7 @@ describe("colorizeToolLine", () => {
   it("colors JSON keys, values, numbers, and punctuation", () => {
     expect(colorizeToolLine('{"a":1}')).toBe(
       "\x1b[38;5;245m{\x1b[39m" +
-        "\x1b[38;5;39m\"a\"\x1b[39m" +
+        '\x1b[38;5;39m"a"\x1b[39m' +
         "\x1b[38;5;245m:\x1b[39m" +
         "\x1b[38;5;215m1\x1b[39m" +
         "\x1b[38;5;245m}\x1b[39m",
@@ -356,12 +339,12 @@ describe("colorizeToolLine", () => {
 
   it("colors literals and numbers in a full line", () => {
     expect(colorizeToolLine('a = {"key": [1, true, null], "s": "x"}')).toBe(
-      "a = \x1b[38;5;245m{\x1b[39m\x1b[38;5;39m\"key\"\x1b[39m\x1b[38;5;245m:\x1b[39m " +
+      'a = \x1b[38;5;245m{\x1b[39m\x1b[38;5;39m"key"\x1b[39m\x1b[38;5;245m:\x1b[39m ' +
         "\x1b[38;5;245m[\x1b[39m\x1b[38;5;215m1\x1b[39m\x1b[38;5;245m,\x1b[39m " +
         "\x1b[38;5;213mtrue\x1b[39m\x1b[38;5;245m,\x1b[39m " +
         "\x1b[38;5;213mnull\x1b[39m\x1b[38;5;245m]\x1b[39m\x1b[38;5;245m,\x1b[39m " +
-        "\x1b[38;5;39m\"s\"\x1b[39m\x1b[38;5;245m:\x1b[39m " +
-        "\x1b[38;5;114m\"x\"\x1b[39m\x1b[38;5;245m}\x1b[39m",
+        '\x1b[38;5;39m"s"\x1b[39m\x1b[38;5;245m:\x1b[39m ' +
+        '\x1b[38;5;114m"x"\x1b[39m\x1b[38;5;245m}\x1b[39m',
     );
   });
 
@@ -377,9 +360,7 @@ describe("colorizeToolLine", () => {
   });
 
   it("colors success and failure markers", () => {
-    expect(colorizeToolLine("plain ❌ bad")).toBe(
-      "plain \x1b[38;5;203m❌\x1b[39m bad",
-    );
+    expect(colorizeToolLine("plain ❌ bad")).toBe("plain \x1b[38;5;203m❌\x1b[39m bad");
     expect(colorizeToolLine("a ✓ b ✗ c")).toBe(
       "a \x1b[38;5;41m✓\x1b[39m b \x1b[38;5;203m✗\x1b[39m c",
     );
@@ -391,27 +372,23 @@ describe("colorizeToolLine", () => {
   });
 
   it("copies pre-existing escape sequences through untouched", () => {
-    expect(colorizeToolLine("\x1b[38;5;9mred ✅")).toBe(
-      "\x1b[38;5;9mred \x1b[38;5;41m✅\x1b[39m",
-    );
+    expect(colorizeToolLine("\x1b[38;5;9mred ✅")).toBe("\x1b[38;5;9mred \x1b[38;5;41m✅\x1b[39m");
   });
 
   it("carries string color across a row split and re-emits it", () => {
     expect(colorizeToolLine('{"a":"value\ncontinued"}')).toBe(
       "\x1b[38;5;245m{\x1b[39m" +
-        "\x1b[38;5;39m\"a\"\x1b[39m" +
+        '\x1b[38;5;39m"a"\x1b[39m' +
         "\x1b[38;5;245m:\x1b[39m" +
-        "\x1b[38;5;114m\"value\n" +
+        '\x1b[38;5;114m"value\n' +
         "\x1b[38;5;114mcontinued" +
-        "\x1b[38;5;114m\"\x1b[39m" +
+        '\x1b[38;5;114m"\x1b[39m' +
         "\x1b[38;5;245m}\x1b[39m",
     );
   });
 
   it("colors negative/exponent numbers as a single token", () => {
-    expect(colorizeToolLine("v=-3.5e2")).toBe(
-      "v=\x1b[38;5;215m-3.5e2\x1b[39m",
-    );
+    expect(colorizeToolLine("v=-3.5e2")).toBe("v=\x1b[38;5;215m-3.5e2\x1b[39m");
   });
 
   it("is ANSI-safe: stripping recovers the original text", () => {

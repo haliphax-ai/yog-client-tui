@@ -9,10 +9,7 @@ import { newStyle } from "@oakoliver/lipgloss";
 /** Styling map. Tool-output blocks: black bg, dark grey text, 1-cell padding. */
 export const ST = {
   /** Prompt: dark grey bg, light grey text, 1-cell padding, no margin. */
-  user: newStyle()
-    .foreground("#d4d4d8")
-    .background("#3f3f46")
-    .padding(1),
+  user: newStyle().foreground("#d4d4d8").background("#3f3f46").padding(1),
   /** Response: normal background, white text; spacing comes from the uniform entry separator. */
   assistant: newStyle().foreground("#ffffff"),
   /** Assistant prose left border: blue right-half block on every row. */
@@ -25,15 +22,9 @@ export const ST = {
   noticeDetail: newStyle().foreground("#a1a1aa"),
   error: newStyle().foreground("#ef4444").bold(true),
   /** Tool block (unfocused): black bg, dark grey text, 1-cell padding. */
-  chunkBlock: newStyle()
-    .foreground("#a1a1aa")
-    .background("#000000")
-    .padding(1),
+  chunkBlock: newStyle().foreground("#a1a1aa").background("#000000").padding(1),
   /** Tool block (focused): white text on dark blue, same padding. */
-  chunkBlockFocus: newStyle()
-    .foreground("#ffffff")
-    .background("#1e3a8a")
-    .padding(1),
+  chunkBlockFocus: newStyle().foreground("#ffffff").background("#1e3a8a").padding(1),
   /** Tool call (unfocused): transparent bg, purple text, same padding. */
   toolPlain: newStyle().foreground("#a78bfa").padding(0, 1),
   /** Focused tool call: dark blue bar, white text (same padding — no jitter). */
@@ -43,13 +34,9 @@ export const ST = {
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
   status: newStyle().foreground("#64748b"),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
-  tableZebra: newStyle()
-    .foreground("#ffffff")
-    .background("#1a1a2e"),
+  tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Selected row in table rendering: white text on dark blue. */
-  tableSelected: newStyle()
-    .foreground("#ffffff")
-    .background("#1e3a8a"),
+  tableSelected: newStyle().foreground("#ffffff").background("#1e3a8a"),
 } as const;
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */

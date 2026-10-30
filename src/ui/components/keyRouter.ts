@@ -103,11 +103,7 @@ const CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
  * Route one key sequence: focused component first, then the rest of the
  * chain, then the globals. Returns whether anyone handled it.
  */
-export function routeKey(
-  chain: readonly Component[],
-  seq: string,
-  globals: Globals,
-): boolean {
+export function routeKey(chain: readonly Component[], seq: string, globals: Globals): boolean {
   const focused = chain.find((c) => c.isFocused);
   const walk = focused === undefined ? chain : [focused, ...chain.filter((c) => c !== focused)];
   for (const component of walk) {
@@ -126,11 +122,7 @@ export function routeKey(
  * Route one decoded character with the same ordering as {@link routeKey}.
  * Unclaimed chars fall through to the global bindings (Tab, Enter, Ctrl+C).
  */
-export function routeChar(
-  chain: readonly Component[],
-  ch: string,
-  globals: Globals,
-): boolean {
+export function routeChar(chain: readonly Component[], ch: string, globals: Globals): boolean {
   const focused = chain.find((c) => c.isFocused);
   const walk = focused === undefined ? chain : [focused, ...chain.filter((c) => c !== focused)];
   for (const component of walk) {

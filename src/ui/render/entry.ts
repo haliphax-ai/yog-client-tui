@@ -6,12 +6,7 @@ import type { Style } from "@oakoliver/lipgloss";
 import { ST, CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
-import {
-  highlightBlock,
-  renderInlineMarkdown,
-  renderMarkdown,
-  trimLeading,
-} from "./markdown.ts";
+import { highlightBlock, renderInlineMarkdown, renderMarkdown, trimLeading } from "./markdown.ts";
 import type { EntryKind, LogEntry } from "./types.ts";
 import {
   parseTable,
@@ -116,7 +111,9 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     for (const section of sections) {
       if (section.kind === "prose") {
         const md = renderMarkdown(section.text, bodyW);
-        parts.push(...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)));
+        parts.push(
+          ...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)),
+        );
       } else {
         // Route table sections through TableComponent so the shared viewport
         // logic (clamp/slice/pad) is used instead of a bypass call.
@@ -158,8 +155,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
       : Number(exitCode[1]) === 0
         ? CHUNK_HEADER.ok
         : CHUNK_HEADER.fail;
-    const styledHeader =
-      `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
+    const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
     const style = (focused ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
       const rendered = style.render([styledHeader, ...body].join("\n"));
@@ -168,11 +164,9 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const shown = body.slice(0, COLLAPSE_LINES);
     const hidden = body.length - shown.length;
     const rendered = style.render(
-      [
-        styledHeader,
-        ...shown,
-        `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
-      ].join("\n"),
+      [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`].join(
+        "\n",
+      ),
     );
     return { rendered, rows: rendered.split("\n").length };
   }

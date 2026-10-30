@@ -16,7 +16,9 @@ describe("statusBody", () => {
 
   it("shows the session and hint segments separated by a vertical bar", () => {
     const out = body({ statusNote: "", busy: false, model: "m-1", connection: "connected" });
-    expect(out).toBe("model m-1 · session ok │ Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
+    expect(out).toBe(
+      "model m-1 · session ok │ Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit",
+    );
   });
 
   it("prepends the spinner as its own segment while busy", () => {

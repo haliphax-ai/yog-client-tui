@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { padFrame } from "../../../src/ui/pipeline/lines.ts";
-import {
-  hooksFor,
-  register,
-  resetRegistryForTests,
-} from "../../../src/ui/pipeline/registry.ts";
+import { hooksFor, register, resetRegistryForTests } from "../../../src/ui/pipeline/registry.ts";
 import { runPipeline } from "../../../src/ui/pipeline/runner.ts";
 
 /**
@@ -44,9 +40,7 @@ function renderFrame(width: number, lines: readonly string[]): string {
 
 /** Byte-level equality (not just string equality by accident). */
 function expectByteIdentical(actual: string, expected: string): void {
-  expect(Buffer.from(actual, "utf8").equals(Buffer.from(expected, "utf8"))).toBe(
-    true,
-  );
+  expect(Buffer.from(actual, "utf8").equals(Buffer.from(expected, "utf8"))).toBe(true);
 }
 
 /**
@@ -55,11 +49,7 @@ function expectByteIdentical(actual: string, expected: string): void {
  * no production module is touched. It stamps a badge over the padded right
  * edge of the top line, exactly as a corner overlay would.
  */
-function installCornerOverlay(
-  label: string,
-  width: number,
-  seen: string[],
-): () => void {
+function installCornerOverlay(label: string, width: number, seen: string[]): () => void {
   const badge = `[${label}]`;
   return register("post", (frame) => {
     seen.push(frame);

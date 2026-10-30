@@ -312,8 +312,7 @@ describe("ChatLogComponent — memoized row cache", () => {
   it("scrolling over a warm cache does not evict it", () => {
     const log = new Log(fixture());
     log.setViewportRows(VIEWPORT);
-    const caches = (): (LogEntry["cache"] | undefined)[] =>
-      log.getEntries().map((e) => e.cache);
+    const caches = (): (LogEntry["cache"] | undefined)[] => log.getEntries().map((e) => e.cache);
     log.render({ cols: COLS });
     const before = caches();
     log.scrollBy(-1, VIEWPORT);

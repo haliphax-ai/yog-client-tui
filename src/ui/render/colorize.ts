@@ -11,8 +11,7 @@
 import { C } from "../theme.ts";
 
 /** Matches one ANSI escape sequence at the current position, if any. */
-const ESC =
-  /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|^\x1b\[[0-9;?]*[ -/]*[@-~]|^\x1b[@-Z\\-_]/;
+const ESC = /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|^\x1b\[[0-9;?]*[ -/]*[@-~]|^\x1b[@-Z\\-_]/;
 
 export function colorizeToolLine(text: string): string {
   let pending = ""; // open token color carried across a row split
