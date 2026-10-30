@@ -13,6 +13,13 @@ import { GLAMOUR_THEME, ST, CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import type { EntryKind, LogEntry } from "./types.ts";
+import {
+  newTable,
+  withTableFocused,
+  withTableStyles,
+  withTableWidth,
+} from "@oakoliver/bubbles";
+import { parseTable, splitTableSections, type ParsedTable } from "./table.ts";
 
 /** Memoized glamour renderers, keyed by wrap width (max 8 before reuse). */
 const mdRenderers = new Map<number, TermRenderer>();
@@ -175,6 +182,30 @@ interface EntryRender {
 }
 
 /**
+ * Render a parsed table through Bubbles at `cols`, returning rows.
+ *
+ * Uses our `ST.assistant` styles for header/cell/selected — the same
+ * white-on-normal palette as the surrounding prose, so a table never
+ * looks like a foreign element inside an assistant entry.
+ */
+function renderTable(table: ParsedTable, cols: number, focused: boolean): string[] {
+  const styles = {
+    header: ST.assistant.bold(true),
+    cell: ST.assistant,
+    selected: ST.assistant.background("#1e3a8a").foreground("#ffffff"),
+  };
+  const t = newTable(
+    withTableWidth(Math.max(1, cols)),
+    withTableFocused(focused),
+    withTableStyles(styles),
+  );
+  t.setColumns(table.columns);
+  t.setRows(table.rows);
+  const out = t.view();
+  return out.split("\n");
+}
+
+/**
  * Flatten glamour's theme colors out of a rendered markdown row, keeping only
  * structural emphasis (bold/italic): inside the prompt bubble the role style
  * (light-grey text on light-grey bg) must win, and background resets would
@@ -216,12 +247,21 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     // content wraps at cols-2 while the block spans the full terminal.
     // Assistant: rows are prefixed with the border cell + one space, so the
     // prose wraps at cols-2 too and the border gutter survives wrapping.
-    const bodyW = Math.max(1, isUser ? cols - 2 : cols - 2);
-    const md = renderMarkdown(text, bodyW);
-    const content =
-      md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(text, bodyW);
+    const bodyW = Math.max(1, cols - 2);
+    const sections = splitTableSections(text);
+    // Render each section: prose through glamour, tables through Bubbles.
+    const parts: string[] = [];
+    for (const section of sections) {
+      if (section.kind === "prose") {
+        const md = renderMarkdown(section.text, bodyW);
+        parts.push(...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)));
+      } else {
+        parts.push(...renderTable(section.table, bodyW, focused));
+      }
+    }
+    if (parts.length === 0) parts.push("");
     if (isUser) {
-      const rendered = ST.user.width(cols).render(content.join("\n"));
+      const rendered = ST.user.width(cols).render(parts.join("\n"));
       return { rendered, rows: rendered.split("\n").length };
     }
     // Style each prose row by itself, then glue the border in front — the
@@ -229,7 +269,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     // rows (md or wrapText, both <= bodyW = cols-2 cells) leave room for the
     // two-cell gutter on every row.
     const border = ST.assistantBorder.render(BORDER_RUNE);
-    const rows = content.map((row) => `${border} ${row}`);
+    const rows = parts.map((row) => `${border} ${row}`);
     const rendered = rows.join("\n");
     return { rendered, rows: rows.length };
   }
@@ -304,12 +344,25 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
 }
 
 /**
+ * Table signature for the cache key: column count + row count + per-column
+ * widths. Captures everything `renderTable` derives output from — if any
+ * of these change, the rendered table changes too.
+ */
+function tableSignature(lines: string[]): string {
+  const t = parseTable(lines.join("\n"));
+  if (!t) return "0";
+  const widths = t.columns.map((c) => c.width).join(",");
+  return `${t.columns.length}:${t.rows.length}:${widths}`;
+}
+
+/**
  * Rendered rows for one entry, memoized on the `LogEntry` object. The key
  * captures everything `renderEntry` derives output from: display width, the
- * focus flag, the expand/collapse toggles, and a content signature (streaming
+ * focus flag, the expand/collapse toggles, a content signature (streaming
  * entries mutate `lines`, tool calls get `label`/`lines[0]` amended when the
- * result lands). Entries only ever grow (in place for the same signature), so
- * a matching key means a byte-identical render — safe to reuse.
+ * result lands), and a table signature (column count + row count + widths).
+ * Entries only ever grow (in place for the same signature), so a matching
+ * key means a byte-identical render — safe to reuse.
  */
 export function cachedRows(entry: LogEntry, cols: number, focused = false): string[] {
   const lines = entry.lines;
@@ -319,7 +372,7 @@ export function cachedRows(entry: LogEntry, cols: number, focused = false): stri
     entry.expanded ? 1 : 0
   }|${lines.length}|${lines[0]?.length ?? 0}|${lines[lines.length - 1]?.length ?? 0}|${
     entry.label ?? ""
-  }`;
+  }|${tableSignature(lines)}`;
   const hit = entry.cache;
   if (hit !== undefined && hit.entry === entry && hit.key === key) return hit.rows;
   const rows = renderEntry(entry, cols, focused).rendered.split("\n");
