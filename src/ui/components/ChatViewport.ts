@@ -14,8 +14,39 @@
  *     finally the global bindings.
  */
 import { ChatLogComponent } from "./ChatLogComponent.ts";
-import { FOCUS_NONE } from "../../core/focus.ts";
+import { FOCUS_NONE, isProseTable } from "../../core/focus.ts";
 import { getState, setState } from "../../core/store.ts";
+import {
+  parseTable,
+  resolveTableLayout,
+  tableRowWidth,
+  tableScrollChar,
+  tableScrollKey,
+} from "../render/table.ts";
+import type { LogEntry } from "../render/types.ts";
+
+/** Table predicate bound to the GFM parser (matches ChatLogComponent's ring). */
+const hasTable = (e: { kind: string; lines?: readonly string[] }): boolean =>
+  isProseTable(e, (text) => parseTable(text));
+
+/** Scroll geometry of the focused table entry at the log's width: the
+ *  viewport-body width and the expanded table's total rendered width. Same
+ *  `resolveTableLayout` the entry renderer uses, so the scroll bounds always
+ *  match what is on screen. */
+function focusedTableLayout(
+  entry: { lines: string[] },
+  cols: number,
+): { cols: number; totalW: number } {
+  const bodyW = Math.max(1, cols - 2);
+  const table = parseTable(entry.lines.join("\n"));
+  if (table === null) return { cols: bodyW, totalW: 0 };
+  const layout = resolveTableLayout(
+    table.columns.map((c) => c.width),
+    bodyW,
+    true,
+  );
+  return { cols: bodyW, totalW: tableRowWidth(layout.widths) };
+}
 
 export class ChatViewport extends ChatLogComponent {
   /** Pull store state (entries, scroll, follow, focus ring) into the log. */
@@ -89,7 +120,45 @@ export class ChatViewport extends ChatLogComponent {
     this.commit();
   }
 
+  /**
+   * Horizontal scroll for the focused table entry: Left/Right (via
+   * `tableScrollKey`) and h/l. The focused entry must be `table` kind AND
+   * tableExpanded — collapsed tables render inside the viewport and have
+   * nothing to scroll. Unclaimed keys bubble to the next responder.
+   */
+  /** The focused prose entry carries an expanded (horizontally scrollable)
+   *  table. Reused by both key handlers. */
+  private focusedExpandedTable(): LogEntry | null {
+    this.syncFromStore();
+    const entry = this.entries[this.getFocusIndex()];
+    if (entry === undefined) return null;
+    if (entry.kind !== "user" && entry.kind !== "assistant") return null;
+    if (entry.tableExpanded !== true) return null;
+    return hasTable(entry) ? entry : null;
+  }
+
+  override handleKey(seq: string): "handled" | "unhandled" {
+    const entry = this.focusedExpandedTable();
+    if (entry === null) return "unhandled";
+    const layout = focusedTableLayout(entry, this.cols);
+    const step = tableScrollKey(seq, entry.tableScrollX ?? 0, layout.totalW, layout.cols);
+    if (step === null) return "unhandled";
+    entry.tableScrollX = step.scrollX;
+    this.commit();
+    return "handled";
+  }
+
   override handleChar(ch: string): "handled" | "unhandled" {
+    if (ch === "h" || ch === "l") {
+      const entry = this.focusedExpandedTable();
+      if (entry === null) return "unhandled";
+      const layout = focusedTableLayout(entry, this.cols);
+      const step = tableScrollChar(ch, entry.tableScrollX ?? 0, layout.totalW, layout.cols);
+      if (step === null) return "unhandled";
+      entry.tableScrollX = step.scrollX;
+      this.commit();
+      return "handled";
+    }
     if (ch === "\r" || ch === "\n") {
       this.syncFromStore();
       // No focused entry (or a non-toggleable one) → bubble to submit.

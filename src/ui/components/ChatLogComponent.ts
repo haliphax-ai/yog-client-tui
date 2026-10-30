@@ -12,9 +12,14 @@
  * `ui/render/entry.ts` — the single memoization implementation in the codebase.
  */
 import { ViewportComponent } from "./ViewportComponent.ts";
-import { FOCUS_NONE, moveFocus } from "../../core/focus.ts";
+import { FOCUS_NONE, isProseTable, moveFocus } from "../../core/focus.ts";
 import { cachedRows, totalRows } from "../render/index.ts";
+import { parseTable } from "../render/table.ts";
 import type { LogEntry } from "../render/types.ts";
+
+/** Table predicate bound to the GFM parser (one wiring point for the ring). */
+const hasTable = (e: { kind: string; lines?: readonly string[] }): boolean =>
+  isProseTable(e, (text) => parseTable(text));
 
 /** Bounds of entry `i`: first row and full block height (incl. separator). */
 function entryBounds(
@@ -78,7 +83,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * the last entry lands on none, and the next press re-enters from that end).
    */
   moveFocus(dir: 1 | -1): void {
-    this.focusIndex = moveFocus(this.entries, this.focusIndex, dir);
+    this.focusIndex = moveFocus(this.entries, this.focusIndex, dir, hasTable);
   }
 
   /**
@@ -109,6 +114,11 @@ export abstract class ChatLogComponent extends ViewportComponent {
       entry.collapsed = !entry.collapsed;
     } else if (entry.kind === "tool") {
       entry.expanded = !entry.expanded;
+    } else if ((entry.kind === "user" || entry.kind === "assistant") && hasTable(entry)) {
+      // Prose carrying a table: Enter toggles horizontal expansion. A table
+      // with nothing reflowed renders identically expanded — harmless.
+      entry.tableExpanded = !entry.tableExpanded;
+      if (!entry.tableExpanded) entry.tableScrollX = 0; // unexpanded resets scroll
     } else {
       return false;
     }

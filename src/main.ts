@@ -34,9 +34,10 @@
  *                    bottom resumes it)
  *   Ctrl+Home/Ctrl+End  jump to top/bottom of the log (End resumes follow)
  *   Up/Down          scroll the log by one row
- *   Tab / Shift-Tab focus the next/previous expandable tool chunk — Enter
- *                    expands/collapses it, Esc leaves focus mode (focus wraps
- *                    through "none" at either end)
+ *   Tab / Shift-Tab focus the next/previous expandable entry (tool chunk,
+ *                    table-bearing message) — Enter expands/collapses it,
+ *                    Esc leaves focus mode (focus wraps through "none")
+ *   Left/Right (on a focused expanded table)  scroll columns horizontally
  *   Esc              abort the in-flight turn via the server's abort endpoint
  *                    (no-op when idle; with a focused entry it still just
  *                    leaves focus mode)
