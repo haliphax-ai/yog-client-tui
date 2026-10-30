@@ -6,10 +6,11 @@
  * rendering, no caching — just detection + extraction.
  */
 
-/** One column: its header text and computed width (in cells). */
+/** One column: its header text, computed width (in cells), and alignment. */
 export interface ParsedColumn {
   title: string;
   width: number;
+  align: "left" | "center" | "right";
 }
 
 /** A parsed table: columns + rows (each row is an array of cell strings). */
@@ -48,12 +49,14 @@ function splitCells(line: string): string[] {
   return result;
 }
 
-/** Display width of a cell: the widest line when the cell contains `<br>` newlines. */
+/** Display width of a cell: the widest line (in cells) when the cell contains
+ * `<br>` newlines. Uses `displayWidth` so wide runes (emoji) count as 2 cells. */
 function cellWidth(cell: string): number {
-  if (!cell.includes("\n")) return cell.length;
+  if (!cell.includes("\n")) return displayWidth(cell);
   let max = 0;
   for (const line of cell.split("\n")) {
-    if (line.length > max) max = line.length;
+    const w = displayWidth(line);
+    if (w > max) max = w;
   }
   return max;
 }
@@ -64,6 +67,15 @@ function isTableRow(line: string): boolean {
   if (trimmed === "" || !trimmed.includes("|")) return false;
   const cells = splitCells(trimmed);
   return cells.some((c) => c !== "");
+}
+
+/** Parse one delimiter cell into an alignment token. */
+function parseAlign(cell: string): "left" | "center" | "right" {
+  const c = cell.trim();
+  if (/^:.*:$/.test(c)) return "center";
+  if (/^:/.test(c)) return "left";
+  if (/:$/.test(c)) return "right";
+  return "left";
 }
 
 /** True if the line is a table delimiter row (every cell is `---`-style). */
@@ -77,7 +89,8 @@ function isTableDelimiter(line: string): boolean {
 
 import { type KeyResult } from "../components/Component.ts";
 import { ViewportComponent } from "../components/ViewportComponent.ts";
-import { ST } from "../theme.ts";
+import { displayWidth } from "../../util/ansi.ts";
+import { C, ST, TONE } from "../theme.ts";
 
 /**
  * A hand-rolled table component: box-drawing borders, bold header,
@@ -89,6 +102,38 @@ import { ST } from "../theme.ts";
  * own rows, and handles its own keys. It is not store-bound — the entry
  * that contains it owns the table data and passes it in.
  */
+/** Render one line of inline markdown (bold / italic / code) with minimal
+ * styling — glamour's full renderer pads to the wrap width, which is wrong
+ * for table cells. We emit the same SGR escapes glamour would (tokyo-night
+ * palette) so the output is background-safe and consistent with entry.ts. */
+function renderCellMarkdown(text: string): string {
+  return (
+    text
+      // **bold** → bold on, bold off (never a full reset)
+      .replace(/\*\*(.+?)\*\*/g, "\x1b[1m$1\x1b[22m")
+      // *italic* → italic on, italic off (avoid matching ** above)
+      .replace(/(?<!\*)\*(.+?)\*(?!\*)/g, "\x1b[3m$1\x1b[23m")
+      // `code` → tokyo-night comment colour (theme-owned, like the C palette)
+      .replace(/`(.+?)`/g, `${TONE.code}$1${C.reset}`)
+  );
+}
+
+/** Background-safe post-process: strip inner bg SGRs, replace full resets
+ * with fg-only reset so the outer zebra/selected background survives. */
+function backgroundSafe(text: string): string {
+  return (
+    text
+      // full resets → fg-only reset (same philosophy as C.reset in theme.ts)
+      .replaceAll("\x1b[0m", "\x1b[39m")
+      .replaceAll("\x1b[m", "\x1b[39m")
+      // strip any remaining background SGRs (48;2;... / 48;5;...)
+      .replace(
+        /\x1b\[(?:48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})(?:;\d+)*m/g,
+        "",
+      )
+  );
+}
+
 export class TableComponent extends ViewportComponent {
   private table: ParsedTable | null = null;
 
@@ -197,16 +242,41 @@ export function renderTable(
   const tCross = focused ? "┳" : "┬";
   const bCross = focused ? "┻" : "┴";
 
-  const cell = (text: string, width: number): string =>
-    ` ${text.padEnd(width)} `;
+  // Pad a cell's content to `width` display cells, honoring alignment.
+  // Padding is computed against the display width of the *unstyled* text so
+  // wide runes (emoji) count as 2 cells; the pad spaces land inside the outer
+  // style so the zebra/selected background covers them.
+  const padCell = (text: string, width: number, align: "left" | "center" | "right"): string => {
+    const styled = renderCellMarkdown(text);
+    const safe = backgroundSafe(styled);
+    const dw = displayWidth(text);
+    const pad = Math.max(0, width - dw);
+    let body: string;
+    switch (align) {
+      case "right":
+        body = " ".repeat(pad) + safe;
+        break;
+      case "center": {
+        const left = Math.floor(pad / 2);
+        const right = pad - left;
+        body = " ".repeat(left) + safe + " ".repeat(right);
+        break;
+      }
+      default:
+        body = safe + " ".repeat(pad);
+    }
+    return ` ${body} `;
+  };
 
   const row = (cells: string[]): string =>
     border + cells.join(border) + border;
 
-  const hr = (crossChar: string): string =>
-    crossChar +
-    w.map((cw) => hBorder.repeat(cw + 2)).join(crossChar) +
-    crossChar;
+  // Horizontal rule: left corner, interior cross between segments, right corner.
+  // Top border ┌─┬─┐, separator ├─┼─┤, bottom └─┴─┘ (heavy variants when focused).
+  const hr = (left: string, mid: string, right: string): string =>
+    left +
+    w.map((cw) => hBorder.repeat(cw + 2)).join(mid) +
+    right;
 
   const rows: string[] = [];
 
@@ -214,28 +284,30 @@ export function renderTable(
   rows.push("");
 
   // Top border.
-  rows.push(hr(tl));
+  rows.push(hr(tl, tCross, tr));
 
-  // Header.
+  // Header: bold, left-aligned (alignment is a data-row concern; headers are
+  // always left-padded to match the column's content).
   const headerCells = table.columns.map((c, i) =>
-    ST.assistant.bold(true).render(cell(c.title, w[i]!)),
+    ST.assistant.bold(true).render(padCell(c.title, w[i]!, "left")),
   );
   rows.push(row(headerCells));
 
   // Header separator.
-  rows.push(hr(ml));
+  rows.push(hr(ml, cross, mr));
 
   // Data rows: zebra-striped background, with a selected-row highlight when
   // the table is focused. Both come from the theme so colors stay in sync.
+  // Scroll is applied BEFORE styling: slice the unstyled line, then wrap the
+  // result in the zebra/selected style so the escape sequence is never cut.
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
-    const cells = src.map((c, i) => cell(c ?? "", w[i]!));
+    const cells = src.map((c, i) =>
+      padCell(c ?? "", w[i]!, table.columns[i]!.align),
+    );
     const line = row(cells);
-    // Apply horizontal scroll: drop the first `scrollX` cells, pad the right.
     const scrolled =
-      scrollX > 0
-        ? line.slice(scrollX).padEnd(totalWidth, " ")
-        : line;
+      scrollX > 0 ? line.slice(scrollX).padEnd(totalWidth, " ") : line;
     const style =
       focused && r === 0
         ? ST.tableSelected
@@ -246,7 +318,7 @@ export function renderTable(
   }
 
   // Bottom border.
-  rows.push(hr(bl));
+  rows.push(hr(bl, bCross, br));
 
   // Bottom margin.
   rows.push("");
@@ -370,8 +442,16 @@ export function parseTable(text: string): ParsedTable | null {
     }
   }
 
+  // Parse the delimiter row to capture per-column alignment.
+  const delimCells = splitCells(lines[delimIdx] ?? "");
+  const aligns = delimCells.map((c) => parseAlign(c));
+
   return {
-    columns: headerCells.map((title, i) => ({ title, width: widths[i]! })),
+    columns: headerCells.map((title, i) => ({
+      title,
+      width: widths[i]!,
+      align: aligns[i] ?? "left",
+    })),
     rows,
   };
 }

@@ -67,6 +67,13 @@ export const C = {
 /** Glamour markdown theme name. */
 export const GLAMOUR_THEME = "tokyo-night";
 
+/** SGR tones for inline-markdown styling in table cells (theme-owned so no
+ * other module carries raw color escapes). */
+export const TONE = {
+  /** Inline `code` in table cells: tokyo-night comment green. */
+  code: "\x1b[38;2;158;206;106m",
+} as const;
+
 /** Chunk header colors (truecolor foregrounds): plain, exit 0, failure. */
 export const CHUNK_HEADER = {
   plain: "\x1b[38;2;255;255;255m",
