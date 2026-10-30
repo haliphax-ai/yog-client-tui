@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTable, splitTableSections } from "../../../src/ui/render/table.ts";
+import { parseTable, renderTable, splitTableSections, TableComponent } from "../../../src/ui/render/table.ts";
 
 describe("parseTable — GFM pipe tables", () => {
   it("parses a basic table with header and two data rows", () => {
@@ -250,5 +250,83 @@ Second paragraph.`;
 
   it("returns empty array for empty input", () => {
     expect(splitTableSections("")).toEqual([]);
+  });
+});
+
+describe("renderTable — styled output", () => {
+  const md = `| Name | Age |
+| --- | --- |
+| Alice | 30 |
+| Bob | 25 |`;
+  const table = parseTable(md)!;
+
+  it("renders heavy border runes when focused, light when not", () => {
+    const focused = renderTable(table, 80, true, 0);
+    const unfocused = renderTable(table, 80, false, 0);
+    // Vertical + horizontal border runes present in both modes
+    expect(focused.join("")).toContain("┃");
+    expect(focused.join("")).toContain("━");
+    expect(unfocused.join("")).toContain("│");
+    expect(unfocused.join("")).toContain("─");
+    // Corner runes differ: heavy vs light
+    expect(focused[1]!.charAt(0)).toBe("┏");
+    expect(unfocused[1]!.charAt(0)).toBe("┌");
+  });
+
+  it("renders the header row in bold", () => {
+    const rows = renderTable(table, 80, false, 0);
+    // Header is row 2 (after top margin + top border)
+    expect(rows[2]).toContain("\x1b[1m");
+    expect(rows[2]).toContain("\x1b[m"); // SGR reset (lipgloss emits \x1b[m, not \x1b[22m)
+  });
+
+  it("applies zebra background to odd data rows", () => {
+    const rows = renderTable(table, 80, false, 0);
+    // Row 4 = data row 0 (even, no zebra), row 5 = data row 1 (odd, zebra)
+    // ST.tableZebra bg is #1a1a2e → ANSI 48;2;26;26;46
+    expect(rows[4]).not.toMatch(/48;2;26;26;46/);
+    expect(rows[5]).toMatch(/48;2;26;26;46/);
+  });
+
+
+  it("applies selected background to row 0 only when focused", () => {
+    const focused = renderTable(table, 80, true, 0);
+    const unfocused = renderTable(table, 80, false, 0);
+    // ST.tableSelected bg is #1e3a8a → ANSI 48;2;30;58;138
+    expect(focused[4]).toMatch(/48;2;30;58;138/);
+    expect(unfocused[4]).not.toMatch(/1e3a8a/);
+    // Row 1 (odd) gets zebra, not selected, in both modes
+    expect(focused[5]).toMatch(/48;2;26;26;46/);
+    expect(focused[5]).not.toMatch(/1e3a8a/);
+  });
+
+  it("scrollX truncates leading cells from each line", () => {
+    const noScroll = renderTable(table, 80, false, 0);
+    const scrolled = renderTable(table, 80, false, 3);
+    // scrollX=3 slices the first 3 chars off data rows: "│ Alice..." → "lice..."
+    expect(noScroll[4]!.charAt(0)).toBe("│");
+    expect(scrolled[4]!.startsWith("lice")).toBe(true);
+    // The scrolled data row differs from the unscrolled one
+    expect(scrolled[4]).not.toBe(noScroll[4]);
+  });
+
+
+  it("produceRows on TableComponent matches the renderTable free function", () => {
+    const tc = new TableComponent();
+    tc.setTable(table);
+    tc.onFocus(true);
+    const rows = tc.produceRows(80);
+    const expected = renderTable(table, 80, true, 0);
+    expect(rows).toEqual(expected);
+  });
+
+  it("produceRows reflects unfocused state", () => {
+    const tc = new TableComponent();
+    tc.setTable(table);
+    // onFocus(false) sets isFocused = false
+    tc.onFocus(false);
+    const rows = tc.produceRows(80);
+    const expected = renderTable(table, 80, false, 0);
+    expect(rows).toEqual(expected);
   });
 });
