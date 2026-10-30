@@ -76,6 +76,69 @@ function isTableDelimiter(line: string): boolean {
 }
 
 /**
+ * A section of split text: either prose or a parsed table.
+ *
+ * Produced by {@link splitTableSections}; consumed by the entry
+ * renderer to route prose through glamour and tables through Bubbles.
+ */
+export type TableSection =
+  | { kind: "prose"; text: string }
+  | { kind: "table"; table: ParsedTable };
+
+/**
+ * Split raw markdown text into alternating prose and table sections.
+ *
+ * A table starts when a line looks like a table row AND the next line
+ * is a delimiter. It ends at the first non-table-row line after the
+ * delimiter. Everything else is prose. Leading/trailing blank lines
+ * on each prose section are trimmed; interior blank lines (paragraph
+ * breaks) are preserved.
+ *
+ * Returns a flat list — adjacent sections are never of the same kind.
+ */
+export function splitTableSections(text: string): TableSection[] {
+  const lines = text.split("\n");
+  const sections: TableSection[] = [];
+  let proseLines: string[] = [];
+  let i = 0;
+
+  const flushProse = (): void => {
+    const body = proseLines.join("\n").trim();
+    if (body.length > 0) sections.push({ kind: "prose", text: body });
+    proseLines = [];
+  };
+
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+
+    // A table starts here: this line is a table row AND the next is a delimiter.
+    if (isTableRow(line) && i + 1 < lines.length && isTableDelimiter(lines[i + 1] ?? "")) {
+      flushProse();
+      const tableLines: string[] = [line, lines[i + 1] ?? ""];
+      i += 2;
+      while (i < lines.length && isTableRow(lines[i] ?? "")) {
+        tableLines.push(lines[i] ?? "");
+        i++;
+      }
+      const parsed = parseTable(tableLines.join("\n"));
+      if (parsed) {
+        sections.push({ kind: "table", table: parsed });
+      } else {
+        // parseTable failed — treat the lines as prose.
+        proseLines.push(...tableLines);
+      }
+      continue;
+    }
+
+    proseLines.push(line);
+    i++;
+  }
+
+  flushProse();
+  return sections;
+}
+
+/**
  * Parse a GFM pipe table from `text`.
  *
  * Returns `null` when the text doesn't start with a valid table
