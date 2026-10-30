@@ -26,7 +26,7 @@ export interface ParsedTable {
  * - Optional leading/trailing `|` (GFM allows omitting them)
  * - Escaped pipes `\|` (literal pipe inside a cell)
  * - Whitespace trimming around each cell
- * - `<br>` / `<br/>` / `<br />` → newline (cells can be multi-line)
+ * - `<br>` / `<br/>` / `<br />` → display break (rendered as separate lines)
  */
 function splitCells(line: string): string[] {
   const PH = "\x00"; // placeholder for escaped pipes
@@ -49,12 +49,20 @@ function splitCells(line: string): string[] {
   return result;
 }
 
-/** Display width of a cell: the widest line (in cells) when the cell contains
- * `<br>` newlines. Uses `displayWidth` so wide runes (emoji) count as 2 cells. */
+/** Split one cell's display breaks into separate lines (ANSI-safe: no
+ * in-cell escape carries a newline; lipgloss wraps and glamour styles the
+ * same way). A break rune at the end of the text is a hard cap, not padding. */
+export function cellLines(cell: string): string[] {
+  if (cell === "") return [""];
+  if (!cell.includes("\n")) return [cell];
+  return cell.split("\n");
+}
+
+/** Display width of a cell: the widest of its display-break lines. Uses
+ * `displayWidth` so wide runes (emoji) count as 2 cells. */
 function cellWidth(cell: string): number {
-  if (!cell.includes("\n")) return displayWidth(cell);
   let max = 0;
-  for (const line of cell.split("\n")) {
+  for (const line of cellLines(cell)) {
     const w = displayWidth(line);
     if (w > max) max = w;
   }
@@ -242,11 +250,12 @@ export function renderTable(
   const tCross = focused ? "┳" : "┬";
   const bCross = focused ? "┻" : "┴";
 
-  // Pad a cell's content to `width` display cells, honoring alignment.
-  // Padding is computed against the display width of the *unstyled* text so
-  // wide runes (emoji) count as 2 cells; the pad spaces land inside the outer
-  // style so the zebra/selected background covers them.
-  const padCell = (text: string, width: number, align: "left" | "center" | "right"): string => {
+  // Pad one display-break line of a cell to `width` display cells, honoring
+  // the cell's alignment on EVERY line (GFM centers blocks, not just their
+  // first line). Padding is computed against the display width of the
+  // *unstyled* text so wide runes (emoji) count as 2 cells; the pad spaces
+  // land inside the outer style so the zebra/selected background covers them.
+  const padCellLine = (text: string, width: number, align: "left" | "center" | "right"): string => {
     const styled = renderCellMarkdown(text);
     const safe = backgroundSafe(styled);
     const dw = displayWidth(text);
@@ -287,34 +296,48 @@ export function renderTable(
   rows.push(hr(tl, tCross, tr));
 
   // Header: bold, left-aligned (alignment is a data-row concern; headers are
-  // always left-padded to match the column's content).
+  // always left-padded to match the column's content). A header containing a
+  // display break emits one physical line per break.
   const headerCells = table.columns.map((c, i) =>
-    ST.assistant.bold(true).render(padCell(c.title, w[i]!, "left")),
+    cellLines(c.title).map((l) =>
+      ST.assistant.bold(true).render(padCellLine(l, w[i]!, "left")),
+    ),
   );
-  rows.push(row(headerCells));
+  const headerHeight = Math.max(...headerCells.map((c) => c.length));
+  for (let hl = 0; hl < headerHeight; hl++) {
+    rows.push(row(headerCells.map((c) => c[hl] ?? "")));
+  }
 
   // Header separator.
   rows.push(hr(ml, cross, mr));
 
   // Data rows: zebra-striped background, with a selected-row highlight when
   // the table is focused. Both come from the theme so colors stay in sync.
-  // Scroll is applied BEFORE styling: slice the unstyled line, then wrap the
-  // result in the zebra/selected style so the escape sequence is never cut.
+  // Display breaks inside a cell (<br>) emit one physical line per break;
+  // stripes apply per LOGICAL row, so every physical line of one row shares
+  // its background. Scroll is applied BEFORE styling: slice the unstyled
+  // line, then wrap the result in the zebra/selected style so the escape
+  // sequence is never cut.
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
-    const cells = src.map((c, i) =>
-      padCell(c ?? "", w[i]!, table.columns[i]!.align),
+    const cellLinesArr = src.map((c, i) =>
+      cellLines(c ?? "").map((l) =>
+        padCellLine(l, w[i]!, table.columns[i]!.align),
+      ),
     );
-    const line = row(cells);
-    const scrolled =
-      scrollX > 0 ? line.slice(scrollX).padEnd(totalWidth, " ") : line;
+    const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
     const style =
       focused && r === 0
         ? ST.tableSelected
         : r % 2 === 1
           ? ST.tableZebra
           : undefined;
-    rows.push(style ? style.render(scrolled) : scrolled);
+    for (let sl = 0; sl < rowHeight; sl++) {
+      const line = row(cellLinesArr.map((c) => c[sl] ?? ""));
+      const scrolled =
+        scrollX > 0 ? line.slice(scrollX).padEnd(totalWidth, " ") : line;
+      rows.push(style ? style.render(scrolled) : scrolled);
+    }
   }
 
   // Bottom border.

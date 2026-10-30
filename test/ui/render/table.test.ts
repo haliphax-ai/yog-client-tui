@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTable, renderTable, splitTableSections, TableComponent } from "../../../src/ui/render/table.ts";
+import {
+  cellLines,
+  parseTable,
+  renderTable,
+  splitTableSections,
+  TableComponent,
+} from "../../../src/ui/render/table.ts";
+import { cachedRows } from "../../../src/ui/render/entry.ts";
+import type { LogEntry } from "../../../src/ui/render/types.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
 describe("parseTable — GFM pipe tables", () => {
   it("parses a basic table with header and two data rows", () => {
@@ -368,5 +377,98 @@ describe("renderTable — styled output", () => {
     const rows = tc.produceRows(80);
     const expected = renderTable(table, 80, false, 0);
     expect(rows).toEqual(expected);
+  });
+
+  it("emits one physical line per <br> display break", () => {
+    const md = `| A | B |
+| --- | --- |
+| line1<br>line2 | single |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    // margins(2) + borders(2) + header(1) + separator(1) + 2 physical lines
+    expect(rows.length).toBe(8);
+    // Data lines follow the separator (0 margin, 1 top, 2 header, 3 separator)
+    expect(rows[4]).toContain("line1");
+    expect(rows[5]).toContain("line2");
+    // No embedded newline survives: every emitted row is one physical line
+    for (const row of rows) expect(row).not.toContain("\n");
+    // The single-line cell occupies BOTH physical lines (top-aligned)
+    expect(stripAnsi(rows[4]!)).toContain("│");
+    expect(stripAnsi(rows[5]!)).toContain("│");
+  });
+
+  it("keeps zebra stripes per logical row across <br> splits", () => {
+    const md = `| A | B |
+| --- | --- |
+| one | x |
+| two<br>two-b | y |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    // rows: 0 margin, 1 top, 2 header, 3 separator, 4 data0, 5 data1a, 6 data1b, 7 bottom, 8 margin
+    // data1 is logical row index 1 → zebra on BOTH its physical lines
+    const zebra = "48;2;26;26;46";
+    expect(rows[5]).toMatch(zebra);
+    expect(rows[6]).toMatch(zebra);
+    expect(rows[4]).not.toMatch(zebra);
+  });
+
+  it("splits <br> in header cells into stacked lines", () => {
+    const md = `| First<br>Second | B |
+| --- | --- |
+| a | b |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    // 2 margins + 2 borders + 2 header lines + 1 separator + 1 data row = 8
+    expect(rows.length).toBe(8);
+    expect(rows[2]).toContain("First");
+    expect(rows[3]).toContain("Second");
+    // Data row starts after the separator (row 5)
+    expect(rows[5]).toContain("a");
+  });
+
+  it("treats a trailing <br> as a hard cap, not padding", () => {
+    const md = `| A |
+| --- |
+| text<br> |`;
+    const t = parseTable(md)!;
+    expect(t.rows[0]![0]).toBe("text\n");
+    expect(t.columns[0]!.width).toBe(4); // widest line is "text"
+    const rows = renderTable(t, 80, false, 0);
+    // second physical line is blank inside the borders (w=4 cell → 6 spaces)
+    expect(stripAnsi(rows[5]!)).toBe("│      │");
+  });
+
+  it("cellLines splits on newlines only", () => {
+    expect(cellLines("a<br>b")).toEqual(["a<br>b"]); // parser already converted the break
+    expect(cellLines("a\nb")).toEqual(["a", "b"]);
+    expect(cellLines("trailing\n")).toEqual(["trailing", ""]);
+    expect(cellLines("")).toEqual([""]);
+  });
+});
+
+describe("renderEntry — tool-line wrapping", () => {
+  it("cell-caps a collapsed tool line instead of wrapping it", () => {
+    const longArgs = '{"cmd":"' + "x".repeat(120) + '"}';
+    const entry: LogEntry = {
+      kind: "tool",
+      lines: [`⚙️ bash ❌ missing required field "script" ${longArgs}`],
+    };
+    const cols = 40;
+    const rows = cachedRows(entry, cols);
+    // ONE physical line: the overlong line is cell-capped, never wrapped
+    expect(rows.length).toBe(1);
+    // The style pads to the block width (cols); content itself capped to cols-2
+    expect(displayWidth(stripAnsi(rows[0]!))).toBeLessThanOrEqual(cols);
+    // The error reason survives the cap (label comes first)
+    expect(stripAnsi(rows[0]!)).toContain("⚙️ bash ❌");
+  });
+
+  it("expanded tool bodies still wrap", () => {
+    const entry: LogEntry = {
+      kind: "tool",
+      lines: ["⚙️ bash ❌ boom"],
+      full: "a ".repeat(60),
+      expanded: true,
+    };
+    const rows = cachedRows(entry, 40);
+    expect(rows.length).toBeGreaterThan(1);
+    expect(stripAnsi(rows[0]!)).toContain("⚙️ bash ❌ boom");
   });
 });

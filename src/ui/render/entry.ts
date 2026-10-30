@@ -295,10 +295,13 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
   if (entry.kind === "tool") {
     // Identical geometry in both states (1-cell side padding, full width):
     // focusing only recolors, and expansion persists regardless of focus.
+    // Collapsed: cell-cap the line to the body width — a long tool-error
+    // line must never wrap (a wrapped JSON blob reads as several entries).
+    // Expanded: wrap the full body as before.
     const rows =
       entry.expanded && entry.full !== undefined
         ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
-        : wrapText(entry.lines[0] ?? "", Math.max(1, cols - 2));
+        : [truncateAnsi(entry.lines[0] ?? "", Math.max(1, cols - 2))];
     const style = (focused ? ST.toolFocus : ST.toolPlain).width(cols);
     const rendered = style.render(rows.join("\n"));
     return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
