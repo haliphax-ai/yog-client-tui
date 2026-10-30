@@ -51,22 +51,60 @@ function splitCells(line: string): string[] {
 
 /** Split one cell's display breaks into separate lines (ANSI-safe: no
  * in-cell escape carries a newline; lipgloss wraps and glamour styles the
- * same way). A break rune at the end of the text is a hard cap, not padding. */
-export function cellLines(cell: string): string[] {
-  if (cell === "") return [""];
-  if (!cell.includes("\n")) return [cell];
-  return cell.split("\n");
+ * same way). A break rune at the end of the text is a hard cap, not padding.
+ * Each break-line wider than `maxCells` wraps (word-aware, cell-accurate). */
+export function cellLines(cell: string, maxCells = Number.POSITIVE_INFINITY): string[] {
+  const broken = cell === "" ? [""] : cell.includes("\n") ? cell.split("\n") : [cell];
+  if (maxCells === Number.POSITIVE_INFINITY) return broken;
+  const out: string[] = [];
+  for (const line of broken) {
+    if (cellTextWidth(line) <= maxCells) {
+      out.push(line);
+    } else {
+      out.push(...wrapText(line, Math.max(1, maxCells)));
+    }
+  }
+  return out;
 }
 
-/** Display width of a cell: the widest of its display-break lines. Uses
- * `displayWidth` so wide runes (emoji) count as 2 cells. */
+/** Display width of a cell line as it will RENDER: inline markdown
+ * transforms (**bold**, *italic*, `code`) run first, so markers that
+ * disappear at render time don't inflate the measured width. */
+function cellTextWidth(text: string): number {
+  return displayWidth(stripAnsi(renderCellMarkdown(text)));
+}
+
+/** Display width of a cell: the widest of its display-break lines. Wide
+ * runes (emoji) count as 2 cells. */
 function cellWidth(cell: string): number {
   let max = 0;
   for (const line of cellLines(cell)) {
-    const w = displayWidth(line);
+    const w = cellTextWidth(line);
     if (w > max) max = w;
   }
   return max;
+}
+
+/**
+ * Fit column widths into `cols`: natural widths when the table fits,
+ * otherwise shrink the widest columns first (one cell per pass) until it
+ * does — floored at 3 so cells still wrap readably. Cell content wraps to
+ * its column width when capping squeezes it below the text's width.
+ */
+function capWidths(colWidths: number[], cols: number): number[] {
+  // Row geometry: Σ(width+2) + (n+1) border runes = Σw + 3n + 1.
+  const fits = (ws: number[]): boolean =>
+    ws.reduce((s, x) => s + x, 0) + 3 * ws.length + 1 <= cols;
+  if (fits(colWidths)) return [...colWidths];
+  const w = [...colWidths];
+  while (!fits(w) && w.some((x) => x > 3)) {
+    let max = 0;
+    for (const x of w) if (x > max) max = x;
+    for (let i = 0; i < w.length; i++) {
+      if (w[i] === max) w[i] = max - 1;
+    }
+  }
+  return w;
 }
 
 /** True if the line looks like a table row (has pipes and at least one non-empty cell). */
@@ -97,7 +135,7 @@ function isTableDelimiter(line: string): boolean {
 
 import { type KeyResult } from "../components/Component.ts";
 import { ViewportComponent } from "../components/ViewportComponent.ts";
-import { displayWidth } from "../../util/ansi.ts";
+import { displayWidth, stripAnsi, wrapText } from "../../util/ansi.ts";
 import { C, ST, TONE } from "../theme.ts";
 
 /**
@@ -156,12 +194,14 @@ export class TableComponent extends ViewportComponent {
     return this.scrollX;
   }
 
-  /** Total rendered width of the table (including borders and margins). */
+  /** Total rendered width: the natural table width capped at the viewport —
+   * `renderTable` never emits lines wider than `cols` (it wraps instead). */
   override totalWidth(): number {
     if (!this.table) return 0;
     const colWidths = this.table.columns.map((c) => c.width);
     const numCols = colWidths.length;
-    return colWidths.reduce((s, w) => s + w, 0) + 2 * numCols + 2;
+    const natural = colWidths.reduce((s, w) => s + w, 0) + 3 * numCols + 1;
+    return Math.min(natural, this.cols);
   }
 
   /** Produce all content rows at `cols` (before viewport slicing). */
@@ -215,7 +255,8 @@ export class TableComponent extends ViewportComponent {
 /**
  * Render a parsed table as styled rows: box-drawing borders, bold header,
  * zebra-striped data rows, and 1-cell top/bottom margins. Width-capped to
- * `cols` — columns scale proportionally when the table is too wide.
+ * `cols` — when the table is too wide, the widest columns shrink first and
+ * over-long cell text wraps.
  *
  * `scrollX` shifts the rendered content left by that many cells; the caller
  * is responsible for clamping it to `[0, totalWidth - cols]`.
@@ -234,9 +275,10 @@ export function renderTable(
   // Total = 2 + sum(widths + 2) = sum(widths) + 2*numCols + 2
   const totalWidth = colWidths.reduce((s, w) => s + w, 0) + 2 * numCols + 2;
 
-  // Scale columns proportionally when the table doesn't fit.
-  const scale = totalWidth > cols ? cols / totalWidth : 1;
-  const w = colWidths.map((cw) => Math.max(1, Math.floor(cw * scale)));
+  // Cap to the viewport: when the table doesn't fit, shrink the WIDEST
+  // columns first (floor 3) instead of proportionally squeezing everything;
+  // over-long cell text wraps to its capped width below.
+  const w = capWidths(colWidths, cols);
 
   const border = focused ? "┃" : "│";
   const hBorder = focused ? "━" : "─";
@@ -258,7 +300,9 @@ export function renderTable(
   const padCellLine = (text: string, width: number, align: "left" | "center" | "right"): string => {
     const styled = renderCellMarkdown(text);
     const safe = backgroundSafe(styled);
-    const dw = displayWidth(text);
+    // Measure the RENDERED text: markdown markers (**, *, `) disappear at
+    // render time and must not inflate the padding calculation.
+    const dw = cellTextWidth(text);
     const pad = Math.max(0, width - dw);
     let body: string;
     switch (align) {
@@ -299,7 +343,7 @@ export function renderTable(
   // always left-padded to match the column's content). A header containing a
   // display break emits one physical line per break.
   const headerCells = table.columns.map((c, i) =>
-    cellLines(c.title).map((l) =>
+    cellLines(c.title, w[i]!).map((l) =>
       ST.assistant.bold(true).render(padCellLine(l, w[i]!, "left")),
     ),
   );
@@ -323,7 +367,7 @@ export function renderTable(
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
     const cellLinesArr = src.map((c, i) =>
-      cellLines(c ?? "").map((l) =>
+      cellLines(c ?? "", w[i]!).map((l) =>
         padCellLine(l, w[i]!, table.columns[i]!.align),
       ),
     );
