@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: haliphax-ai/yog-client-tui/.github@main
+      - run: npm run typecheck
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: haliphax-ai/yog-client-tui/.github@main
+      - run: npx vitest run --silent=true
+
+  lint:deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: haliphax-ai/yog-client-tui/.github@main
+      - run: npm run lint:deps
+
+  oxlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: haliphax-ai/yog-client-tui/.github@main
+      - name: oxlint
+        run: npx oxlint .
+
+  oxfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: haliphax-ai/yog-client-tui/.github@main
+      - name: oxfmt
+        run: npx oxfmt --no-error-on-unmatched-pattern .

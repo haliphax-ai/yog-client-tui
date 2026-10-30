@@ -10,20 +10,34 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "lint:deps": "depcruise --config .dependency-cruiser.cjs src"
+    "lint:deps": "depcruise --config .dependency-cruiser.cjs src",
+    "commitlint": "commitlint",
+    "prepare": "husky || true"
   },
   "dependencies": {
     "@oakoliver/bubbles": "^1.2.2",
     "@oakoliver/bubbletea": "^1.2.0",
     "@oakoliver/glamour": "^2.0.0",
-    "@oakoliver/lipgloss": "^1.1.3"
+    "@oakoliver/lipgloss": "^1.1.3",
+    "nano-staged": "^1.0.2"
   },
   "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^5.0.5",
     "dependency-cruiser": "^18.7.0",
+    "husky": "^9.1.7",
+    "oxfmt": "^0.74.0",
+    "oxlint": "^1.89.0",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
+  },
+  "nano-staged": {
+    "**/*.ts": [
+      "oxfmt",
+      "oxlint"
+    ]
   },
   "engines": {
     "node": ">=22.18"
