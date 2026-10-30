@@ -1,10 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  getState,
-  resetForTests,
-  setState,
-  subscribe,
-} from "../../src/core/store.ts";
+import { getState, resetForTests, setState, subscribe } from "../../src/core/store.ts";
 
 describe("store", () => {
   beforeEach(() => {

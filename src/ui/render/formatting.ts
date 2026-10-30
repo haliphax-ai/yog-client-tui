@@ -18,7 +18,8 @@ export function prettyArgs(
   let text: string;
   try {
     if (typeof value === "string") text = value;
-    else text = JSON.stringify(value, undefined, mode === "pretty" ? 2 : undefined) ?? String(value);
+    else
+      text = JSON.stringify(value, undefined, mode === "pretty" ? 2 : undefined) ?? String(value);
   } catch {
     text = String(value);
   }
@@ -61,9 +62,7 @@ function previewBody(result: unknown, cols: number): string[] | undefined {
   const highlighted = highlightBlock(result, target);
   if (highlighted && highlighted.length > 0) return highlighted;
   const text =
-    typeof result === "string"
-      ? result
-      : (JSON.stringify(result, null, 2) ?? String(result));
+    typeof result === "string" ? result : (JSON.stringify(result, null, 2) ?? String(result));
   if (text.trim() === "") return undefined;
   const plain = text.split("\n");
   if (plain.length > CAP) return plain.slice(0, CAP).flatMap((line) => wrapText(line, target));

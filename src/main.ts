@@ -45,10 +45,7 @@ import { loadConfig, persistSessionKey, resolveBaseUrl } from "./config.ts";
 import { FOCUS_NONE } from "./core/focus.ts";
 import { getState, setState } from "./core/store.ts";
 import { toTranscriptEntries } from "./core/transcript.ts";
-import {
-  createTurnPresenter,
-  transcriptLogEntries,
-} from "./core/turnPresenter.ts";
+import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
 import { YogClient, YogError, type TurnEvents, type TurnOutcome } from "./yogClient.ts";
 import { type LogEntry } from "./ui/render/index.ts";
 import type { Component } from "./ui/components/Component.ts";
@@ -160,9 +157,7 @@ async function run(argv: readonly string[]): Promise<void> {
   const client = new YogClient(baseUrl);
   const caps = await client.probe();
   if (!caps.features.includes("transcript")) {
-    throw new Error(
-      "server does not advertise the transcript feature; run the current yog",
-    );
+    throw new Error("server does not advertise the transcript feature; run the current yog");
   }
 
   /** Startup notes and rehydrated conversation, seeded before the first frame. */
@@ -228,11 +223,7 @@ async function run(argv: readonly string[]): Promise<void> {
         const rows = process.stdout.rows ?? 24;
         viewport.setViewportRows(Math.max(1, rows - STATUS_ROWS));
       },
-      paint: () => [
-        ...viewport.render({ cols }),
-        input.render({ cols }),
-        status.render({ cols }),
-      ],
+      paint: () => [...viewport.render({ cols }), input.render({ cols }), status.render({ cols })],
       emit: writeFrame,
     });
   };
@@ -266,10 +257,7 @@ async function run(argv: readonly string[]): Promise<void> {
    * purged or pruned it — restarts with a fresh session, notes the fallback,
    * and replays the turn once against the new id.
    */
-  const turnWithRecovery = async (
-    prompt: string,
-    events: TurnEvents,
-  ): Promise<TurnOutcome> => {
+  const turnWithRecovery = async (prompt: string, events: TurnEvents): Promise<TurnOutcome> => {
     try {
       return await client.runTurn(prompt, config.model, events);
     } catch (err) {
@@ -334,9 +322,7 @@ async function run(argv: readonly string[]): Promise<void> {
   const abortActiveTurn = (): void => {
     if (!getState().busy || client.sessionId === undefined) return;
     void client.abortTurn().catch((err: unknown) => {
-      pushLines("system", [
-        `abort failed: ${err instanceof Error ? err.message : String(err)}`,
-      ]);
+      pushLines("system", [`abort failed: ${err instanceof Error ? err.message : String(err)}`]);
     });
   };
 
@@ -347,8 +333,7 @@ async function run(argv: readonly string[]): Promise<void> {
   const chain: readonly Component[] = [viewport, input, status];
 
   /** Rows available to the log viewport in the current terminal layout. */
-  const viewportRows = (): number =>
-    Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
+  const viewportRows = (): number => Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
 
   /**
    * Quit: restore the terminal and exit. The session is NOT deleted — the

@@ -2,12 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
 import { FOCUS_NONE } from "../../../src/core/focus.ts";
-import {
-  getState,
-  resetForTests,
-  setState,
-  subscribe,
-} from "../../../src/core/store.ts";
+import { getState, resetForTests, setState, subscribe } from "../../../src/core/store.ts";
 import { totalRows, type LogEntry } from "../../../src/ui/render/index.ts";
 
 /** Fresh chunk entry (8 body rows so it is collapsible). */

@@ -13,15 +13,15 @@ with `@oakoliver/glamour` markdown rendering.
 The code is split into responsibility domains with enforced dependency rules
 (dependency-cruiser checks them in `npm run lint:deps`):
 
-| Domain | Location | Responsibility |
-|---|---|---|
-| Composition root | `src/main.ts` | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`. |
-| `config` | `src/config.ts` | Config parsing and validation: `model` (required), optional `baseUrl`, and `resolveBaseUrl` (config → `YOG_SERVER_URL` env → `http://127.0.0.1:8111`). |
-| `core` | `src/core/` | The tiny state store (`getState` / `setState` / `subscribe`), focus ring, scroll math, transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering). |
-| `client` | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → prompt-only `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → transcript rehydration (`GET /v1/sessions/{id}/transcript`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem. |
-| `ui` | `src/ui/` | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, composition, memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem. |
-| `util` | `src/util/` | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain. |
-| `ui/pipeline` | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer. |
+| Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                            |
+| `config`         | `src/config.ts`    | Config parsing and validation: `model` (required), optional `baseUrl`, and `resolveBaseUrl` (config → `YOG_SERVER_URL` env → `http://127.0.0.1:8111`).                                                                                                                                                                                                                                   |
+| `core`           | `src/core/`        | The tiny state store (`getState` / `setState` / `subscribe`), focus ring, scroll math, transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering).                                                                                                                                                              |
+| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → prompt-only `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → transcript rehydration (`GET /v1/sessions/{id}/transcript`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem. |
+| `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, composition, memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem.                                                                                    |
+| `util`           | `src/util/`        | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain.                                                                                                                                                                                                                                                                                              |
+| `ui/pipeline`    | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer.                                                                                                                                                                                                                                                             |
 
 `client/` never touches the terminal and `ui/` never touches the transport, so
 presentation can change without affecting transport logic (and vice versa).
@@ -31,13 +31,13 @@ presentation can change without affecting transport logic (and vice versa).
 Every redraw runs through a fixed sequence of stages — the order is data (the
 `STAGES` array), not convention, so it is deterministic by construction:
 
-| Stage | Core work | Hook point |
-|---|---|---|
-| `layout` | Measure terminal geometry (cols/rows/viewport rows) into components. | — |
-| `paint` | Each component renders its rows. | components + overlays that draw into the paint pass |
-| `compose` | Join viewport + input + status lines into one frame. | — |
-| `post` | Pad/truncate every ANSI line to the terminal width. | overlays, status widgets, banners |
-| `emit` | Write the finished frame to stdout — a single owner (`writeFrame`); nothing runs after it. | — |
+| Stage     | Core work                                                                                  | Hook point                                          |
+| --------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `layout`  | Measure terminal geometry (cols/rows/viewport rows) into components.                       | —                                                   |
+| `paint`   | Each component renders its rows.                                                           | components + overlays that draw into the paint pass |
+| `compose` | Join viewport + input + status lines into one frame.                                       | —                                                   |
+| `post`    | Pad/truncate every ANSI line to the terminal width.                                        | overlays, status widgets, banners                   |
+| `emit`    | Write the finished frame to stdout — a single owner (`writeFrame`); nothing runs after it. | —                                                   |
 
 Features extend the pipeline with `register(stage, hook)` from
 `src/ui/pipeline/index.ts`: hooks append to an ordered array per stage and run
@@ -69,11 +69,11 @@ step). `npm run typecheck` runs `tsc --noEmit`.
 package root. See `config.example.json` for the committed template — a real
 `config.json` is git-ignored.
 
-| Key | Required | Description |
-|---|---|---|
-| `model` | yes | Model id sent with every turn. |
-| `baseUrl` | no | Server base URL. |
-| `session` | no | Session id to resume. Left empty (or absent) to create a fresh session. The client rewrites this key after every startup, so a relaunch automatically resumes the last session; use the `--new` flag (or clear the key) to start fresh. If the stored id no longer exists server-side, the client starts a new session automatically. |
+| Key       | Required | Description                                                                                                                                                                                                                                                                                                                           |
+| --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`   | yes      | Model id sent with every turn.                                                                                                                                                                                                                                                                                                        |
+| `baseUrl` | no       | Server base URL.                                                                                                                                                                                                                                                                                                                      |
+| `session` | no       | Session id to resume. Left empty (or absent) to create a fresh session. The client rewrites this key after every startup, so a relaunch automatically resumes the last session; use the `--new` flag (or clear the key) to start fresh. If the stored id no longer exists server-side, the client starts a new session automatically. |
 
 Base URL resolution order: `baseUrl` from `config.json` → `YOG_SERVER_URL`
 environment variable → `http://127.0.0.1:8111` (default).
@@ -83,16 +83,16 @@ to run `cp config.example.json config.json`.
 
 ## Key bindings
 
-| Key | Action |
-|---|---|
-| `Enter` | Send the current input (on a focused chunk / tool call: expand/collapse it) |
-| `Ctrl+C` | Quit |
-| `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input |
-| `PageUp` / `PageDown`, `↑` / `↓` | Scroll the log viewport |
-| `Ctrl+Home` / `Ctrl+End` | Jump to top / bottom of the log |
-| `Tab` | Focus the next expandable entry (tool call / output chunk; wraps through "none") |
-| `Shift+Tab` | Focus the previous entry (wraps through "none") |
-| `Esc` | Leave focus mode · abort the in-flight turn (idle → no-op) |
+| Key                                               | Action                                                                           |
+| ------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `Enter`                                           | Send the current input (on a focused chunk / tool call: expand/collapse it)      |
+| `Ctrl+C`                                          | Quit                                                                             |
+| `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input                                                                       |
+| `PageUp` / `PageDown`, `↑` / `↓`                  | Scroll the log viewport                                                          |
+| `Ctrl+Home` / `Ctrl+End`                          | Jump to top / bottom of the log                                                  |
+| `Tab`                                             | Focus the next expandable entry (tool call / output chunk; wraps through "none") |
+| `Shift+Tab`                                       | Focus the previous entry (wraps through "none")                                  |
+| `Esc`                                             | Leave focus mode · abort the in-flight turn (idle → no-op)                       |
 
 Input keystrokes are ignored while a turn is in flight (one turn at a time); the
 status line shows a spinner and key hints — including `Esc abort` while busy.

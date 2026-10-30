@@ -8,9 +8,9 @@ describe("colorizeToolLine: escaped quotes", () => {
   it("keeps an escaped quote inside a string (it does not close it)", () => {
     expect(colorizeToolLine('{"a":"say \\"hi\\" now"}')).toBe(
       "\x1b[38;5;245m{\x1b[39m" +
-        "\x1b[38;5;39m\"a\"\x1b[39m" +
+        '\x1b[38;5;39m"a"\x1b[39m' +
         "\x1b[38;5;245m:\x1b[39m" +
-        "\x1b[38;5;114m\"say \\\"hi\\\" now\"\x1b[39m" +
+        '\x1b[38;5;114m"say \\"hi\\" now"\x1b[39m' +
         "\x1b[38;5;245m}\x1b[39m",
     );
   });
@@ -42,9 +42,9 @@ describe("colorizeToolLine: escaped quotes", () => {
     // {"p":"a\\"} — the \\ is content, the final " closes the string.
     expect(colorizeToolLine('{"p":"a\\\\"}')).toBe(
       "\x1b[38;5;245m{\x1b[39m" +
-        "\x1b[38;5;39m\"p\"\x1b[39m" +
+        '\x1b[38;5;39m"p"\x1b[39m' +
         "\x1b[38;5;245m:\x1b[39m" +
-        "\x1b[38;5;114m\"a\\\\\"\x1b[39m" +
+        '\x1b[38;5;114m"a\\\\"\x1b[39m' +
         "\x1b[38;5;245m}\x1b[39m",
     );
   });

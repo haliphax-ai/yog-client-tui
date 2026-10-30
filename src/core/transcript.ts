@@ -37,9 +37,10 @@ export function decodeToolCalls(
   for (const item of raw) {
     if (item === null || typeof item !== "object" || Array.isArray(item)) continue;
     const obj = item as Record<string, unknown>;
-    const fn = typeof obj["function"] === "object" && obj["function"] !== null
-      ? (obj["function"] as Record<string, unknown>)
-      : {};
+    const fn =
+      typeof obj["function"] === "object" && obj["function"] !== null
+        ? (obj["function"] as Record<string, unknown>)
+        : {};
     const id = typeof obj["id"] === "string" ? obj["id"] : "";
     const name = typeof fn["name"] === "string" ? fn["name"] : "";
     if (id === "" && name === "") continue;

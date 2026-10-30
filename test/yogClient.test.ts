@@ -397,7 +397,9 @@ describe("YogClient.reopen", () => {
   });
 
   it("adopts an existing session id on HTTP 200", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ session: { id: "s1", status: "open" } }, 200));
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ session: { id: "s1", status: "open" } }, 200),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const client = new YogClient("http://test");
     const adopted = await client.reopen("s1");
@@ -419,7 +421,10 @@ describe("YogClient.reopen", () => {
   });
 
   it("surfaces a YogError for other non-2xx responses", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: { code: "internal", message: "boom" } }, 500)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "internal", message: "boom" } }, 500)),
+    );
     const client = new YogClient("http://test");
     await expect(client.reopen("s1")).rejects.toMatchObject({
       name: "YogError",
@@ -504,7 +509,10 @@ describe("YogClient.getTranscript", () => {
   });
 
   it("falls back to http_error when an error body has no message", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ error: { code: "x" } }, 422)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "x" } }, 422)),
+    );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
     const err = await client.getTranscript().catch((e: unknown) => e);
@@ -586,8 +594,10 @@ describe("YogClient.runTurn payload", () => {
         return jsonResponse(
           {
             turn: {
-              events: [{ type: "turn.started", data: { turnId: "t1", model: "m" } },
-                { type: "turn.aborted", data: { reason: "turn aborted by operator" } }],
+              events: [
+                { type: "turn.started", data: { turnId: "t1", model: "m" } },
+                { type: "turn.aborted", data: { reason: "turn aborted by operator" } },
+              ],
             },
           },
           200,

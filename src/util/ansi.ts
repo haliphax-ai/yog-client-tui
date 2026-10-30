@@ -3,7 +3,12 @@
  * wrap, and cell-capped truncation. No styles live here — color belongs to
  * the theme.
  */
-import { stringWidth, stripAnsi as lgStripAnsi, truncate as lgTruncate, wrap as lgWrap } from "@oakoliver/lipgloss";
+import {
+  stringWidth,
+  stripAnsi as lgStripAnsi,
+  truncate as lgTruncate,
+  wrap as lgWrap,
+} from "@oakoliver/lipgloss";
 
 /** Width of a string in terminal cells, ignoring ANSI escape sequences. */
 export function displayWidth(text: string): number {
@@ -34,7 +39,5 @@ export function truncateAnsi(text: string, max: number): string {
  */
 export function wrapText(text: string, cols: number): string[] {
   if (cols < 1) return [""];
-  return text
-    .split("\n")
-    .flatMap((line) => (line === "" ? [""] : lgWrap(line, cols).split("\n")));
+  return text.split("\n").flatMap((line) => (line === "" ? [""] : lgWrap(line, cols).split("\n")));
 }

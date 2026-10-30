@@ -1,11 +1,4 @@
-export type EntryKind =
-  | "user"
-  | "assistant"
-  | "tool"
-  | "system"
-  | "error"
-  | "chunk"
-  | "notice";
+export type EntryKind = "user" | "assistant" | "tool" | "system" | "error" | "chunk" | "notice";
 
 /** One entry in the chat log (logical lines, before wrapping). */
 export interface LogEntry {

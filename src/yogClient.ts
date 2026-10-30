@@ -416,7 +416,10 @@ export class YogClient {
       switch (ev.type) {
         case "turn.started": {
           turnId = typeof data["turnId"] === "string" ? data["turnId"] : turnId;
-          events.onStarted?.(turnId ?? "", typeof data["model"] === "string" ? data["model"] : model);
+          events.onStarted?.(
+            turnId ?? "",
+            typeof data["model"] === "string" ? data["model"] : model,
+          );
           return;
         }
         case "message.delta": {
@@ -424,11 +427,7 @@ export class YogClient {
           return;
         }
         case "tool.call": {
-          events.onToolCall?.(
-            str(data["id"]),
-            str(data["name"]),
-            parseToolArgs(data["args"]),
-          );
+          events.onToolCall?.(str(data["id"]), str(data["name"]), parseToolArgs(data["args"]));
           return;
         }
         case "tool.result": {
@@ -497,10 +496,16 @@ export class YogClient {
       };
     }
 
-    if (serverError !== undefined) return { ok: false, recovered: false, error: serverError, aborted: false };
+    if (serverError !== undefined)
+      return { ok: false, recovered: false, error: serverError, aborted: false };
     if (sawAborted) return { ok: false, recovered: false, aborted: true };
     if (!sawFinished) {
-      return { ok: false, recovered: false, failure: "turn stream ended without a terminal event", aborted: false };
+      return {
+        ok: false,
+        recovered: false,
+        failure: "turn stream ended without a terminal event",
+        aborted: false,
+      };
     }
     return { ok: true, recovered: false, aborted: false };
   }

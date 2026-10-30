@@ -25,10 +25,7 @@ function mdRenderer(cols: number): TermRenderer {
   const width = Math.max(1, cols);
   const cached = mdRenderers.get(width);
   if (cached) return cached;
-  const renderer = newTermRenderer(
-    withStandardStyle(GLAMOUR_THEME),
-    withWordWrap(width),
-  );
+  const renderer = newTermRenderer(withStandardStyle(GLAMOUR_THEME), withWordWrap(width));
   if (mdRenderers.size >= 8) mdRenderers.clear(); // simple bound on growth
   mdRenderers.set(width, renderer);
   return renderer;
@@ -102,9 +99,7 @@ export function highlightBlock(
 ): string[] | undefined {
   try {
     const text =
-      typeof value === "string"
-        ? value
-        : (JSON.stringify(value, null, 2) ?? String(value));
+      typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? String(value));
     if (text.length > 100_000) return undefined;
     const rendered = mdRender(`\`\`\`${lang}\n${text}\n\`\`\``, cols);
     if (rendered === "") return undefined;

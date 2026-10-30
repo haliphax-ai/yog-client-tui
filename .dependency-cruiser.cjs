@@ -29,8 +29,7 @@ function scanContentRules() {
 
   // Rule 6 - raw color literals (ANSI 256/truecolor fg escapes, hex colors)
   // are allowed only in ui/theme.ts.
-  const colorLiteral =
-    /\\x1b\[38;|\\u001b\[38;|\\e\[38;|\x1b\[38;|#[0-9a-f]{6}\b/i;
+  const colorLiteral = /\\x1b\[38;|\\u001b\[38;|\\e\[38;|\x1b\[38;|#[0-9a-f]{6}\b/i;
 
   // Rule 9 - no default-server-URL constant (127.0.0.1:8111, localhost:8111,
   // or the default port) anywhere outside config/.
@@ -58,9 +57,7 @@ function scanContentRules() {
 
 const contentViolations = scanContentRules();
 if (contentViolations.length > 0) {
-  throw new Error(
-    `dependency rules violated:\n  ${contentViolations.join("\n  ")}`,
-  );
+  throw new Error(`dependency rules violated:\n  ${contentViolations.join("\n  ")}`);
 }
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -102,12 +99,7 @@ module.exports = {
       comment: "ansi helpers must not depend on ui, client, config or core",
       from: { path: "^src/util/" },
       to: {
-        path: [
-          "^src/ui/",
-          "^src/(yogClient\\.ts$|client/)",
-          "^src/config(\\.ts$|/)",
-          "^src/core/",
-        ],
+        path: ["^src/ui/", "^src/(yogClient\\.ts$|client/)", "^src/config(\\.ts$|/)", "^src/core/"],
       },
     },
 

@@ -3,11 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
 import { FOCUS_NONE } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
-import {
-  routeChar,
-  routeKey,
-  type Globals,
-} from "../../../src/ui/components/keyRouter.ts";
+import { routeChar, routeKey, type Globals } from "../../../src/ui/components/keyRouter.ts";
 import type { Component } from "../../../src/ui/components/Component.ts";
 import type { LogEntry } from "../../../src/ui/render/index.ts";
 

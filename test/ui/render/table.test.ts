@@ -24,7 +24,10 @@ describe("parseTable — GFM pipe tables", () => {
       { title: "Name", width: 5, align: "left" },
       { title: "Age", width: 3, align: "left" },
     ]);
-    expect(t!.rows).toEqual([["Alice", "30"], ["Bob", "25"]]);
+    expect(t!.rows).toEqual([
+      ["Alice", "30"],
+      ["Bob", "25"],
+    ]);
   });
 
   it("omits outer pipes (GFM allows it)", () => {
@@ -71,11 +74,7 @@ Bob | 25`;
     const t = parseTable(md);
     expect(t).not.toBeNull();
     expect(t!.columns).toHaveLength(3);
-    expect(t!.columns.map((c) => c.align)).toEqual([
-      "left",
-      "center",
-      "right",
-    ]);
+    expect(t!.columns.map((c) => c.align)).toEqual(["left", "center", "right"]);
     expect(t!.rows).toEqual([["a", "b", "c"]]);
   });
 
@@ -158,9 +157,7 @@ This is not a table row
 | Alice | line one<br>line two<br/>line three<br />line four |`;
 
     const t = parseTable(md);
-    expect(t!.rows).toEqual([
-      ["Alice", "line one\nline two\nline three\nline four"],
-    ]);
+    expect(t!.rows).toEqual([["Alice", "line one\nline two\nline three\nline four"]]);
   });
 
   it("sizes column width from the widest sub-line of a <br> cell", () => {
@@ -183,11 +180,7 @@ This is not a table row
     const t = parseTable(md);
     expect(t).not.toBeNull();
     expect(t!.columns).toHaveLength(3);
-    expect(t!.columns.map((c) => c.align)).toEqual([
-      "left",
-      "center",
-      "right",
-    ]);
+    expect(t!.columns.map((c) => c.align)).toEqual(["left", "center", "right"]);
     expect(t!.rows).toEqual([["a", "b", "c"]]);
   });
 
@@ -205,9 +198,7 @@ This is not a table row
 describe("splitTableSections — prose/table interleaving", () => {
   it("returns a single prose section when there are no tables", () => {
     const sections = splitTableSections("just some prose\nwith two lines");
-    expect(sections).toEqual([
-      { kind: "prose", text: "just some prose\nwith two lines" },
-    ]);
+    expect(sections).toEqual([{ kind: "prose", text: "just some prose\nwith two lines" }]);
   });
 
   it("returns a single table section when the text is only a table", () => {
@@ -338,7 +329,6 @@ describe("renderTable — styled output", () => {
     expect(rows[6]).not.toMatch(/48;2;26;26;46/);
   });
 
-
   it("applies selected background to row 0 only when focused", () => {
     const focused = renderTable(table, 80, true, 0);
     const unfocused = renderTable(table, 80, false, 0);
@@ -359,7 +349,6 @@ describe("renderTable — styled output", () => {
     // The scrolled data row differs from the unscrolled one
     expect(scrolled[4]).not.toBe(noScroll[4]);
   });
-
 
   it("produceRows on TableComponent matches the renderTable free function", () => {
     const tc = new TableComponent();
@@ -536,9 +525,7 @@ describe("renderTable — styled output", () => {
     const rows = renderTable(parseTable(md)!, 80, false, 0);
     const joined = rows.join("\n");
     // Full URL stays visible and OSC 8-linked, query + anchor intact.
-    expect(joined).toContain(
-      "https://x.io/a/long/path?query=alpha&other=beta#anchor-here\x07",
-    );
+    expect(joined).toContain("https://x.io/a/long/path?query=alpha&other=beta#anchor-here\x07");
     expect(stripAnsi(joined)).toContain("#anchor-here");
   });
 

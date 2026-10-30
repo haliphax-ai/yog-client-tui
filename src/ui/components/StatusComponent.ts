@@ -26,7 +26,10 @@ export function statusBody(): string {
   const activity: string[] = [];
   if (state.busy) activity.push(`${spinnerFrame()} thinking…`);
   if (state.statusNote !== "") activity.push(state.statusNote);
-  const session = [`model ${state.model}`, state.connection === "connected" ? "session ok" : state.connection];
+  const session = [
+    `model ${state.model}`,
+    state.connection === "connected" ? "session ok" : state.connection,
+  ];
   const segments: string[] = [];
   if (activity.length > 0) segments.push(activity.join(" · "));
   segments.push(session.join(" · "));
