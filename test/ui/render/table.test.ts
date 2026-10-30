@@ -542,6 +542,16 @@ describe("renderTable — styled output", () => {
     expect(stripAnsi(joined)).toContain("#anchor-here");
   });
 
+  it("does not shave trailing letters after emoji (cell-unit trim)", () => {
+    const md = `| Status |
+| --- |
+| ✅ Done |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const plain = stripAnsi(rows.join("\n"));
+    expect(plain).toContain("✅ Done");
+    expect(plain).not.toContain("✅ Don\n");
+  });
+
   it("cellLines splits on newlines only", () => {
     expect(cellLines("a<br>b")).toEqual(["a<br>b"]); // parser already converted the break
     expect(cellLines("a\nb")).toEqual(["a", "b"]);
