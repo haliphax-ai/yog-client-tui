@@ -67,3 +67,44 @@ describe("assistant prose left border", () => {
     expect((rows[0] ?? "").includes(C.punct)).toBe(false);
   });
 });
+
+describe("terminal-state notice", () => {
+  it("renders one line: padded label, default-fg dot, dimmed detail", () => {
+    const rows = cachedRows(
+      { kind: "notice", lines: ["⏹ turn aborted", "by operator"] },
+      40,
+    );
+    expect(rows).toHaveLength(1);
+    // Padding, label, mid-dot separator, dimmed detail — single line.
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹ turn aborted · by operator");
+    // The label carries the themed style; the dot is a plain fg reset.
+    expect(rows[0]).toContain(ST.notice.render("⏹ turn aborted"));
+    expect(rows[0]).toContain("\x1b[39m· ");
+    // The detail carries the dim style.
+    expect(rows[0]).toContain(ST.noticeDetail.render("by operator"));
+  });
+
+  it("omits the dot when there is no detail", () => {
+    const rows = cachedRows({ kind: "notice", lines: ["⏹ turn aborted", ""] }, 40);
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹ turn aborted ");
+    expect(rows[0]).not.toContain("\x1b[39m");
+  });
+
+  it("caps the label and detail so the line never exceeds the width", () => {
+    const rows = cachedRows(
+      {
+        kind: "notice",
+        lines: ["⏹ turn aborted", "a very long detail line that would overflow the terminal width"],
+      },
+      30,
+    );
+    expect(rows).toHaveLength(1);
+    // Total line stays inside the terminal width.
+    expect(stripAnsi(rows[0] ?? "").length).toBeLessThanOrEqual(30);
+    // The dot survives the cap, so the separator never disappears.
+    expect(rows[0]).toContain("\x1b[39m· ");
+    // Detail is capped but starts correctly.
+    expect(stripAnsi(rows[0] ?? "").endsWith("a very long")).toBe(true);
+  });
+});

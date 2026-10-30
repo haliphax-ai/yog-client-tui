@@ -10,7 +10,7 @@ import {
 } from "@oakoliver/glamour";
 import type { Style } from "@oakoliver/lipgloss";
 import { GLAMOUR_THEME, ST, CHUNK_HEADER } from "../theme.ts";
-import { matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
+import { displayWidth, matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import type { EntryKind, LogEntry } from "./types.ts";
 
@@ -56,6 +56,8 @@ function kindStyle(kind: EntryKind): Style {
       return ST.system;
     case "error":
       return ST.error;
+    case "notice":
+      return ST.notice; // marker+label only; the detail row styles itself
     case "chunk":
       return ST.chunkBlock;
   }
@@ -274,6 +276,24 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const style = (focused ? ST.toolFocus : ST.toolPlain).width(cols);
     const rendered = style.render(rows.join("\n"));
     return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
+  }
+
+  if (entry.kind === "notice") {
+    // Terminal-state notice, one line (like the status bar's dot-separated
+    // items): the padded label in its themed color, the mid-dot in the
+    // terminal's default foreground, and the detail dimmed — all capped to
+    // the terminal width.
+    const label = entry.lines[0] ?? "";
+    const detail = entry.lines[1] ?? "";
+    // 1 pad + label + 3 (" · ") + detail; -4 when the dot is present so the
+    // separator always survives the cap.
+    const budget = Math.max(0, cols - 2 - (detail === "" ? 0 : 3));
+    const head = ST.notice.render(truncateAnsi(label, budget));
+    const body =
+      detail === ""
+        ? head
+        : `${head}\x1b[39m· ${ST.noticeDetail.render(truncateAnsi(detail, Math.max(0, budget - displayWidth(label))))}`;
+    return { rendered: body, rows: 1 };
   }
 
   const lines: string[] = [];

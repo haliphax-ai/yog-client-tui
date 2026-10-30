@@ -1,5 +1,11 @@
-/** What kind of log entry this is (drives its styling). */
-export type EntryKind = "user" | "assistant" | "tool" | "system" | "error" | "chunk";
+export type EntryKind =
+  | "user"
+  | "assistant"
+  | "tool"
+  | "system"
+  | "error"
+  | "chunk"
+  | "notice";
 
 /** One entry in the chat log (logical lines, before wrapping). */
 export interface LogEntry {

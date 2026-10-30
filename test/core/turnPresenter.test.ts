@@ -132,13 +132,23 @@ describe("createTurnPresenter", () => {
     expect(entries.at(-1)).toEqual({ kind: "error", lines: ["boom_code: bad"] });
   });
 
-  it("logs the abort reason as a system entry", () => {
+  it("logs the abort as a notice entry with a shortened reason", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onAborted?.("turn aborted by operator");
     expect(entries.at(-1)).toEqual({
-      kind: "system",
-      lines: ["⏹ turn aborted — turn aborted by operator"],
+      kind: "notice",
+      lines: ["⏹ turn aborted", "by operator"],
+    });
+  });
+
+  it("keeps an unrecognized abort reason as the notice detail", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onAborted?.("worker pool exploded");
+    expect(entries.at(-1)).toEqual({
+      kind: "notice",
+      lines: ["⏹ turn aborted", "worker pool exploded"],
     });
   });
 
@@ -146,7 +156,7 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onAborted?.("");
-    expect(entries.at(-1)?.lines).toEqual(["⏹ turn aborted — "]);
+    expect(entries.at(-1)?.lines).toEqual(["⏹ turn aborted", ""]);
   });
 
   it("emits no result chunk for a failed call — the ❌ line is the whole failure", () => {

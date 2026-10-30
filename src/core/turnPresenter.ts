@@ -109,13 +109,16 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.requestRender();
     },
     onAborted: (reason) => {
-      host.append("system", [`⏹ turn aborted — ${reason}`]);
+      // The server's canonical reason restates the event ("turn aborted by
+      // operator"); keep only the suffix that isn't already on the label.
+      const trimmed = reason.replace(/^turn aborted\s*—?\s*/, "");
+      host.append("notice", ["⏹ turn aborted", trimmed]);
     },
     onError: (code, message) => {
       host.append("error", [`${code}: ${message}`]);
     },
     onRecovered: () => {
-      host.append("system", ["stream interrupted — turn recovered from turn status"]);
+      host.append("system", ["stream interrupted — recovered from turn status"]);
     },
   };
 
