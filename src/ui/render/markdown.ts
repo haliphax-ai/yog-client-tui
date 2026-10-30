@@ -171,8 +171,11 @@ export function renderInlineMarkdown(text: string, cols: number): string[] {
     // Glamour pads each rendered line with styled trailing spaces up to the
     // wrap width; cells measure and pad themselves, so cut at the last
     // visible non-space cell (sliceAnsi keeps trailing SGRs attached).
-    const plain = stripAnsi(trimmed);
-    const contentEnd = plain.replace(/\s+$/, "").length;
+    // The cut point is measured in CELLS, not characters — an emoji is one
+    // character but two cells, and a char-count cut shaves a trailing
+    // letter off every emoji-bearing line ("✅ Done" → "✅ Don").
+    const plain = stripAnsi(trimmed).replace(/\s+$/, "");
+    const contentEnd = displayWidth(plain);
     out.push(contentEnd > 0 ? sliceAnsi(trimmed, 0, contentEnd) : "");
   }
   return out;
