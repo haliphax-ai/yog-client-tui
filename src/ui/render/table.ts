@@ -75,8 +75,8 @@ function isTableDelimiter(line: string): boolean {
   return cells.every((c) => /^:?-+:?$/.test(c));
 }
 
-import { newStyle } from "@oakoliver/lipgloss";
-import { BaseComponent, type KeyResult, type RenderContext } from "../components/Component.ts";
+import { type KeyResult } from "../components/Component.ts";
+import { ViewportComponent } from "../components/ViewportComponent.ts";
 import { ST } from "../theme.ts";
 
 /**
@@ -89,11 +89,8 @@ import { ST } from "../theme.ts";
  * own rows, and handles its own keys. It is not store-bound — the entry
  * that contains it owns the table data and passes it in.
  */
-export class TableComponent extends BaseComponent {
+export class TableComponent extends ViewportComponent {
   private table: ParsedTable | null = null;
-  private scrollX = 0;
-  private cols = 80;
-  private tableFocused = false;
 
   /** Set the table data (re-renders on next `render` call). */
   setTable(table: ParsedTable): void {
@@ -107,17 +104,17 @@ export class TableComponent extends BaseComponent {
   }
 
   /** Total rendered width of the table (including borders and margins). */
-  totalWidth(): number {
+  override totalWidth(): number {
     if (!this.table) return 0;
     const colWidths = this.table.columns.map((c) => c.width);
     const numCols = colWidths.length;
     return colWidths.reduce((s, w) => s + w, 0) + 2 * numCols + 2;
   }
 
-  override render(ctx: RenderContext): string[] {
-    this.cols = Math.max(1, ctx.cols);
+  /** Produce all content rows at `cols` (before viewport slicing). */
+  override produceRows(cols: number): string[] {
     if (!this.table) return [];
-    return renderTable(this.table, this.cols, this.tableFocused, this.scrollX);
+    return renderTable(this.table, cols, this.isFocused, this.scrollX);
   }
 
   override handleKey(seq: string): KeyResult {
@@ -159,10 +156,6 @@ export class TableComponent extends BaseComponent {
       return "handled";
     }
     return "unhandled";
-  }
-
-  protected override focusChanged(gain: boolean): void {
-    this.tableFocused = gain;
   }
 }
 
@@ -232,12 +225,8 @@ export function renderTable(
   // Header separator.
   rows.push(hr(ml));
 
-  // Zebra style: alternating dark-blue background on data rows.
-  const zebra = newStyle()
-    .foreground("#ffffff")
-    .background("#1a1a2e");
-
-  // Data rows.
+  // Data rows: zebra-striped background, with a selected-row highlight when
+  // the table is focused. Both come from the theme so colors stay in sync.
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
     const cells = src.map((c, i) => cell(c ?? "", w[i]!));
@@ -247,7 +236,12 @@ export function renderTable(
       scrollX > 0
         ? line.slice(scrollX).padEnd(totalWidth, " ")
         : line;
-    const style = r % 2 === 1 ? zebra : undefined;
+    const style =
+      focused && r === 0
+        ? ST.tableSelected
+        : r % 2 === 1
+          ? ST.tableZebra
+          : undefined;
     rows.push(style ? style.render(scrolled) : scrolled);
   }
 
