@@ -225,11 +225,17 @@ function backgroundSafe(text: string): string {
 
 export class TableComponent extends ViewportComponent {
   private table: ParsedTable | null = null;
+  private margin: TableMargin = { top: true, bottom: true };
 
   /** Set the table data (re-renders on next `render` call). */
   setTable(table: ParsedTable): void {
     this.table = table;
     this.scrollX = 0; // reset scroll when data changes
+  }
+
+  /** Set top/bottom margins (first/last blocks of a sequence drop theirs). */
+  setMargin(margin: TableMargin): void {
+    this.margin = margin;
   }
 
   /** Current horizontal scroll offset (in cells). */
@@ -250,7 +256,7 @@ export class TableComponent extends ViewportComponent {
   /** Produce all content rows at `cols` (before viewport slicing). */
   override produceRows(cols: number): string[] {
     if (!this.table) return [];
-    return renderTable(this.table, cols, this.isFocused, this.scrollX);
+    return renderTable(this.table, cols, this.isFocused, this.scrollX, this.margin);
   }
 
   override handleKey(seq: string): KeyResult {
@@ -304,11 +310,23 @@ export class TableComponent extends ViewportComponent {
  * `scrollX` shifts the rendered content left by that many cells; the caller
  * is responsible for clamping it to `[0, totalWidth - cols]`.
  */
+/** Top/bottom margins around a rendered table. The first and last blocks of
+ * a prose sequence drop their outer margin (the entry separators and
+ * surrounding prose spacing already provide the gap). */
+export interface TableMargin {
+  top: boolean;
+  bottom: boolean;
+}
+
+/** Default margins: both sides kept. */
+const FULL_MARGIN: TableMargin = { top: true, bottom: true };
+
 export function renderTable(
   table: ParsedTable,
   cols: number,
   focused = false,
   scrollX = 0,
+  margin: TableMargin = FULL_MARGIN,
 ): string[] {
   const colWidths = table.columns.map((c) => c.width);
   const numCols = colWidths.length;
@@ -374,8 +392,8 @@ export function renderTable(
 
   const rows: string[] = [];
 
-  // Top margin.
-  rows.push("");
+  // Top margin (skipped when the table opens the sequence).
+  if (margin.top) rows.push("");
 
   // Top border.
   rows.push(hr(tl, tCross, tr));
@@ -443,8 +461,8 @@ export function renderTable(
   // Bottom border.
   rows.push(hr(bl, bCross, br));
 
-  // Bottom margin.
-  rows.push("");
+  // Bottom margin (skipped when the table closes the sequence).
+  if (margin.bottom) rows.push("");
 
   return rows;
 }

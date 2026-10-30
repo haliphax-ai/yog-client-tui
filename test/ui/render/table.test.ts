@@ -552,6 +552,41 @@ describe("renderTable — styled output", () => {
     expect(plain).not.toContain("✅ Don\n");
   });
 
+  it("drops margins when the table opens/closes a sequence", () => {
+    const md = `| A | B |
+| --- | --- |
+| one | two |`;
+    const t = parseTable(md)!;
+    // Default keeps both margins.
+    expect(renderTable(t, 80)).toHaveLength(7);
+    // Top margin dropped: starts at the border, one row fewer.
+    const flushTop = renderTable(t, 80, false, 0, { top: false, bottom: true });
+    expect(flushTop).toHaveLength(6);
+    expect(stripAnsi(flushTop[0]!).startsWith("┌")).toBe(true);
+    // Bottom margin dropped: ends at the border.
+    const flushBottom = renderTable(t, 80, false, 0, { top: true, bottom: false });
+    expect(flushBottom).toHaveLength(6);
+    expect(stripAnsi(flushBottom[flushBottom.length - 1]!).endsWith("┘")).toBe(true);
+    // Both dropped.
+    const flushBoth = renderTable(t, 80, false, 0, { top: false, bottom: false });
+    expect(flushBoth).toHaveLength(5);
+  });
+
+  it("sequence position drives margins in the entry renderer", () => {
+    const tableMd = ["| A |", "| --- |", "| one |"];
+    const entry = (lines: string[]): LogEntry => ({ kind: "assistant", lines });
+    // Assistant rows carry the border prefix ("▐ ") on every line.
+    // Table FIRST in the sequence: no top margin (row 0 = top border).
+    const leadTable = cachedRows(entry([...tableMd]), 60);
+    expect(stripAnsi(leadTable[0]!).startsWith("▐ ┌")).toBe(true);
+    // Prose then table: table LAST — no bottom margin (last row = bottom border).
+    const proseThenTable = cachedRows(entry(["Intro prose.", ...tableMd]), 60);
+    expect(stripAnsi(proseThenTable[proseThenTable.length - 1]!).endsWith("┘")).toBe(true);
+    // Table then prose: table FIRST — no top margin.
+    const tableThenProse = cachedRows(entry([...tableMd, "Outro prose."]), 60);
+    expect(stripAnsi(tableThenProse[0]!).startsWith("▐ ┌")).toBe(true);
+  });
+
   it("cellLines splits on newlines only", () => {
     expect(cellLines("a<br>b")).toEqual(["a<br>b"]); // parser already converted the break
     expect(cellLines("a\nb")).toEqual(["a", "b"]);
