@@ -8,7 +8,7 @@ import {
   parseTable,
   renderTable,
   resolveTableLayout,
-  TABLE_MIN_COL,
+  TABLE_MAX_COL,
   tableRowWidth,
   tableScrollChar,
   tableScrollKey,
@@ -54,25 +54,36 @@ describe("resolveTableLayout — reflow classification", () => {
     expect(wide.widths).toEqual(natural);
   });
 
-  it("expanded layout gives squeezed columns at least 30 cells", () => {
+  it("expanded layout gives squeezed columns up to the 30-cell ceiling", () => {
     const collapsed = resolveTableLayout([45, 8], 40, false);
     expect(collapsed.expandable).toBe(true); // col 0 squeezed below 30
     const expanded = resolveTableLayout([45, 8], 40, true);
     expect(expanded.expandable).toBe(true);
-    // Col 0 was squeezed (45 → 32) → floored at 30. Col 1 was untouched
-    // (natural 8, fit 8) → keeps its fit width.
-    expect(expanded.widths[0]!).toBeGreaterThanOrEqual(TABLE_MIN_COL);
+    // Col 0 was squeezed (45 → 32) → expanded to min(natural, 30) = 30.
+    // Col 1 was untouched (natural 8, fit 8) → keeps its fit width.
+    expect(expanded.widths[0]!).toBe(TABLE_MAX_COL);
     expect(expanded.widths[1]!).toBe(8);
     // The expanded row overflows the viewport (that's the point).
     expect(tableRowWidth(expanded.widths)).toBeGreaterThan(40);
   });
 
-  it("expanded widths floor squeezed columns at 30 and keep tidy ones", () => {
-    // Columns 60 and 100 in a 50-cell viewport: fit squeezes both to the
-    // floor; expanded lifts both to 30 (still way past the viewport — the
+  it("expanded widths cap squeezed columns at 30, never their natural width", () => {
+    // Columns 60 and 100 in a 50-cell viewport: fit squeezes both; expanded
+    // gives each 30 — breathing room up to the ceiling, never past it (the
     // 100-wide cell scrolls, it does not render at natural width).
     const expanded = resolveTableLayout([60, 100], 50, true);
     expect(expanded.widths).toEqual([30, 30]);
+  });
+
+  it("a squeezed-but-over-30 reflow never expands (all cells fit within 30)", () => {
+    // Two 40-wide columns in a 90-cell viewport: fit squeezes 40 → 33/34 —
+    // reflow engaged, but nothing landed below the ceiling, so Enter is
+    // inert and the widths stay at the fit.
+    const collapsed = resolveTableLayout([40, 40], 90, false);
+    expect(collapsed.expandable).toBe(false);
+    const expanded = resolveTableLayout([40, 40], 90, true);
+    expect(expanded.expandable).toBe(false);
+    expect(expanded.widths).toEqual(collapsed.widths);
   });
 });
 
