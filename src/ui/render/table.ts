@@ -25,6 +25,7 @@ export interface ParsedTable {
  * - Optional leading/trailing `|` (GFM allows omitting them)
  * - Escaped pipes `\|` (literal pipe inside a cell)
  * - Whitespace trimming around each cell
+ * - `<br>` / `<br/>` / `<br />` → newline (cells can be multi-line)
  */
 function splitCells(line: string): string[] {
   const PH = "\x00"; // placeholder for escaped pipes
@@ -37,9 +38,24 @@ function splitCells(line: string): string[] {
   while (end > start && (parts[end - 1] ?? "").trim() === "") end--;
   const result: string[] = [];
   for (let i = start; i < end; i++) {
-    result.push((parts[i] ?? "").replace(/\x00/g, "|").trim());
+    result.push(
+      (parts[i] ?? "")
+        .replace(/\x00/g, "|")
+        .trim()
+        .replace(/<br\s*\/?>/gi, "\n"),
+    );
   }
   return result;
+}
+
+/** Display width of a cell: the widest line when the cell contains `<br>` newlines. */
+function cellWidth(cell: string): number {
+  if (!cell.includes("\n")) return cell.length;
+  let max = 0;
+  for (const line of cell.split("\n")) {
+    if (line.length > max) max = line.length;
+  }
+  return max;
 }
 
 /** True if the line looks like a table row (has pipes and at least one non-empty cell). */
@@ -101,13 +117,14 @@ export function parseTable(text: string): ParsedTable | null {
     }
   }
 
-  // Compute column widths from header + all data cells
+  // Compute column widths from header + all data cells.
+  // Multi-line cells (from <br>) count their widest sub-line, not total length.
   const colCount = headerCells.length;
-  const widths: number[] = headerCells.map((h) => h.length);
+  const widths: number[] = headerCells.map((h) => cellWidth(h));
   for (const row of rows) {
     for (let c = 0; c < colCount; c++) {
-      const cell = row[c] ?? "";
-      if (cell.length > widths[c]!) widths[c] = cell.length;
+      const w = cellWidth(row[c] ?? "");
+      if (w > widths[c]!) widths[c] = w;
     }
   }
 

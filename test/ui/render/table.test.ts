@@ -128,4 +128,27 @@ This is not a table row
       { title: "Age", width: 3 },
     ]);
   });
+
+  it("converts <br> to newlines inside cells", () => {
+    const md = `| Name | Description |
+| --- | --- |
+| Alice | line one<br>line two<br/>line three<br />line four |`;
+
+    const t = parseTable(md);
+    expect(t!.rows).toEqual([
+      ["Alice", "line one\nline two\nline three\nline four"],
+    ]);
+  });
+
+  it("sizes column width from the widest sub-line of a <br> cell", () => {
+    const md = `| Name | Description |
+| --- | --- |
+| Alice | short<br>very long line here |`;
+
+    const t = parseTable(md);
+    expect(t!.columns).toEqual([
+      { title: "Name", width: 5 },
+      { title: "Description", width: 19 },
+    ]);
+  });
 });
