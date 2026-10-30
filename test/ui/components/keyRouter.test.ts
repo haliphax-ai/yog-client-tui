@@ -55,6 +55,7 @@ function globalsSpy(): { globals: Globals; calls: string[] } {
     scrollBy: (delta) => calls.push(`scrollBy:${delta}`),
     jump: (top) => calls.push(`jump:${top}`),
     submit: () => calls.push("submit"),
+    abortTurn: () => calls.push("abortTurn"),
   };
   return { globals, calls };
 }
@@ -128,6 +129,25 @@ describe("routeChar — same ordering as routeKey", () => {
     expect(routeChar([focused, next], "\r", globals)).toBe(true);
     expect(log).toEqual(["char:focused:\r", "char:next:\r"]);
     expect(calls).toEqual(["submit"]);
+  });
+
+  it("routes Esc with no focused entry to the global abort binding", () => {
+    const a = new Stub();
+    const b = new Stub();
+    const { globals, calls } = globalsSpy();
+
+    expect(routeChar([a, b], "\x1b", globals)).toBe(true);
+    expect(calls).toEqual(["abortTurn"]);
+  });
+
+  it("does not reach the global abort when a component claims Esc", () => {
+    const log: string[] = [];
+    const claimer = new Stub({ log, claims: ["\x1b"] });
+    claimer.id = "claimer";
+    const { globals, calls } = globalsSpy();
+    expect(routeChar([claimer], "\x1b", globals)).toBe(true);
+    expect(log).toEqual(["char:claimer:\x1b"]);
+    expect(calls).toEqual([]);
   });
 });
 

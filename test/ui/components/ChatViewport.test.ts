@@ -155,3 +155,24 @@ describe("ChatViewport — Tab / Shift-Tab entry focus ring", () => {
     expect(viewport.getFocusIndex()).toBe(getState().focusIndex);
   });
 });
+
+describe("ChatViewport — Esc routing", () => {
+  beforeEach(() => {
+    resetForTests();
+    setState({ entries: fixture() });
+  });
+
+  it("claims Esc while an entry is focused: clears it and does not bubble", () => {
+    const viewport = new ChatViewport();
+    viewport.cycleFocus(1);
+    expect(getState().focusIndex).toBe(1);
+
+    expect(viewport.handleChar("\x1b")).toBe("handled");
+    expect(getState().focusIndex).toBe(FOCUS_NONE);
+  });
+
+  it("bubbles Esc when nothing is focused (the turn-abort path)", () => {
+    const viewport = new ChatViewport();
+    expect(viewport.handleChar("\x1b")).toBe("unhandled");
+  });
+});

@@ -100,10 +100,14 @@ export class ChatViewport extends ChatLogComponent {
       return "handled";
     }
     if (ch === "\x1b") {
-      // Esc: leave entry focus mode (no-op when nothing is focused).
+      // Esc: leave entry focus mode; nothing focused → bubble to the global
+      // abort binding (the turn-abort Esc path).
       this.syncFromStore();
-      if (this.getFocusIndex() !== FOCUS_NONE) this.clearFocus();
-      return "handled";
+      if (this.getFocusIndex() !== FOCUS_NONE) {
+        this.clearFocus();
+        return "handled";
+      }
+      return "unhandled";
     }
     return "unhandled";
   }

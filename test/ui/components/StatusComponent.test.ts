@@ -34,4 +34,13 @@ describe("statusBody", () => {
     const out = body({ model: "m-1", connection: "error" });
     expect(out).toMatch(/^model m-1 · error │/);
   });
+
+  it("hints Esc abort while busy and Enter send while idle", () => {
+    const busy = body({ busy: true, busyFrame: 0, model: "m-1", connection: "connected" });
+    expect(busy).toContain("Esc abort");
+    expect(busy).not.toContain("Enter send");
+    const idle = body({ busy: false, model: "m-1", connection: "connected" });
+    expect(idle).toContain("Enter send");
+    expect(idle).not.toContain("Esc abort");
+  });
 });

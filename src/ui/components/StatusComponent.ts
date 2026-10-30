@@ -29,7 +29,11 @@ export function statusBody(): string {
   const segments: string[] = [];
   if (activity.length > 0) segments.push(activity.join(" · "));
   segments.push(session.join(" · "));
-  segments.push("Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit");
+  segments.push(
+    state.busy
+      ? "Tab focus · PgUp/PgDn scroll · Esc abort · Ctrl+C quit"
+      : "Tab focus · PgUp/PgDn scroll · Enter send · Ctrl+C quit",
+  );
   return segments.join(" │ ");
 }
 

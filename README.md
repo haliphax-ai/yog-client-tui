@@ -92,10 +92,14 @@ to run `cp config.example.json config.json`.
 | `Ctrl+Home` / `Ctrl+End` | Jump to top / bottom of the log |
 | `Tab` | Focus the next expandable entry (tool call / output chunk; wraps through "none") |
 | `Shift+Tab` | Focus the previous entry (wraps through "none") |
-| `Esc` | Leave focus mode |
+| `Esc` | Leave focus mode · abort the in-flight turn (idle → no-op) |
 
 Input keystrokes are ignored while a turn is in flight (one turn at a time); the
-status line shows a spinner and key hints.
+status line shows a spinner and key hints — including `Esc abort` while busy.
+Esc with a focused entry only leaves focus mode; with nothing focused it aborts
+the active turn via the server's `POST /v1/sessions/{id}/abort` endpoint: the
+server kills the tool call in flight, closes the model stream, heals the
+transcript, and settles the turn, and the TUI logs a `⏹ turn aborted` line.
 
 ## How it talks to yog
 
@@ -128,7 +132,10 @@ On each turn the client then:
    as they arrive.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
    (a "stream interrupted — turn recovered from turn status" note is logged).
-8. On quit, keeps the session: the server's DELETE is a detach (status
+8. Esc (with nothing focused) aborts the active turn via
+   `POST /v1/sessions/{id}/abort` — a `⏹ turn aborted` note is logged from
+   the stream's terminal `turn.aborted` event.
+9. On quit, keeps the session: the server's DELETE is a detach (status
    `open` → `dormant`) and the transcript is kept, so the next launch resumes
    where this one left off. Only a server-side purge (`DELETE ?purge=true`)
    or the 30-day retention prune truly ends a session.

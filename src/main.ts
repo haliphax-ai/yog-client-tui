@@ -37,6 +37,9 @@
  *   Tab / Shift-Tab focus the next/previous expandable tool chunk — Enter
  *                    expands/collapses it, Esc leaves focus mode (focus wraps
  *                    through "none" at either end)
+ *   Esc              abort the in-flight turn via the server's abort endpoint
+ *                    (no-op when idle; with a focused entry it still just
+ *                    leaves focus mode)
  */
 import { loadConfig, persistSessionKey, resolveBaseUrl } from "./config.ts";
 import { FOCUS_NONE } from "./core/focus.ts";
@@ -321,6 +324,22 @@ async function run(argv: readonly string[]): Promise<void> {
     })();
   };
 
+  /**
+   * Abort the in-flight turn (Esc with no focused entry): POST the abort
+   * endpoint. The turn's SSE stream frames the terminal `turn.aborted`
+   * event, which settles `runTurn` and stops the spinner through the normal
+   * completion path — the abort call itself only fires the request. A
+   * transport failure here is logged; the turn keeps running either way.
+   */
+  const abortActiveTurn = (): void => {
+    if (!getState().busy || client.sessionId === undefined) return;
+    void client.abortTurn().catch((err: unknown) => {
+      pushLines("system", [
+        `abort failed: ${err instanceof Error ? err.message : String(err)}`,
+      ]);
+    });
+  };
+
   // ---- components --------------------------------------------------------
   const viewport = new ChatViewport();
   const input = new InputComponent();
@@ -355,6 +374,7 @@ async function run(argv: readonly string[]): Promise<void> {
     scrollBy: (delta) => viewport.scrollBy(delta, viewportRows()),
     jump: (top) => viewport.jump(top, viewportRows()),
     submit,
+    abortTurn: abortActiveTurn,
   };
 
   // ---- key handling ------------------------------------------------------

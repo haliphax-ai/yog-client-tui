@@ -53,6 +53,7 @@ export type TurnEventType =
   | "tool.call"
   | "tool.result"
   | "turn.finished"
+  | "turn.aborted"
   | "error";
 
 /** One wire envelope: `{ id, type, version, ts, data }`. */
@@ -76,6 +77,8 @@ export interface TurnEvents {
   onToolResult?(id: string, name: string, ok: boolean, result: unknown, error?: string): void;
   /** `turn.finished` — normal end. */
   onFinish?(durationMs: number): void;
+  /** `turn.aborted` — the operator aborted the turn (terminal). */
+  onAborted?(reason: string): void;
   /** `error` — terminal failure reported by the server. */
   onError?(code: string, message: string): void;
   /** The SSE stream died and the turn was replayed from turn-status. */
@@ -88,10 +91,29 @@ export interface TurnOutcome {
   ok: boolean;
   /** Terminal failure message from an `error` envelope, if any. */
   error?: string;
+  /** True when `turn.aborted` was observed (the turn was aborted). */
+  aborted: boolean;
   /** Set when the stream died and turn-status recovery was used. */
   recovered: boolean;
   /** Human-readable failure when the transport itself broke. */
   failure?: string;
+}
+
+export interface ActiveToolCall {
+  id: string;
+  name: string;
+}
+
+/** Result of `abortTurn`: whether a live turn was unwound, and what it was
+ *  doing. `requested` is false when the session had nothing to abort — the
+ *  endpoint is idempotent and still answers `ok`. */
+export interface AbortTurnResult {
+  /** True when a live turn was found and aborted. */
+  requested: boolean;
+  /** Server-reported status: "aborted" when a turn was unwound, "idle" otherwise. */
+  status: "aborted" | "idle";
+  /** The tool call that was killed, if one was in flight. */
+  activeToolCall?: ActiveToolCall;
 }
 
 /** Structured error decoded from a `{ error: { code, message } }` body. */
@@ -384,6 +406,7 @@ export class YogClient {
     const sessionId = this.sessionId;
     let turnId: string | undefined;
     let sawFinished = false;
+    let sawAborted = false;
     let failure: string | undefined;
     let serverError: string | undefined;
 
@@ -423,6 +446,11 @@ export class YogClient {
           events.onFinish?.(typeof data["durationMs"] === "number" ? data["durationMs"] : 0);
           return;
         }
+        case "turn.aborted": {
+          sawAborted = true;
+          events.onAborted?.(str(data["reason"]) || "turn aborted");
+          return;
+        }
         case "error": {
           serverError = str(data["message"]) || "unknown error";
           events.onError?.(str(data["code"]) || "error", serverError);
@@ -453,6 +481,7 @@ export class YogClient {
         return {
           ok: false,
           recovered: false,
+          aborted: false,
           error: serverError,
           failure: `turn stream interrupted (${streamError.message}) before a turnId was announced`,
         };
@@ -462,16 +491,58 @@ export class YogClient {
       return {
         ok: recovered && sawFinished && serverError === undefined,
         recovered: true,
+        aborted: sawAborted,
         ...(serverError !== undefined ? { error: serverError } : {}),
         ...(recovered ? {} : { failure: "turn-status recovery failed" }),
       };
     }
 
-    if (serverError !== undefined) return { ok: false, recovered: false, error: serverError };
+    if (serverError !== undefined) return { ok: false, recovered: false, error: serverError, aborted: false };
+    if (sawAborted) return { ok: false, recovered: false, aborted: true };
     if (!sawFinished) {
-      return { ok: false, recovered: false, failure: "turn stream ended without a terminal event" };
+      return { ok: false, recovered: false, failure: "turn stream ended without a terminal event", aborted: false };
     }
-    return { ok: true, recovered: false };
+    return { ok: true, recovered: false, aborted: false };
+  }
+
+  /**
+   * Abort the session's current turn (POST /v1/sessions/{id}/abort): the
+   * server kills the tool call in flight, closes the model stream, heals the
+   * transcript, and settles the turn. Idempotent — an idle session answers
+   * `ok` with `requested: false` and nothing is touched.
+   */
+  async abortTurn(): Promise<AbortTurnResult> {
+    if (!this.sessionId) throw new Error("abortTurn called before open()");
+    const sessionId = this.sessionId;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/abort`, {
+        method: "POST",
+        headers: this.headers(),
+      });
+    } catch (err) {
+      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+    }
+    if (!res.ok) throw await toYogError(res, "aborting turn failed");
+    const body = (await res.json()) as {
+      ok?: unknown;
+      status?: unknown;
+      aborted?: { requested?: unknown; activeToolCall?: unknown };
+    };
+    const requested = body?.aborted?.requested === true;
+    const call = body?.aborted?.activeToolCall;
+    const activeToolCall =
+      call !== null && typeof call === "object" && !Array.isArray(call)
+        ? {
+            id: str((call as Record<string, unknown>)["id"]),
+            name: str((call as Record<string, unknown>)["name"]),
+          }
+        : undefined;
+    return {
+      requested,
+      status: requested ? "aborted" : "idle",
+      ...(activeToolCall !== undefined ? { activeToolCall } : {}),
+    };
   }
 
   /**
