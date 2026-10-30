@@ -157,10 +157,10 @@ export function capWidths(colWidths: number[], cols: number): number[] {
   return w;
 }
 
-/** Minimum column width (cells) the viewport layout guarantees an expanded,
- *  reflowed column. Below this, focusing the table unlocks horizontal
- *  expansion instead of squeezing the column to unreadable wraps. */
-export const TABLE_MIN_COL = 30;
+/** Column width (cells) an expanded table grants a reflowed column: a
+ *  ceiling, not a target. Reflowed columns render at `min(natural, this)`
+ *  once expanded — breathing room, not unbounded width. */
+export const TABLE_MAX_COL = 30;
 
 /** Rendered width of a table row in cells: Σ(width + 2 padding) + (n+1)
  *  border runes — │ c1 │ c2 │ has a separator between every pair of cells
@@ -175,12 +175,13 @@ export function tableRowWidth(colWidths: readonly number[]): number {
  *
  * Reflow runs exactly as in the collapsed layout (shrink widest first,
  * floor 3) to classify which columns had to reshape. A table is expandable
- * when at least one reshaped column ended up below the 30-cell guarantee —
- * that is the case expansion fixes. When expanded, every reshaped column
- * renders at `max(fit, 30)` cells; columns reflow never touched (already at
- * or under their natural width) keep the fit width — expansion only relieves
- * squeezed columns, never widens tidy ones. The expanded row may extend
- * horizontally past the viewport; scroll reveals it.
+ * when at least one reshaped column landed below the 30-cell ceiling — that
+ * is the breathing room expansion restores. When expanded, every reshaped
+ * column renders at `min(natural, 30)` cells; columns reflow never touched
+ * (already at or under their natural width) keep the fit width — expansion
+ * only relieves squeezed columns, never widens tidy ones, and no column ever
+ * exceeds 30. The expanded row may still extend horizontally past the
+ * viewport (several 30-cell columns overflow); scroll reveals it.
  */
 export function resolveTableLayout(
   colWidths: readonly number[],
@@ -194,19 +195,20 @@ export function resolveTableLayout(
   );
   if (!squeezed) return { expandable: false, widths: [...colWidths] };
   if (!tableExpanded) {
-    // Expandable only when some squeezed column lost the 30-cell guarantee.
+    // Expandable only when some squeezed column was reflowed below 30.
     const undersized = colWidths.some(
       (natural, i) =>
-        fit[i] !== undefined && (fit[i] as number) < natural && (fit[i] as number) < TABLE_MIN_COL,
+        fit[i] !== undefined && (fit[i] as number) < natural && (fit[i] as number) < TABLE_MAX_COL,
     );
     return { expandable: undersized, widths: [...fit] };
   }
-  // Expanded: reflow still runs, but squeezed columns render at the 30-cell
-  // floor; untouched fit widths carry over unchanged.
+  // Expanded: reflow still runs, but squeezed columns render at min(natural,
+  // 30) — breathing room up to the ceiling, never past it. Untouched fit
+  // widths carry over unchanged (all-natural ≤30 columns never expand).
   const widths = [...fit];
   for (let i = 0; i < widths.length; i++) {
     if (fit[i] !== undefined && (fit[i] as number) < colWidths[i]!) {
-      widths[i] = Math.max(TABLE_MIN_COL, fit[i] as number);
+      widths[i] = Math.min(TABLE_MAX_COL, colWidths[i]!);
     }
   }
   return { expandable: true, widths };

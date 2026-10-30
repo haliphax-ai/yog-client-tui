@@ -99,10 +99,12 @@ to run `cp config.example.json config.json`.
 Messages containing a GFM pipe table are focusable when the table engine had
 to reflow a column to fit the viewport **and** could not give it at least 30
 display cells. Focused tables draw heavy borders; `Enter` expands — reflow
-still runs, but reflowed columns render at a 30-cell floor, letting the table
-extend horizontally past the viewport; `←`/`→` (or `h`/`l`) scroll it.
-Columns the reflow never reshaped are left alone, and tables that fit without
-squeezing are never expandable.
+still runs, but reflowed columns render at `min(their natural width, 30)`
+cells, letting the table extend horizontally past the viewport when several
+expanded columns overflow it; `←`/`→` (or `h`/`l`) scroll it. Columns the
+reflow never reshaped are left alone — if every column fits within 30 cells
+naturally, there is nothing to expand — and no column ever renders wider than
+30, however long its content.
 
 Input keystrokes are ignored while a turn is in flight (one turn at a time); the
 status line shows a spinner and key hints — including `Esc abort` while busy.
