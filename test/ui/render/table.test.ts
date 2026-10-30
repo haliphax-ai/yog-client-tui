@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTable } from "../../../src/ui/render/table.ts";
+import { parseTable, splitTableSections } from "../../../src/ui/render/table.ts";
 
 describe("parseTable — GFM pipe tables", () => {
   it("parses a basic table with header and two data rows", () => {
@@ -150,5 +150,105 @@ This is not a table row
       { title: "Name", width: 5 },
       { title: "Description", width: 19 },
     ]);
+  });
+});
+
+describe("splitTableSections — prose/table interleaving", () => {
+  it("returns a single prose section when there are no tables", () => {
+    const sections = splitTableSections("just some prose\nwith two lines");
+    expect(sections).toEqual([
+      { kind: "prose", text: "just some prose\nwith two lines" },
+    ]);
+  });
+
+  it("returns a single table section when the text is only a table", () => {
+    const md = `| Name | Age |
+| --- | --- |
+| Alice | 30 |`;
+
+    const sections = splitTableSections(md);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.kind).toBe("table");
+    if (sections[0]!.kind === "table") {
+      expect(sections[0]!.table.rows).toEqual([["Alice", "30"]]);
+    }
+  });
+
+  it("splits prose → table → prose", () => {
+    const md = `Here is the data:
+
+| Name | Age |
+| --- | --- |
+| Alice | 30 |
+| Bob | 25 |
+
+And here is the conclusion.`;
+
+    const sections = splitTableSections(md);
+    expect(sections).toHaveLength(3);
+    expect(sections[0]!.kind).toBe("prose");
+    expect(sections[0]!.kind === "prose" && sections[0]!.text).toContain("Here is the data");
+    expect(sections[1]!.kind).toBe("table");
+    expect(sections[2]!.kind).toBe("prose");
+    expect(sections[2]!.kind === "prose" && sections[2]!.text).toContain("conclusion");
+  });
+
+  it("handles multiple consecutive tables separated by prose", () => {
+    const md = `| A | B |
+| --- | --- |
+| 1 | 2 |
+
+prose
+
+| C | D |
+| --- | --- |
+| 3 | 4 |`;
+
+    const sections = splitTableSections(md);
+    expect(sections).toHaveLength(3);
+    // table, prose, table — no adjacent same-kind sections
+    for (let i = 1; i < sections.length; i++) {
+      expect(sections[i]!.kind).not.toBe(sections[i - 1]!.kind);
+    }
+  });
+
+  it("treats a table-row line followed by a non-delimiter as prose", () => {
+    const md = `| not a table |
+| also not a table |`;
+
+    const sections = splitTableSections(md);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.kind).toBe("prose");
+  });
+
+  it("trims leading/trailing blank lines from prose sections", () => {
+    const md = `
+
+| Name | Age |
+| --- | --- |
+| Alice | 30 |
+
+`;
+
+    const sections = splitTableSections(md);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.kind).toBe("table");
+  });
+
+  it("preserves interior blank lines (paragraph breaks) in prose", () => {
+    const md = `First paragraph.
+
+Second paragraph.`;
+
+    const sections = splitTableSections(md);
+    expect(sections).toHaveLength(1);
+    expect(sections[0]!.kind).toBe("prose");
+    expect(sections[0]!.kind === "prose" && sections[0]!.text).toContain(
+      "First paragraph.\n\nSecond paragraph.",
+    );
+  });
+
+  it("returns empty array for empty input", () => {
+    expect(splitTableSections("")).toEqual([]);
   });
 });
