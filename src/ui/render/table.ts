@@ -305,7 +305,9 @@ export function renderTable(
   );
   const headerHeight = Math.max(...headerCells.map((c) => c.length));
   for (let hl = 0; hl < headerHeight; hl++) {
-    rows.push(row(headerCells.map((c) => c[hl] ?? "")));
+    // Short cells fill their missing lines with blank padded cells so the
+    // dividers stay aligned (a bare "" would collapse the cell entirely).
+    rows.push(row(headerCells.map((c, i) => c[hl] ?? padCellLine("", w[i]!, "left"))));
   }
 
   // Header separator.
@@ -333,7 +335,11 @@ export function renderTable(
           ? ST.tableZebra
           : undefined;
     for (let sl = 0; sl < rowHeight; sl++) {
-      const line = row(cellLinesArr.map((c) => c[sl] ?? ""));
+      // Short cells fill their missing lines with blank padded cells so the
+      // dividers stay aligned (a bare "" would collapse the cell entirely).
+      const line = row(
+        cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")),
+      );
       const scrolled =
         scrollX > 0 ? line.slice(scrollX).padEnd(totalWidth, " ") : line;
       rows.push(style ? style.render(scrolled) : scrolled);
