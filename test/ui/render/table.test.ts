@@ -515,6 +515,33 @@ describe("renderTable — styled output", () => {
     expect(d2).toBe(d1);
   });
 
+  it("renders a markdown-link cell as its title, OSC 8 linked", () => {
+    const md = `| Link |
+| --- |
+| [Example Docs](https://example.com/docs/page?lang=en#section-2) |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const joined = rows.join("\n");
+    // Glamour OSC 8 (id-prefixed) wraps the URL; the label renders as text
+    // and the raw markdown markers are gone.
+    expect(joined).toContain("https://example.com/docs/page?lang=en#section-2\x07");
+    expect(joined).toContain("\x1b]8;");
+    expect(stripAnsi(joined)).toContain("Example Docs");
+    expect(stripAnsi(joined)).not.toContain("[Example");
+  });
+
+  it("renders a bare-URL cell as the full URL, query and anchor intact", () => {
+    const md = `| URL |
+| --- |
+| https://x.io/a/long/path?query=alpha&other=beta#anchor-here |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const joined = rows.join("\n");
+    // Full URL stays visible and OSC 8-linked, query + anchor intact.
+    expect(joined).toContain(
+      "https://x.io/a/long/path?query=alpha&other=beta#anchor-here\x07",
+    );
+    expect(stripAnsi(joined)).toContain("#anchor-here");
+  });
+
   it("cellLines splits on newlines only", () => {
     expect(cellLines("a<br>b")).toEqual(["a<br>b"]); // parser already converted the break
     expect(cellLines("a\nb")).toEqual(["a", "b"]);

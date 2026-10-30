@@ -49,29 +49,51 @@ function splitCells(line: string): string[] {
   return result;
 }
 
-/** Split one cell's display breaks into separate lines (ANSI-safe: no
- * in-cell escape carries a newline; lipgloss wraps and glamour styles the
- * same way). A break rune at the end of the text is a hard cap, not padding.
- * Each break-line wider than `maxCells` wraps (word-aware, cell-accurate). */
-export function cellLines(cell: string, maxCells = Number.POSITIVE_INFINITY): string[] {
-  const broken = cell === "" ? [""] : cell.includes("\n") ? cell.split("\n") : [cell];
-  if (maxCells === Number.POSITIVE_INFINITY) return broken;
+/** Split one cell's display breaks (<br>) into separate logical lines. A
+ * break rune at the end of the text is a hard cap, not padding. Wrapping to
+ * the column width happens at render time (glamour), not here. */
+export function cellLines(cell: string): string[] {
+  if (cell === "") return [""];
+  if (!cell.includes("\n")) return [cell];
+  return cell.split("\n");
+}
+
+/** Visible width of a cell line as it will RENDER: glamour runs first
+ * (markers disappear, links/styles appear), so the rendered text — not the
+ * raw markdown — is what's measured. Rendered unwrapped at a wide width.
+ * Memoized: parseTable runs on every cache-signature check, so widths must
+ * not re-invoke glamour per frame. */
+const cellWidthCache = new Map<string, number>();
+
+function cellTextWidth(text: string): number {
+  const hit = cellWidthCache.get(text);
+  if (hit !== undefined) return hit;
+  const rendered = renderInlineMarkdown(text, displayWidth(text) + 16);
+  const width =
+    rendered.length === 0
+      ? displayWidth(text)
+      : displayWidth(stripAnsi(rendered.join("")));
+  if (cellWidthCache.size >= 1024) cellWidthCache.clear();
+  cellWidthCache.set(text, width);
+  return width;
+}
+
+/** Render one break-line through glamour and cap it to `maxCells` visible
+ * cells. Glamour styles (and OSC-8-linkifies) but is given a width it
+ * cannot wrap at — its word-wrap reserves block margins that would shred
+ * narrow cells into one-character lines — so wrapping to the column width
+ * is done here with the ANSI/OSC-aware wrapper. */
+function styleCellLine(line: string, maxCells: number): string[] {
+  const styled = renderInlineMarkdown(line, displayWidth(line) + 16);
   const out: string[] = [];
-  for (const line of broken) {
-    if (cellTextWidth(line) <= maxCells) {
-      out.push(line);
+  for (const s of styled) {
+    if (displayWidth(stripAnsi(s)) <= maxCells) {
+      out.push(s);
     } else {
-      out.push(...wrapText(line, Math.max(1, maxCells)));
+      out.push(...wrapText(s, Math.max(1, maxCells)));
     }
   }
   return out;
-}
-
-/** Display width of a cell line as it will RENDER: inline markdown
- * transforms (**bold**, *italic*, `code`) run first, so markers that
- * disappear at render time don't inflate the measured width. */
-function cellTextWidth(text: string): number {
-  return displayWidth(stripAnsi(renderCellMarkdown(text)));
 }
 
 /** Display width of a cell: the widest of its display-break lines. Wide
@@ -133,10 +155,12 @@ function isTableDelimiter(line: string): boolean {
   return cells.every((c) => /^:?-+:?$/.test(c));
 }
 
+import { sliceAnsi } from "@oakoliver/lipgloss";
 import { type KeyResult } from "../components/Component.ts";
 import { ViewportComponent } from "../components/ViewportComponent.ts";
 import { displayWidth, stripAnsi, wrapText } from "../../util/ansi.ts";
-import { C, ST, TONE } from "../theme.ts";
+import { ST } from "../theme.ts";
+import { renderInlineMarkdown } from "./markdown.ts";
 
 /**
  * A hand-rolled table component: box-drawing borders, bold header,
@@ -148,30 +172,18 @@ import { C, ST, TONE } from "../theme.ts";
  * own rows, and handles its own keys. It is not store-bound — the entry
  * that contains it owns the table data and passes it in.
  */
-/** Render one line of inline markdown (bold / italic / code) with minimal
- * styling — glamour's full renderer pads to the wrap width, which is wrong
- * for table cells. We emit the same SGR escapes glamour would (tokyo-night
- * palette) so the output is background-safe and consistent with entry.ts. */
-function renderCellMarkdown(text: string): string {
-  return (
-    text
-      // **bold** → bold on, bold off (never a full reset)
-      .replace(/\*\*(.+?)\*\*/g, "\x1b[1m$1\x1b[22m")
-      // *italic* → italic on, italic off (avoid matching ** above)
-      .replace(/(?<!\*)\*(.+?)\*(?!\*)/g, "\x1b[3m$1\x1b[23m")
-      // `code` → tokyo-night comment colour (theme-owned, like the C palette)
-      .replace(/`(.+?)`/g, `${TONE.code}$1${C.reset}`)
-  );
-}
 
-/** Background-safe post-process: strip inner bg SGRs, replace full resets
- * with fg-only reset so the outer zebra/selected background survives. */
+
+/** Background-safe post-process: strip inner bg SGRs, replace glamour's
+ * full resets with attr-off + fg resets so the outer zebra/selected
+ * background survives AND underlined link runs close cleanly (24) without
+ * leaking bold/italic (22/23/29) into following text. */
 function backgroundSafe(text: string): string {
   return (
     text
-      // full resets → fg-only reset (same philosophy as C.reset in theme.ts)
-      .replaceAll("\x1b[0m", "\x1b[39m")
-      .replaceAll("\x1b[m", "\x1b[39m")
+      // full resets → attr-offs + fg reset (bg preserved)
+      .replaceAll("\x1b[0m", "\x1b[22;23;24;25;27;29;39m")
+      .replaceAll("\x1b[m", "\x1b[22;23;24;25;27;29;39m")
       // strip any remaining background SGRs (48;2;... / 48;5;...)
       .replace(
         /\x1b\[(?:48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})(?:;\d+)*m/g,
@@ -292,17 +304,15 @@ export function renderTable(
   const tCross = focused ? "┳" : "┬";
   const bCross = focused ? "┻" : "┴";
 
-  // Pad one display-break line of a cell to `width` display cells, honoring
-  // the cell's alignment on EVERY line (GFM centers blocks, not just their
-  // first line). Padding is computed against the display width of the
-  // *unstyled* text so wide runes (emoji) count as 2 cells; the pad spaces
+  // Pad ONE RENDERED physical line of a cell to `width` display cells,
+  // honoring the cell's alignment on EVERY line (GFM centers blocks, not
+  // just their first line). `text` arrives already glamour-styled and
+  // background-safe; padding is measured against its visible width so
+  // markdown markers (which glamour consumed) never inflate it. Pad spaces
   // land inside the outer style so the zebra/selected background covers them.
   const padCellLine = (text: string, width: number, align: "left" | "center" | "right"): string => {
-    const styled = renderCellMarkdown(text);
-    const safe = backgroundSafe(styled);
-    // Measure the RENDERED text: markdown markers (**, *, `) disappear at
-    // render time and must not inflate the padding calculation.
-    const dw = cellTextWidth(text);
+    const safe = backgroundSafe(text);
+    const dw = displayWidth(stripAnsi(text));
     const pad = Math.max(0, width - dw);
     let body: string;
     switch (align) {
@@ -340,11 +350,14 @@ export function renderTable(
   rows.push(hr(tl, tCross, tr));
 
   // Header: bold, left-aligned (alignment is a data-row concern; headers are
-  // always left-padded to match the column's content). A header containing a
-  // display break emits one physical line per break.
+  // always left-padded to match the column's content). Each break-line
+  // renders through glamour (may yield several physical lines when the
+  // capped column wraps it).
   const headerCells = table.columns.map((c, i) =>
-    cellLines(c.title, w[i]!).map((l) =>
-      ST.assistant.bold(true).render(padCellLine(l, w[i]!, "left")),
+    cellLines(c.title).flatMap((l) =>
+      styleCellLine(l, w[i]!).map((rl) =>
+        ST.assistant.bold(true).render(padCellLine(rl, w[i]!, "left")),
+      ),
     ),
   );
   const headerHeight = Math.max(...headerCells.map((c) => c.length));
@@ -367,8 +380,10 @@ export function renderTable(
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
     const cellLinesArr = src.map((c, i) =>
-      cellLines(c ?? "", w[i]!).map((l) =>
-        padCellLine(l, w[i]!, table.columns[i]!.align),
+      cellLines(c ?? "").flatMap((l) =>
+        styleCellLine(l, w[i]!).map((rl) =>
+          padCellLine(rl, w[i]!, table.columns[i]!.align),
+        ),
       ),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
@@ -385,7 +400,9 @@ export function renderTable(
         cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")),
       );
       const scrolled =
-        scrollX > 0 ? line.slice(scrollX).padEnd(totalWidth, " ") : line;
+        scrollX > 0
+          ? sliceAnsi(line, scrollX).padEnd(totalWidth, " ")
+          : line;
       rows.push(style ? style.render(scrolled) : scrolled);
     }
     // Divider between data rows (after the WHOLE logical row, never inside
