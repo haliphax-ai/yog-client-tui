@@ -435,6 +435,21 @@ describe("renderTable — styled output", () => {
     expect(stripAnsi(rows[5]!)).toBe("│      │");
   });
 
+  it("keeps padded blank cells on continuation lines (dividers align)", () => {
+    const md = `| A | B |
+| --- | --- |
+| one<br>two | x |`;
+    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const line1 = stripAnsi(rows[4]!);
+    const line2 = stripAnsi(rows[5]!);
+    // Line 2: cell A shows its second break-line, cell B is blank padding
+    expect(line2).toMatch(/^│ two │ {3}│$/);
+    // Dividers at the same offsets on both lines
+    const d1 = line1.indexOf("│", 1);
+    const d2 = line2.indexOf("│", 1);
+    expect(d2).toBe(d1);
+  });
+
   it("cellLines splits on newlines only", () => {
     expect(cellLines("a<br>b")).toEqual(["a<br>b"]); // parser already converted the break
     expect(cellLines("a\nb")).toEqual(["a", "b"]);
