@@ -1,15 +1,9 @@
-tmp/
+/PLAN.md
 node_modules/
-dist/
 coverage/
 *.log
-npm-debug.log*
 config.json
-.DS_Store
-Thumbs.db
 *.swp
-.idea/
-.vscode/
 # workspace-wide excludes contain a `core` pattern (core dumps); the source
 # directory src/core/ must stay tracked
-!core
+!/src/core/
