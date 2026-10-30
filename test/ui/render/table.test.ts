@@ -435,6 +435,34 @@ describe("renderTable — styled output", () => {
     expect(stripAnsi(rows[5]!)).toBe("│      │");
   });
 
+  it("measures width from rendered text, not raw emphasis markers", () => {
+    const md = `| Name |
+| --- |
+| **Pour Over** |`;
+    const t = parseTable(md)!;
+    // rendered "Pour Over" = 9 cells; raw **Pour Over** = 13
+    expect(t.columns[0]!.width).toBe(9);
+    const rows = renderTable(t, 80, false, 0);
+    // top border segment spans width + 2 = 11 dashes (not 15)
+    expect(rows[1]).toContain("─".repeat(11));
+    // padding matches: content line ends flush with the border
+    expect(stripAnsi(rows[4]!)).toContain("│ Pour Over │");
+  });
+
+  it("caps the table to the viewport and wraps cell text", () => {
+    const md = `| First | Second |
+| --- | --- |
+| a very long cell value here | short |`;
+    // natural width: 27 + 6 + 2*2 + 2 = 39 > 30 → col1 caps at 16
+    const rows = renderTable(parseTable(md)!, 30, false, 0);
+    for (const r of rows) {
+      expect(displayWidth(stripAnsi(r))).toBeLessThanOrEqual(30);
+    }
+    // the long cell wrapped onto a second physical line
+    expect(rows.length).toBe(8); // margin, top, header, sep, 2 data, bottom, margin
+    expect(stripAnsi(rows[5]!)).toContain("value here");
+  });
+
   it("keeps padded blank cells on continuation lines (dividers align)", () => {
     const md = `| A | B |
 | --- | --- |
