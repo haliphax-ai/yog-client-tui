@@ -104,7 +104,14 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     // prose wraps at cols-2 too and the border gutter survives wrapping.
     const bodyW = Math.max(1, cols - 2);
     const sections = splitTableSections(text);
-    // Render each section: prose through glamour, tables through Bubbles.
+    // Render each section: prose through glamour, tables through the
+    // viewport-backed component. The FIRST and LAST sections of the sequence
+    // render WITHOUT their outer margin — spacing to the entry's neighbors
+    // is the separator's job, so a leading table sits flush under the entry
+    // start and a trailing one flush above the entry end. The same rule will
+    // apply to any future component type (images, thinking output).
+    const first = sections[0];
+    const last = sections[sections.length - 1];
     const parts: string[] = [];
     for (const section of sections) {
       if (section.kind === "prose") {
@@ -115,6 +122,10 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
         // logic (clamp/slice/pad) is used instead of a bypass call.
         const tc = new TableComponent();
         tc.setTable(section.table);
+        tc.setMargin({
+          top: section !== first,
+          bottom: section !== last,
+        });
         tc.onFocus(focused);
         parts.push(...tc.render({ cols: bodyW }));
       }
