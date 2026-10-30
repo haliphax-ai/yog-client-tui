@@ -42,6 +42,14 @@ export const ST = {
   inputText: newStyle(),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
   status: newStyle().foreground("#64748b"),
+  /** Zebra-striped data row in table rendering: white text on dark blue. */
+  tableZebra: newStyle()
+    .foreground("#ffffff")
+    .background("#1a1a2e"),
+  /** Selected row in table rendering: white text on dark blue. */
+  tableSelected: newStyle()
+    .foreground("#ffffff")
+    .background("#1e3a8a"),
 } as const;
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */

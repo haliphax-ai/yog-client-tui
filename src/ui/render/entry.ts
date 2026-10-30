@@ -13,7 +13,13 @@ import { GLAMOUR_THEME, ST, CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import type { EntryKind, LogEntry } from "./types.ts";
-import { parseTable, renderTable, splitTableSections, type ParsedTable } from "./table.ts";
+import {
+  parseTable,
+  renderTable,
+  splitTableSections,
+  TableComponent,
+  type ParsedTable,
+} from "./table.ts";
 
 /** Memoized glamour renderers, keyed by wrap width (max 8 before reuse). */
 const mdRenderers = new Map<number, TermRenderer>();
@@ -231,7 +237,12 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
         const md = renderMarkdown(section.text, bodyW);
         parts.push(...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)));
       } else {
-        parts.push(...renderTable(section.table, bodyW, focused));
+        // Route table sections through TableComponent so the shared viewport
+        // logic (clamp/slice/pad) is used instead of a bypass call.
+        const tc = new TableComponent();
+        tc.setTable(section.table);
+        tc.onFocus(focused);
+        parts.push(...tc.render({ cols: bodyW }));
       }
     }
     if (parts.length === 0) parts.push("");
