@@ -9,6 +9,7 @@
  * responders do their work.
  */
 import type { Component, KeyResult } from "./Component.ts";
+import { Binding, matches, newBinding, withHelp, withKeys } from "@oakoliver/bubbles";
 
 /** Global binding handlers supplied by the composition root. */
 export interface Globals {
@@ -28,18 +29,75 @@ export interface Globals {
   abortTurn(): void;
 }
 
-/** Global bindings: sequences and chars no component claims while unfocused. */
-const GLOBAL_KEYS: Record<string, (g: Globals) => void> = {
-  "\x1b[Z": (g) => g.focusPrev(), // Shift+Tab → previous entry
-  "\x1b[1;5H": (g) => g.jump(true), // Ctrl+Home → top
-  "\x1b[1;5F": (g) => g.jump(false), // Ctrl+End → bottom
-  "\x1b[5~": (g) => g.scrollBy(-(process.stdout.rows ?? 24)), // PageUp
-  "\x1b[6~": (g) => g.scrollBy(process.stdout.rows ?? 24), // PageDown
-  "\x1bOA": (g) => g.scrollBy(-1), // Up (application mode)
-  "\x1bOB": (g) => g.scrollBy(1), // Down (application mode)
-  "\x1b[A": (g) => g.scrollBy(-1), // Up
-  "\x1b[B": (g) => g.scrollBy(1), // Down
-};
+/**
+ * Global bindings: sequences no component claims while unfocused.
+ * Each binding carries its own help text — the router walks them in
+ * declaration order and the first match wins. `matches()` does the
+ * comparison; the handler is stored alongside because `Binding` itself
+ * has no callback slot.
+ */
+const GLOBAL_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
+  {
+    binding: newBinding(withKeys("\x1b[Z"), withHelp("Shift+Tab", "previous entry")),
+    run: (g) => g.focusPrev(),
+  },
+  {
+    binding: newBinding(withKeys("\x1b[1;5H"), withHelp("Ctrl+Home", "jump to top")),
+    run: (g) => g.jump(true),
+  },
+  {
+    binding: newBinding(withKeys("\x1b[1;5F"), withHelp("Ctrl+End", "jump to bottom")),
+    run: (g) => g.jump(false),
+  },
+  {
+    binding: newBinding(withKeys("\x1b[5~"), withHelp("PageUp", "scroll up one page")),
+    run: (g) => g.scrollBy(-(process.stdout.rows ?? 24)),
+  },
+  {
+    binding: newBinding(withKeys("\x1b[6~"), withHelp("PageDown", "scroll down one page")),
+    run: (g) => g.scrollBy(process.stdout.rows ?? 24),
+  },
+  {
+    binding: newBinding(withKeys("\x1bOA"), withHelp("Up", "scroll up one line")),
+    run: (g) => g.scrollBy(-1),
+  },
+  {
+    binding: newBinding(withKeys("\x1bOB"), withHelp("Down", "scroll down one line")),
+    run: (g) => g.scrollBy(1),
+  },
+  {
+    binding: newBinding(withKeys("\x1b[A"), withHelp("Up", "scroll up one line")),
+    run: (g) => g.scrollBy(-1),
+  },
+  {
+    binding: newBinding(withKeys("\x1b[B"), withHelp("Down", "scroll down one line")),
+    run: (g) => g.scrollBy(1),
+  },
+];
+
+/**
+ * Char-level global bindings: single control characters no component
+ * claims while unfocused. Same `Binding` + `matches()` pattern as the
+ * sequence-level globals above.
+ */
+const CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
+  {
+    binding: newBinding(withKeys("\x03"), withHelp("Ctrl+C", "quit")),
+    run: (g) => g.quit(),
+  },
+  {
+    binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
+    run: (g) => g.focusNext(),
+  },
+  {
+    binding: newBinding(withKeys("\r", "\n"), withHelp("Enter", "send input")),
+    run: (g) => g.submit(),
+  },
+  {
+    binding: newBinding(withKeys("\x1b"), withHelp("Esc", "abort turn")),
+    run: (g) => g.abortTurn(),
+  },
+];
 
 /**
  * Route one key sequence: focused component first, then the rest of the
@@ -55,10 +113,13 @@ export function routeKey(
   for (const component of walk) {
     if (component.handleKey(seq) === "handled") return true;
   }
-  const run = GLOBAL_KEYS[seq];
-  if (run === undefined) return false;
-  run(globals);
-  return true;
+  for (const { binding, run } of GLOBAL_BINDINGS) {
+    if (matches({ toString: () => seq }, binding)) {
+      run(globals);
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -75,23 +136,13 @@ export function routeChar(
   for (const component of walk) {
     if (component.handleChar(ch) === "handled") return true;
   }
-  switch (ch) {
-    case "\x03":
-      globals.quit(); // Ctrl+C in raw mode: quit and restore the terminal
+  for (const { binding, run } of CHAR_BINDINGS) {
+    if (matches({ toString: () => ch }, binding)) {
+      run(globals);
       return true;
-    case "\t":
-      globals.focusNext(); // Tab: next entry in the focus ring
-      return true;
-    case "\r":
-    case "\n":
-      globals.submit(); // Enter with no focused entry: send the input
-      return true;
-    case "\x1b":
-      globals.abortTurn(); // Esc with no focused entry: abort the active turn
-      return true;
-    default:
-      return false;
+    }
   }
+  return false;
 }
 
 /** A component plus a router-assigned id (the focus ring is over these). */

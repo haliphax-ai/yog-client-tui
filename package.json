@@ -13,6 +13,8 @@
     "lint:deps": "depcruise --config .dependency-cruiser.cjs src"
   },
   "dependencies": {
+    "@oakoliver/bubbles": "^1.2.2",
+    "@oakoliver/bubbletea": "^1.2.0",
     "@oakoliver/glamour": "^2.0.0",
     "@oakoliver/lipgloss": "^1.1.3"
   },

@@ -5,9 +5,10 @@
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState } from "../../core/store.ts";
 import { ST } from "../theme.ts";
+import { MiniDot } from "@oakoliver/bubbles";
 
-/** Busy spinner frames, animated in the status line while a turn runs. */
-export const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+/** Busy spinner frames (Bubbles `MiniDot` preset — byte-identical to our hand-rolled array). */
+export const SPINNER = MiniDot.frames;
 
 /** Spinner frame for the current `busyFrame` (undefined while idle). */
 export function spinnerFrame(): string {
