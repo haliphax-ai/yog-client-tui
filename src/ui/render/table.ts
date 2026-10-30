@@ -78,6 +78,37 @@ function cellTextWidth(text: string): number {
   return width;
 }
 
+/** True when any line looks like a list item (bullet or ordered marker). */
+function looksLikeList(lines: string[]): boolean {
+  return lines.some((l) => /^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(l));
+}
+
+/** Render one cell to styled physical lines capped to `maxCells`.
+ *
+ * List-shaped cells render as ONE document: per-line rendering strips each
+ * line's indentation, so nested children of numbered items lose their
+ * nesting (same offset as the parent), and a 4-space-indented line rendered
+ * standalone is an indented code block (literal markers). One document keeps
+ * CommonMark semantics — children of `1. ` nest at >=3 spaces — and glamour
+ * computes the offsets itself.
+ */
+function styleCell(cell: string, maxCells: number): string[] {
+  const lines = cellLines(cell);
+  if (lines.length > 1 && looksLikeList(lines)) {
+    const styled = renderInlineMarkdown(cell, cellWidth(cell) + 16);
+    const out: string[] = [];
+    for (const s of styled) {
+      if (displayWidth(stripAnsi(s)) <= maxCells) {
+        out.push(s);
+      } else {
+        out.push(...wrapText(s, Math.max(1, maxCells)));
+      }
+    }
+    return out.length > 0 ? out : [""];
+  }
+  return lines.flatMap((l) => styleCellLine(l, maxCells));
+}
+
 /** Render one break-line through glamour and cap it to `maxCells` visible
  * cells. Glamour styles (and OSC-8-linkifies) but is given a width it
  * cannot wrap at — its word-wrap reserves block margins that would shred
@@ -354,10 +385,8 @@ export function renderTable(
   // renders through glamour (may yield several physical lines when the
   // capped column wraps it).
   const headerCells = table.columns.map((c, i) =>
-    cellLines(c.title).flatMap((l) =>
-      styleCellLine(l, w[i]!).map((rl) =>
-        ST.assistant.bold(true).render(padCellLine(rl, w[i]!, "left")),
-      ),
+    styleCell(c.title, w[i]!).map((rl) =>
+      ST.assistant.bold(true).render(padCellLine(rl, w[i]!, "left")),
     ),
   );
   const headerHeight = Math.max(...headerCells.map((c) => c.length));
@@ -380,10 +409,8 @@ export function renderTable(
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
     const cellLinesArr = src.map((c, i) =>
-      cellLines(c ?? "").flatMap((l) =>
-        styleCellLine(l, w[i]!).map((rl) =>
-          padCellLine(rl, w[i]!, table.columns[i]!.align),
-        ),
+      styleCell(c ?? "", w[i]!).map((rl) =>
+        padCellLine(rl, w[i]!, table.columns[i]!.align),
       ),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
