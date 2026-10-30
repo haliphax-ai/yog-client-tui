@@ -132,6 +132,23 @@ describe("createTurnPresenter", () => {
     expect(entries.at(-1)).toEqual({ kind: "error", lines: ["boom_code: bad"] });
   });
 
+  it("logs the abort reason as a system entry", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onAborted?.("turn aborted by operator");
+    expect(entries.at(-1)).toEqual({
+      kind: "system",
+      lines: ["⏹ turn aborted — turn aborted by operator"],
+    });
+  });
+
+  it("tolerates an empty abort reason", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onAborted?.("");
+    expect(entries.at(-1)?.lines).toEqual(["⏹ turn aborted — "]);
+  });
+
   it("emits no result chunk for a failed call — the ❌ line is the whole failure", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);

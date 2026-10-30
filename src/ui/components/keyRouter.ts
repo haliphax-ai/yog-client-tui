@@ -24,6 +24,8 @@ export interface Globals {
   jump(top: boolean): void;
   /** Enter with no focused entry: submit the input. */
   submit(): void;
+  /** Esc with no focused entry: abort the in-flight turn (no-op when idle). */
+  abortTurn(): void;
 }
 
 /** Global bindings: sequences and chars no component claims while unfocused. */
@@ -83,6 +85,9 @@ export function routeChar(
     case "\r":
     case "\n":
       globals.submit(); // Enter with no focused entry: send the input
+      return true;
+    case "\x1b":
+      globals.abortTurn(); // Esc with no focused entry: abort the active turn
       return true;
     default:
       return false;

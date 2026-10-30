@@ -108,6 +108,9 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       }
       host.requestRender();
     },
+    onAborted: (reason) => {
+      host.append("system", [`⏹ turn aborted — ${reason}`]);
+    },
     onError: (code, message) => {
       host.append("error", [`${code}: ${message}`]);
     },

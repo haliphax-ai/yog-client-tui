@@ -40,6 +40,7 @@ function entryFocusGlobals(viewport: ChatViewport): Globals {
     scrollBy: (delta) => viewport.scrollBy(delta, 24),
     jump: (top) => viewport.jump(top, 24),
     submit: () => undefined,
+    abortTurn: () => undefined,
   };
 }
 

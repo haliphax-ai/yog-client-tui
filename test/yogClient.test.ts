@@ -549,4 +549,148 @@ describe("YogClient.runTurn payload", () => {
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({ prompt: "hello", model: "model-x" });
   });
+
+  it("reports aborted: true and fires onAborted on a turn.aborted event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: turn.aborted\ndata: {"reason":"turn aborted by operator"}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const aborted: string[] = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onAborted: (reason) => aborted.push(reason),
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.aborted).toBe(true);
+    expect(aborted).toEqual(["turn aborted by operator"]);
+  });
+
+  it("flags aborted through turn-status recovery too", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/turns")) {
+          // Stream that starts then dies mid-turn.
+          return failingResponse(
+            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            new Error("reset"),
+          );
+        }
+        // Turn-status replay: the stored terminal event is turn.aborted.
+        return jsonResponse(
+          {
+            turn: {
+              events: [{ type: "turn.started", data: { turnId: "t1", model: "m" } },
+                { type: "turn.aborted", data: { reason: "turn aborted by operator" } }],
+            },
+          },
+          200,
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const aborted: string[] = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onAborted: (reason) => aborted.push(reason),
+    });
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.aborted).toBe(true);
+    expect(outcome.ok).toBe(false);
+    expect(aborted).toEqual(["turn aborted by operator"]);
+  });
+});
+
+describe("YogClient.abortTurn", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("requires an open or adopted session first", async () => {
+    const client = new YogClient("http://test");
+    await expect(client.abortTurn()).rejects.toThrow(/before open/);
+  });
+
+  it("POSTs to the session abort endpoint and reports an unwound turn", async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(
+        {
+          ok: true,
+          status: "aborted",
+          aborted: {
+            requested: true,
+            sessionId: "s1",
+            activeToolCall: { id: "c1", name: "bash" },
+          },
+          session: { id: "s1" },
+        },
+        200,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.abortTurn();
+    expect(result.requested).toBe(true);
+    expect(result.status).toBe("aborted");
+    expect(result.activeToolCall).toEqual({ id: "c1", name: "bash" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://test/v1/sessions/s1/abort");
+    expect(init.method).toBe("POST");
+  });
+
+  it("reports idle with no activeToolCall when nothing was running", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            ok: true,
+            status: "idle",
+            aborted: { requested: false, sessionId: "s1", activeToolCall: null },
+            session: { id: "s1" },
+          },
+          200,
+        ),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.abortTurn();
+    expect(result.requested).toBe(false);
+    expect(result.status).toBe("idle");
+    expect(result.activeToolCall).toBeUndefined();
+  });
+
+  it("surfaces a YogError for non-2xx responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "internal", message: "boom" } }, 500)),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    await expect(client.abortTurn()).rejects.toMatchObject({
+      name: "YogError",
+      code: "internal",
+      status: 500,
+    });
+  });
+
+  it("propagates friendly unreachable errors for connection failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw Object.assign(new Error("refused"), { code: "ECONNREFUSED" });
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    await expect(client.abortTurn()).rejects.toThrow(/cannot reach yog server/);
+  });
 });
