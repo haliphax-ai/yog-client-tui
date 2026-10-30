@@ -4,6 +4,9 @@ coverage/
 *.log
 config.json
 *.swp
-# workspace-wide excludes contain a `core` pattern (core dumps); the source
-# directory src/core/ must stay tracked
+# The workspace-wide excludesfile (projects/gitignore) has a bare `core`
+# pattern for core dumps; it also matches the tracked source directories
+# here. Negate exactly those paths (a leading `/` in a negation anchors it
+# to this .gitignore's directory).
 !/src/core/
+!/test/core/
