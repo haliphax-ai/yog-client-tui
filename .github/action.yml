@@ -1,0 +1,27 @@
+name: Set up repo
+description: >
+  Shared composite action: check out the repo, set up Node (version from
+  .nvmrc, npm cache), and install dependencies. Self-referenced by the CI
+  workflow (same pattern as haliphax-ai/yog).
+
+inputs:
+  token:
+    description: alternative GitHub token
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check out repo
+      uses: actions/checkout@v7
+      with:
+        token: ${{ inputs.token }}
+    - name: Set up node
+      uses: actions/setup-node@v6
+      with:
+        node-version-file: .nvmrc
+        cache: npm
+    - name: Install deps
+      run: npm ci
+      shell: bash
