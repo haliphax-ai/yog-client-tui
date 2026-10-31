@@ -308,10 +308,10 @@ describe("renderTable — styled output", () => {
     expect(focused.join("")).toContain("─");
     expect(unfocused.join("")).toContain("│");
     expect(unfocused.join("")).toContain("─");
-    // Focused border carries the blue fg (ST.tableBorderFocused = #60a5fa)
-    expect(focused.join("")).toContain("38;2;96;165;250");
-    // Unfocused border has no blue tint
-    expect(unfocused.join("")).not.toContain("38;2;96;165;250");
+    // Focused border carries the pink fg (ST.tableBorderFocused = #f472b6)
+    expect(focused.join("")).toContain("38;2;244;114;182");
+    // Unfocused border has no pink tint
+    expect(unfocused.join("")).not.toContain("38;2;244;114;182");
     // Corner runes are the same glyph in both modes (strip ANSI — the rune
     // is now wrapped in an SGR sequence when focused)
     expect(stripAnsi(focused[1]!).charAt(0)).toBe("┌");
