@@ -17,6 +17,7 @@ import { ChatLogComponent } from "./ChatLogComponent.ts";
 import { FOCUS_NONE, isProseTable } from "../../core/focus.ts";
 import { getState, setState } from "../../core/store.ts";
 import {
+  isTableScrollSeq,
   parseTable,
   resolveTableLayout,
   tableRowWidth,
@@ -140,6 +141,9 @@ export class ChatViewport extends ChatLogComponent {
   override handleKey(seq: string): "handled" | "unhandled" {
     const entry = this.focusedExpandedTable();
     if (entry === null) return "unhandled";
+    // Fast path: skip the expensive parse for keys that can't scroll
+    // horizontally — the layout is only needed for scroll steps.
+    if (!isTableScrollSeq(seq)) return "unhandled";
     const layout = focusedTableLayout(entry, this.cols);
     const step = tableScrollKey(seq, entry.tableScrollX ?? 0, layout.totalW, layout.cols);
     if (step === null) return "unhandled";
