@@ -121,7 +121,8 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
         // logic (clamp/slice/pad) is used instead of a bypass call. The
         // column layout comes from resolveTableLayout: reflowed columns keep
         // the shrink-to-fit widths while focused-collapsed, and render at
-        // min(natural, 30) once the entry's tableExpanded flag is set. The
+        // their natural width (stretched to fill the viewport when possible)
+        // once the entry's tableExpanded flag is set. The
         // expanded row may exceed `cols` — horizontal scroll reveals it.
         const tc = new TableComponent();
         tc.setTable(section.table);
