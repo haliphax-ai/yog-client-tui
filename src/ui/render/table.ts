@@ -358,6 +358,23 @@ export function tableScrollKey(
   }
 }
 
+/** True when `seq` is one of the horizontal-scroll key sequences. Used by
+ * the viewport's fast path to skip a full table parse for keys that can
+ * never scroll (the layout is only needed for scroll steps). */
+export function isTableScrollSeq(seq: string): boolean {
+  switch (seq) {
+    case "\x1bOD": // Left (application mode)
+    case "\x1b[D": // Left
+    case "\x1bOC": // Right (application mode)
+    case "\x1b[C": // Right
+    case "\x1b[1~": // Home
+    case "\x1b[4~": // End
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Char-level companion: h/l for fine-grained horizontal scroll. */
 export function tableScrollChar(
   ch: string,
@@ -462,32 +479,44 @@ export function renderTable(
   const hr = (left: string, mid: string, right: string): string =>
     left + w.map((cw) => hBorder.repeat(cw + 2)).join(mid) + right;
 
+  // Apply horizontal scroll to every structural row so the whole table
+  // (borders, header, dividers, data) shifts together — scrolling only the
+  // data rows left the borders stranded while the content slid, which read
+  // as a broken table.
+  const applyScroll = (line: string): string => {
+    if (scrollX <= 0) return line;
+    const sliced = sliceAnsi(line, scrollX);
+    const padBack = Math.max(0, totalWidth - displayWidth(stripAnsi(sliced)));
+    return sliced + " ".repeat(padBack);
+  };
+
   const rows: string[] = [];
 
   // Top margin (skipped when the table opens the sequence).
   if (margin.top) rows.push("");
 
   // Top border.
-  rows.push(hr(tl, tCross, tr));
+  rows.push(applyScroll(hr(tl, tCross, tr)));
 
   // Header: bold, left-aligned (alignment is a data-row concern; headers are
   // always left-padded to match the column's content). Each break-line
   // renders through glamour (may yield several physical lines when the
   // capped column wraps it).
+  const headerStyle = focused ? ST.tableSelected : ST.assistant;
   const headerCells = table.columns.map((c, i) =>
     styleCell(c.title, w[i]!).map((rl) =>
-      ST.assistant.bold(true).render(padCellLine(rl, w[i]!, "left")),
+      headerStyle.bold(true).render(padCellLine(rl, w[i]!, "left")),
     ),
   );
   const headerHeight = Math.max(...headerCells.map((c) => c.length));
   for (let hl = 0; hl < headerHeight; hl++) {
     // Short cells fill their missing lines with blank padded cells so the
     // dividers stay aligned (a bare "" would collapse the cell entirely).
-    rows.push(row(headerCells.map((c, i) => c[hl] ?? padCellLine("", w[i]!, "left"))));
+    rows.push(applyScroll(row(headerCells.map((c, i) => c[hl] ?? padCellLine("", w[i]!, "left")))));
   }
 
   // Header separator.
-  rows.push(hr(ml, cross, mr));
+  rows.push(applyScroll(hr(ml, cross, mr)));
 
   // Data rows: zebra-striped background, with a selected-row highlight when
   // the table is focused. Both come from the theme so colors stay in sync.
@@ -502,28 +531,26 @@ export function renderTable(
       styleCell(c ?? "", w[i]!).map((rl) => padCellLine(rl, w[i]!, table.columns[i]!.align)),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
-    const style = focused && r === 0 ? ST.tableSelected : r % 2 === 0 ? ST.tableZebra : undefined;
+    const style = focused ? ST.tableSelected : r % 2 === 0 ? ST.tableZebra : undefined;
     for (let sl = 0; sl < rowHeight; sl++) {
       // Short cells fill their missing lines with blank padded cells so the
       // dividers stay aligned (a bare "" would collapse the cell entirely).
       const line = row(cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")));
       // Cell-accurate pad-back: padEnd counts characters (escape bytes
       // included), so a sliced line bearing SGR/OSC runs would pad short.
-      const sliced = scrollX > 0 ? sliceAnsi(line, scrollX) : line;
-      const padBack = Math.max(0, totalWidth - displayWidth(stripAnsi(sliced)));
-      const scrolled = sliced + " ".repeat(padBack);
+      const scrolled = applyScroll(line);
       rows.push(style ? style.render(scrolled) : scrolled);
     }
     // Divider between data rows (after the WHOLE logical row, never inside
     // a multi-line row): same runes as the header separator, and never
     // zebra/selected striped — striping is for content rows only.
     if (r < table.rows.length - 1) {
-      rows.push(hr(ml, cross, mr));
+      rows.push(applyScroll(hr(ml, cross, mr)));
     }
   }
 
   // Bottom border.
-  rows.push(hr(bl, bCross, br));
+  rows.push(applyScroll(hr(bl, bCross, br)));
 
   // Bottom margin (skipped when the table closes the sequence).
   if (margin.bottom) rows.push("");
