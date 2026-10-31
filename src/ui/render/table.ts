@@ -189,15 +189,17 @@ export function tableRowWidth(colWidths: readonly number[]): number {
  *
  * 3. Neither fits → expandable. Enter toggles between collapsed (reflowed
  *    columns squeezed widest-first, floored at `TABLE_MIN_COL`) and
- *    expanded (reflowed columns at `min(natural, 30)`, overflowing the
- *    viewport — scroll reveals it). If the collapsed squeeze can't keep
- *    every reflowed column at or above `TABLE_MIN_COL`, the table is not
- *    collapsible: it stays expanded permanently and Enter is inert.
+ *    expanded (reflowed columns try natural first, capped at `TABLE_MAX_COL`
+ *    only when the viewport overflows — scroll reveals it). If the collapsed
+ *    squeeze can't keep every reflowed column at or above `TABLE_MIN_COL`,
+ *    the table is not collapsible: it stays expanded permanently and Enter
+ *    is inert.
  *
  * A column is "reflowed" when the collapsed layout squeezed it below its
  * natural width. Non-reflowed columns keep their collapsed width in both
  * states — expansion only relieves squeezed columns, never widens tidy
- * ones, and no column ever exceeds 30.
+ * ones. The `TABLE_MAX_COL` ceiling applies only when the expanded row
+ * overflows the viewport; it is a safety valve, not a target.
  */
 export function resolveTableLayout(
   colWidths: readonly number[],
@@ -217,12 +219,12 @@ export function resolveTableLayout(
   // State 3a: not collapsible — even at the floor the row doesn't fit.
   // Stay expanded permanently; Enter is inert.
   if (tableRowWidth(collapsed) > cols) {
-    return { expandable: false, widths: buildExpanded(colWidths, collapsed) };
+    return { expandable: false, widths: buildExpanded(colWidths, collapsed, cols) };
   }
 
-  // Expanded layout: reflowed columns at min(natural, 30), non-reflowed
-  // keep their collapsed width.
-  const expanded = buildExpanded(colWidths, collapsed);
+  // Expanded layout: reflowed columns try natural first, capped at
+  // TABLE_MAX_COL only when the viewport overflows.
+  const expanded = buildExpanded(colWidths, collapsed, cols);
 
   // State 2: expanded fits → fully expanded already, not expandable.
   if (tableRowWidth(expanded) <= cols) {
@@ -234,9 +236,21 @@ export function resolveTableLayout(
 }
 
 /** Build the expanded layout: reflowed columns (squeezed below natural in
- *  the collapsed layout) render at `min(natural, TABLE_MAX_COL)`; the rest
- *  keep their collapsed width. */
-function buildExpanded(natural: readonly number[], collapsed: readonly number[]): number[] {
+ *  the collapsed layout) try their natural width first; if that overflows
+ *  the viewport, cap at `TABLE_MAX_COL` — a safety valve, not a target.
+ *  Non-reflowed columns keep their collapsed width. */
+function buildExpanded(
+  natural: readonly number[],
+  collapsed: readonly number[],
+  cols: number,
+): number[] {
+  // Try natural widths for reflowed columns first.
+  const naturalExpanded = natural.map((n, i) =>
+    (collapsed[i] ?? 0) < n ? n : (collapsed[i] ?? 0),
+  );
+  if (tableRowWidth(naturalExpanded) <= cols) return naturalExpanded;
+
+  // Overflow: cap reflowed columns at TABLE_MAX_COL.
   return natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );
@@ -461,17 +475,21 @@ export function renderTable(
   // the (n+1) border runes (corners + one between every cell pair).
   const totalWidth = tableRowWidth(colWidths);
 
-  const border = focused ? ST.tableBorderFocused.render("│") : "│";
-  const hBorder = focused ? ST.tableBorderFocused.render("─") : "─";
-  const tl = focused ? ST.tableBorderFocused.render("┌") : "┌";
-  const tr = focused ? ST.tableBorderFocused.render("┐") : "┐";
-  const ml = focused ? ST.tableBorderFocused.render("├") : "├";
-  const mr = focused ? ST.tableBorderFocused.render("┤") : "┤";
-  const bl = focused ? ST.tableBorderFocused.render("└") : "└";
-  const br = focused ? ST.tableBorderFocused.render("┘") : "┘";
-  const cross = focused ? ST.tableBorderFocused.render("┼") : "┼";
-  const tCross = focused ? ST.tableBorderFocused.render("┬") : "┬";
-  const bCross = focused ? ST.tableBorderFocused.render("┴") : "┴";
+  // When focused, border runes carry the blue fg WITHOUT a trailing reset —
+  // a reset inside a zebra-striped row would punch a hole in the zebra
+  // background (the row is wrapped in ST.tableZebra.render() below, and
+  // each border rune's \x1b[0m would override the bg it just set).
+  const border = focused ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "") : "│";
+  const hBorder = focused ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "") : "─";
+  const tl = focused ? ST.tableBorderFocused.render("┌").replace(/\x1b\[0?m$/, "") : "┌";
+  const tr = focused ? ST.tableBorderFocused.render("┐").replace(/\x1b\[0?m$/, "") : "┐";
+  const ml = focused ? ST.tableBorderFocused.render("├").replace(/\x1b\[0?m$/, "") : "├";
+  const mr = focused ? ST.tableBorderFocused.render("┤").replace(/\x1b\[0?m$/, "") : "┤";
+  const bl = focused ? ST.tableBorderFocused.render("└").replace(/\x1b\[0?m$/, "") : "└";
+  const br = focused ? ST.tableBorderFocused.render("┘").replace(/\x1b\[0?m$/, "") : "┘";
+  const cross = focused ? ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "") : "┼";
+  const tCross = focused ? ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "") : "┬";
+  const bCross = focused ? ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "") : "┴";
 
   // Pad ONE RENDERED physical line of a cell to `width` display cells,
   // honoring the cell's alignment on EVERY line (GFM centers blocks, not
