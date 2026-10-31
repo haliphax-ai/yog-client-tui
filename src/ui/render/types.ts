@@ -20,7 +20,8 @@ export interface LogEntry {
   /** Full (untruncated) args text for the expanded view. */
   full?: string;
   /** Prose entry carrying a GFM table: expanded state — focus + Enter lays
-   *  reflowed columns out at min(natural, 30) instead of squeezing to fit. */
+   *  reflowed columns out at their natural width (capped at TABLE_MAX_COL
+   *  only when the viewport overflows) instead of squeezing to fit. */
   tableExpanded?: boolean;
   /** Horizontal scroll offset (in cells) for the entry's expanded tables. */
   tableScrollX?: number;
