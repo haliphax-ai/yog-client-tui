@@ -139,7 +139,7 @@ function cellWidth(cell: string): number {
 /**
  * Fit column widths into `cols`: natural widths when the table fits,
  * otherwise shrink the widest columns first (one cell per pass) until it
- * does — floored at 3 so cells still wrap readably. Cell content wraps to
+ * does — floored at TABLE_MIN_COL so reflowed columns stay readable. Cell
  * its column width when capping squeezes it below the text's width.
  */
 export function capWidths(colWidths: number[], cols: number): number[] {
@@ -147,7 +147,7 @@ export function capWidths(colWidths: number[], cols: number): number[] {
   const fits = (ws: number[]): boolean => tableRowWidth(ws) <= cols;
   if (fits(colWidths)) return [...colWidths];
   const w = [...colWidths];
-  while (!fits(w) && w.some((x) => x > 3)) {
+  while (!fits(w) && w.some((x) => x > TABLE_MIN_COL)) {
     let max = 0;
     for (const x of w) if (x > max) max = x;
     for (let i = 0; i < w.length; i++) {
@@ -157,9 +157,13 @@ export function capWidths(colWidths: number[], cols: number): number[] {
   return w;
 }
 
-/** Column width (cells) an expanded table grants a reflowed column: a
- *  ceiling, not a target. Reflowed columns render at `min(natural, this)`
- *  once expanded — breathing room, not unbounded width. */
+/** Minimum width (cells) a reflowed column may collapse to — below this
+ *  the table cannot be collapsed and stays expanded instead. */
+export const TABLE_MIN_COL = 10;
+
+/** Maximum width (cells) a reflowed column may expand to — a ceiling, not
+ *  a target. Reflowed columns render at `min(natural, this)` once expanded
+ *  — breathing room, not unbounded width. */
 export const TABLE_MAX_COL = 30;
 
 /** Rendered width of a table row in cells: Σ(width + 2 padding) + (n+1)
@@ -173,15 +177,27 @@ export function tableRowWidth(colWidths: readonly number[]): number {
  * Layout decision for one table: whether the entry is focus-expandable and,
  * when expanded, the per-column widths reflow should render at.
  *
- * Reflow runs exactly as in the collapsed layout (shrink widest first,
- * floor 3) to classify which columns had to reshape. A table is expandable
- * when at least one reshaped column landed below the 30-cell ceiling — that
- * is the breathing room expansion restores. When expanded, every reshaped
- * column renders at `min(natural, 30)` cells; columns reflow never touched
- * (already at or under their natural width) keep the fit width — expansion
- * only relieves squeezed columns, never widens tidy ones, and no column ever
- * exceeds 30. The expanded row may still extend horizontally past the
- * viewport (several 30-cell columns overflow); scroll reveals it.
+ * Three states, decided in order:
+ *
+ * 1. Natural widths fit the viewport → collapsed, not expandable. The
+ *    table shrinkwraps its content and Enter does nothing.
+ *
+ * 2. Natural widths don't fit, but reflowed columns at `min(natural, 30)`
+ *    fit → fully expanded already, not expandable, not collapsible. The
+ *    table renders at the expanded widths (which fit) and Enter does
+ *    nothing — it's already using the full viewport.
+ *
+ * 3. Neither fits → expandable. Enter toggles between collapsed (reflowed
+ *    columns squeezed widest-first, floored at `TABLE_MIN_COL`) and
+ *    expanded (reflowed columns at `min(natural, 30)`, overflowing the
+ *    viewport — scroll reveals it). If the collapsed squeeze can't keep
+ *    every reflowed column at or above `TABLE_MIN_COL`, the table is not
+ *    collapsible: it stays expanded permanently and Enter is inert.
+ *
+ * A column is "reflowed" when the collapsed layout squeezed it below its
+ * natural width. Non-reflowed columns keep their collapsed width in both
+ * states — expansion only relieves squeezed columns, never widens tidy
+ * ones, and no column ever exceeds 30.
  */
 export function resolveTableLayout(
   colWidths: readonly number[],
@@ -189,29 +205,41 @@ export function resolveTableLayout(
   tableExpanded: boolean,
 ): { expandable: boolean; widths: number[] } {
   if (colWidths.length === 0) return { expandable: false, widths: [] };
-  const fit = capWidths([...colWidths], cols);
-  const squeezed = colWidths.some(
-    (natural, i) => fit[i] !== undefined && (fit[i] as number) < natural,
+
+  // State 1: natural widths fit → collapsed, not expandable.
+  if (tableRowWidth(colWidths) <= cols) {
+    return { expandable: false, widths: [...colWidths] };
+  }
+
+  // Collapsed layout: squeeze widest-first, floored at TABLE_MIN_COL.
+  const collapsed = capWidths([...colWidths], cols);
+
+  // State 3a: not collapsible — even at the floor the row doesn't fit.
+  // Stay expanded permanently; Enter is inert.
+  if (tableRowWidth(collapsed) > cols) {
+    return { expandable: false, widths: buildExpanded(colWidths, collapsed) };
+  }
+
+  // Expanded layout: reflowed columns at min(natural, 30), non-reflowed
+  // keep their collapsed width.
+  const expanded = buildExpanded(colWidths, collapsed);
+
+  // State 2: expanded fits → fully expanded already, not expandable.
+  if (tableRowWidth(expanded) <= cols) {
+    return { expandable: false, widths: expanded };
+  }
+
+  // State 3b: expandable — toggle between collapsed and expanded.
+  return { expandable: true, widths: tableExpanded ? expanded : collapsed };
+}
+
+/** Build the expanded layout: reflowed columns (squeezed below natural in
+ *  the collapsed layout) render at `min(natural, TABLE_MAX_COL)`; the rest
+ *  keep their collapsed width. */
+function buildExpanded(natural: readonly number[], collapsed: readonly number[]): number[] {
+  return natural.map((n, i) =>
+    (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );
-  if (!squeezed) return { expandable: false, widths: [...colWidths] };
-  if (!tableExpanded) {
-    // Expandable only when some squeezed column was reflowed below 30.
-    const undersized = colWidths.some(
-      (natural, i) =>
-        fit[i] !== undefined && (fit[i] as number) < natural && (fit[i] as number) < TABLE_MAX_COL,
-    );
-    return { expandable: undersized, widths: [...fit] };
-  }
-  // Expanded: reflow still runs, but squeezed columns render at min(natural,
-  // 30) — breathing room up to the ceiling, never past it. Untouched fit
-  // widths carry over unchanged (all-natural ≤30 columns never expand).
-  const widths = [...fit];
-  for (let i = 0; i < widths.length; i++) {
-    if (fit[i] !== undefined && (fit[i] as number) < colWidths[i]!) {
-      widths[i] = Math.min(TABLE_MAX_COL, colWidths[i]!);
-    }
-  }
-  return { expandable: true, widths };
 }
 
 /** True if the line looks like a table row (has pipes and at least one non-empty cell). */
@@ -433,17 +461,17 @@ export function renderTable(
   // the (n+1) border runes (corners + one between every cell pair).
   const totalWidth = tableRowWidth(colWidths);
 
-  const border = focused ? "┃" : "│";
-  const hBorder = focused ? "━" : "─";
-  const tl = focused ? "┏" : "┌";
-  const tr = focused ? "┓" : "┐";
-  const ml = focused ? "┣" : "├";
-  const mr = focused ? "┫" : "┤";
-  const bl = focused ? "┗" : "└";
-  const br = focused ? "┛" : "┘";
-  const cross = focused ? "╋" : "┼";
-  const tCross = focused ? "┳" : "┬";
-  const bCross = focused ? "┻" : "┴";
+  const border = focused ? ST.tableBorderFocused.render("│") : "│";
+  const hBorder = focused ? ST.tableBorderFocused.render("─") : "─";
+  const tl = focused ? ST.tableBorderFocused.render("┌") : "┌";
+  const tr = focused ? ST.tableBorderFocused.render("┐") : "┐";
+  const ml = focused ? ST.tableBorderFocused.render("├") : "├";
+  const mr = focused ? ST.tableBorderFocused.render("┤") : "┤";
+  const bl = focused ? ST.tableBorderFocused.render("└") : "└";
+  const br = focused ? ST.tableBorderFocused.render("┘") : "┘";
+  const cross = focused ? ST.tableBorderFocused.render("┼") : "┼";
+  const tCross = focused ? ST.tableBorderFocused.render("┬") : "┬";
+  const bCross = focused ? ST.tableBorderFocused.render("┴") : "┴";
 
   // Pad ONE RENDERED physical line of a cell to `width` display cells,
   // honoring the cell's alignment on EVERY line (GFM centers blocks, not
@@ -502,7 +530,7 @@ export function renderTable(
   // always left-padded to match the column's content). Each break-line
   // renders through glamour (may yield several physical lines when the
   // capped column wraps it).
-  const headerStyle = focused ? ST.tableSelected : ST.assistant;
+  const headerStyle = ST.assistant;
   const headerCells = table.columns.map((c, i) =>
     styleCell(c.title, w[i]!).map((rl) =>
       headerStyle.bold(true).render(padCellLine(rl, w[i]!, "left")),
@@ -531,7 +559,7 @@ export function renderTable(
       styleCell(c ?? "", w[i]!).map((rl) => padCellLine(rl, w[i]!, table.columns[i]!.align)),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
-    const style = focused ? ST.tableSelected : r % 2 === 0 ? ST.tableZebra : undefined;
+    const style = r % 2 === 0 ? ST.tableZebra : undefined;
     for (let sl = 0; sl < rowHeight; sl++) {
       // Short cells fill their missing lines with blank padded cells so the
       // dividers stay aligned (a bare "" would collapse the cell entirely).

@@ -300,17 +300,22 @@ describe("renderTable — styled output", () => {
 | Bob | 25 |`;
   const table = parseTable(md)!;
 
-  it("renders heavy border runes when focused, light when not", () => {
+  it("renders light border runes in both modes; focus tints them blue", () => {
     const focused = renderTable(table, 80, true, 0);
     const unfocused = renderTable(table, 80, false, 0);
-    // Vertical + horizontal border runes present in both modes
-    expect(focused.join("")).toContain("┃");
-    expect(focused.join("")).toContain("━");
+    // Light runes in both modes — focus is a color, not a weight change
+    expect(focused.join("")).toContain("│");
+    expect(focused.join("")).toContain("─");
     expect(unfocused.join("")).toContain("│");
     expect(unfocused.join("")).toContain("─");
-    // Corner runes differ: heavy vs light
-    expect(focused[1]!.charAt(0)).toBe("┏");
-    expect(unfocused[1]!.charAt(0)).toBe("┌");
+    // Focused border carries the blue fg (ST.tableBorderFocused = #60a5fa)
+    expect(focused.join("")).toContain("38;2;96;165;250");
+    // Unfocused border has no blue tint
+    expect(unfocused.join("")).not.toContain("38;2;96;165;250");
+    // Corner runes are the same glyph in both modes (strip ANSI — the rune
+    // is now wrapped in an SGR sequence when focused)
+    expect(stripAnsi(focused[1]!).charAt(0)).toBe("┌");
+    expect(stripAnsi(unfocused[1]!).charAt(0)).toBe("┌");
   });
 
   it("renders the header row in bold", () => {
@@ -329,15 +334,18 @@ describe("renderTable — styled output", () => {
     expect(rows[6]).not.toMatch(/48;2;26;26;46/);
   });
 
-  it("applies selected background to row 0 only when focused", () => {
+  it("focus no longer recolors data rows (border-only focus indicator)", () => {
     const focused = renderTable(table, 80, true, 0);
     const unfocused = renderTable(table, 80, false, 0);
-    // ST.tableSelected bg is #1e3a8a → ANSI 48;2;30;58;138
-    expect(focused[4]).toMatch(/48;2;30;58;138/);
-    expect(unfocused[4]).not.toMatch(/1e3a8a/);
-    // Row 1 gets NO zebra, not selected, in both modes (row 5 = divider)
+    // Focus is now border-only — data rows render identically in both modes
+    // (zebra only, no selected-row bg). The old selected bg (#1e3a8a) is gone.
+    expect(focused[4]).toMatch(/48;2;26;26;46/); // zebra, same as unfocused
+    expect(unfocused[4]).toMatch(/48;2;26;26;46/);
+    expect(focused[4]).not.toMatch(/48;2;30;58;138/); // no selected bg
+    expect(unfocused[4]).not.toMatch(/48;2;30;58;138/);
+    // Row 1 (divider) is never striped in either mode
     expect(focused[6]).not.toMatch(/48;2;26;26;46/);
-    expect(focused[6]).not.toMatch(/1e3a8a/);
+    expect(unfocused[6]).not.toMatch(/48;2;26;26;46/);
   });
 
   it("scrollX truncates leading cells from each line", () => {

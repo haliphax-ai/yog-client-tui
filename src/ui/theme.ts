@@ -35,8 +35,8 @@ export const ST = {
   status: newStyle().foreground("#64748b"),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
-  /** Selected row in table rendering: white text on dark blue. */
-  tableSelected: newStyle().foreground("#ffffff").background("#1e3a8a"),
+  /** Focused table border: blue runes (the focus indicator — not a row bg). */
+  tableBorderFocused: newStyle().foreground("#60a5fa"),
 } as const;
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */
