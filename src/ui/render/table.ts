@@ -185,21 +185,19 @@ export function tableRowWidth(colWidths: readonly number[]): number {
  * 2. Natural widths don't fit, but reflowed columns at `min(natural, 30)`
  *    fit → fully expanded already, not expandable, not collapsible. The
  *    table renders at the expanded widths (which fit) and Enter does
- *    nothing — it's already using the full viewport.
+ *    nothing.
  *
  * 3. Neither fits → expandable. Enter toggles between collapsed (reflowed
  *    columns squeezed widest-first, floored at `TABLE_MIN_COL`) and
- *    expanded (reflowed columns try natural first, capped at `TABLE_MAX_COL`
- *    only when the viewport overflows — scroll reveals it). If the collapsed
- *    squeeze can't keep every reflowed column at or above `TABLE_MIN_COL`,
- *    the table is not collapsible: it stays expanded permanently and Enter
- *    is inert.
+ *    expanded (reflowed columns at `min(natural, TABLE_MAX_COL)`, overflowing
+ *    the viewport — scroll reveals it). If the collapsed squeeze can't keep
+ *    every reflowed column at or above `TABLE_MIN_COL`, the table is not
+ *    collapsible: it stays expanded permanently and Enter is inert.
  *
  * A column is "reflowed" when the collapsed layout squeezed it below its
  * natural width. Non-reflowed columns keep their collapsed width in both
  * states — expansion only relieves squeezed columns, never widens tidy
- * ones. The `TABLE_MAX_COL` ceiling applies only when the expanded row
- * overflows the viewport; it is a safety valve, not a target.
+ * ones. No column ever exceeds `TABLE_MAX_COL` (30).
  */
 export function resolveTableLayout(
   colWidths: readonly number[],
@@ -208,17 +206,9 @@ export function resolveTableLayout(
 ): { expandable: boolean; widths: number[] } {
   if (colWidths.length === 0) return { expandable: false, widths: [] };
 
-  // State 1: natural widths fit. Stretch columns to fill the viewport —
-  // a fitting table shrink-wraps to its content instead of using the
-  // available width. Each column caps at TABLE_MAX_COL; the ceiling is a
-  // safety valve, not a target. If the stretched layout still fits, use
-  // it (not expandable — already filling). If some columns hit the cap
-  // and the row still overflows, fall back to natural (shrink-wrap).
+  // State 1: natural widths fit → collapsed, not expandable. The table
+  // shrink-wraps to its content — it does not stretch to fill the viewport.
   if (tableRowWidth(colWidths) <= cols) {
-    const stretched = stretchWidths(colWidths, cols);
-    if (tableRowWidth(stretched) <= cols) {
-      return { expandable: false, widths: stretched };
-    }
     return { expandable: false, widths: [...colWidths] };
   }
 
@@ -235,46 +225,20 @@ export function resolveTableLayout(
   // TABLE_MAX_COL only when the viewport overflows.
   const expanded = buildExpanded(colWidths, collapsed, cols);
 
-  // State 2: expanded fits → stretch to fill the viewport, not expandable.
+  // State 2: expanded fits → fully expanded already, not expandable.
   if (tableRowWidth(expanded) <= cols) {
-    return { expandable: false, widths: stretchWidths(expanded, cols) };
+    return { expandable: false, widths: expanded };
   }
 
   // State 3b: expandable — toggle between collapsed and expanded.
   return { expandable: true, widths: tableExpanded ? expanded : collapsed };
 }
 
-/** Stretch column widths to fill `cols`, distributing slack evenly across
- *  columns that haven't hit `TABLE_MAX_COL`. A fitting table uses the full
- *  viewport width instead of shrink-wrapping to its content. */
-function stretchWidths(natural: readonly number[], cols: number): number[] {
-  const current = tableRowWidth(natural);
-  const slack = cols - current;
-  if (slack <= 0) return [...natural];
-
-  const result = [...natural];
-  let remaining = slack;
-  // Round-robin distribution so no single column hogs the slack. No cap —
-  // the TABLE_MAX_COL ceiling only applies on viewport overflow (State 3),
-  // not when the table fits and is stretching to fill.
-  while (remaining > 0) {
-    let grew = false;
-    for (let i = 0; i < result.length && remaining > 0; i++) {
-      const add = 1;
-      result[i] = (result[i] ?? 0) + add;
-      remaining -= add;
-      grew = true;
-    }
-    if (!grew) break;
-  }
-  return result;
-}
-
 /** Build the expanded layout: reflowed columns (squeezed below natural in
- *  the collapsed layout) try their natural width first. If that fits, stretch
- *  to fill the viewport. If it overflows, squeeze the widest columns until
- *  the row fits — the `TABLE_MAX_COL` ceiling is a soft target, not a hard
- *  limit: on a wide viewport a column can exceed 30. */
+ *  the collapsed layout) try their natural width first. If that fits, use
+ *  it — the table does not stretch to fill the viewport. If it overflows,
+ *  cap at `TABLE_MAX_COL` — a safety valve, not a target. Non-reflowed
+ *  columns keep their collapsed width. */
 function buildExpanded(
   natural: readonly number[],
   collapsed: readonly number[],
@@ -284,14 +248,9 @@ function buildExpanded(
   const naturalExpanded = natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? n : (collapsed[i] ?? 0),
   );
-  if (tableRowWidth(naturalExpanded) <= cols) {
-    // Fits — stretch to fill the viewport instead of shrink-wrapping.
-    return stretchWidths(naturalExpanded, cols);
-  }
+  if (tableRowWidth(naturalExpanded) <= cols) return naturalExpanded;
 
-  // Overflow: cap reflowed columns at TABLE_MAX_COL (the old behavior — a
-  // 30-cell ceiling on overflow, not a proportional fill). State 2 below
-  // stretches the capped layout to fill the viewport when it fits.
+  // Overflow: cap reflowed columns at TABLE_MAX_COL.
   return natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );

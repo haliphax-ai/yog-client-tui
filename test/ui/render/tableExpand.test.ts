@@ -48,13 +48,10 @@ describe("resolveTableLayout — reflow classification", () => {
     expect(collapsed.expandable).toBe(true);
     expect(collapsed.widths[0]!).toBeLessThan(45);
 
-    // Wide viewport: nothing reshaped → not expandable, columns stretch to
-    // fill the available width (no cap on stretch — only on overflow).
+    // Wide viewport: nothing reshaped → not expandable, natural widths.
     const wide = resolveTableLayout(natural, 200, false);
     expect(wide.expandable).toBe(false);
-    expect(wide.widths[0]!).toBeGreaterThan(45); // stretched past natural
-    expect(wide.widths[1]!).toBeGreaterThan(8); // stretched past natural
-    expect(tableRowWidth(wide.widths)).toBe(200); // fills the viewport
+    expect(wide.widths).toEqual(natural);
   });
 
   it("expanded layout gives squeezed columns up to the 30-cell ceiling", () => {
