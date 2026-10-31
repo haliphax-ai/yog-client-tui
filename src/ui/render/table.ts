@@ -235,9 +235,9 @@ export function resolveTableLayout(
   // TABLE_MAX_COL only when the viewport overflows.
   const expanded = buildExpanded(colWidths, collapsed, cols);
 
-  // State 2: expanded fits → fully expanded already, not expandable.
+  // State 2: expanded fits → stretch to fill the viewport, not expandable.
   if (tableRowWidth(expanded) <= cols) {
-    return { expandable: false, widths: expanded };
+    return { expandable: false, widths: stretchWidths(expanded, cols) };
   }
 
   // State 3b: expandable — toggle between collapsed and expanded.
@@ -254,28 +254,27 @@ function stretchWidths(natural: readonly number[], cols: number): number[] {
 
   const result = [...natural];
   let remaining = slack;
-  // Round-robin distribution so no single column hogs the slack.
+  // Round-robin distribution so no single column hogs the slack. No cap —
+  // the TABLE_MAX_COL ceiling only applies on viewport overflow (State 3),
+  // not when the table fits and is stretching to fill.
   while (remaining > 0) {
     let grew = false;
     for (let i = 0; i < result.length && remaining > 0; i++) {
-      const cap = TABLE_MAX_COL;
-      const room = cap - (result[i] ?? 0);
-      if (room > 0) {
-        const add = Math.min(remaining, room);
-        result[i] = (result[i] ?? 0) + add;
-        remaining -= add;
-        grew = true;
-      }
+      const add = 1;
+      result[i] = (result[i] ?? 0) + add;
+      remaining -= add;
+      grew = true;
     }
-    if (!grew) break; // every column at the cap
+    if (!grew) break;
   }
   return result;
 }
 
 /** Build the expanded layout: reflowed columns (squeezed below natural in
- *  the collapsed layout) try their natural width first; if that overflows
- *  the viewport, cap at `TABLE_MAX_COL` — a safety valve, not a target.
- *  Non-reflowed columns keep their collapsed width. */
+ *  the collapsed layout) try their natural width first. If that fits, stretch
+ *  to fill the viewport. If it overflows, squeeze the widest columns until
+ *  the row fits — the `TABLE_MAX_COL` ceiling is a soft target, not a hard
+ *  limit: on a wide viewport a column can exceed 30. */
 function buildExpanded(
   natural: readonly number[],
   collapsed: readonly number[],
@@ -290,7 +289,9 @@ function buildExpanded(
     return stretchWidths(naturalExpanded, cols);
   }
 
-  // Overflow: cap reflowed columns at TABLE_MAX_COL.
+  // Overflow: cap reflowed columns at TABLE_MAX_COL (the old behavior — a
+  // 30-cell ceiling on overflow, not a proportional fill). State 2 below
+  // stretches the capped layout to fill the viewport when it fits.
   return natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );
