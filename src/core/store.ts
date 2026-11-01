@@ -4,7 +4,7 @@
  * called at every mutation site. Terminal-free and dependency-free apart from
  * a type-only import of the log entry shape.
  */
-import type { LogEntry } from "../ui/render/types.ts";
+import type { LogEntry } from "./entries.ts";
 import { FOCUS_NONE_TARGET, type FocusTarget } from "./focus.ts";
 
 /** Application UI state held by the store. */

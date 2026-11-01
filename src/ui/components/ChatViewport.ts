@@ -14,37 +14,39 @@
  *     finally the global bindings.
  */
 import { ChatLogComponent } from "./ChatLogComponent.ts";
-import { type FocusTarget, isProseTable } from "../../core/focus.ts";
+import { type FocusTarget } from "../../core/focus.ts";
+import { tableState, tableStateOf, type LogEntry } from "../../core/entries.ts";
 import { getState, setState } from "../../core/store.ts";
 import {
   isTableScrollSeq,
-  parseTable,
   resolveTableLayout,
+  splitTableSections,
   tableRowWidth,
   tableScrollChar,
   tableScrollKey,
-} from "../render/table.ts";
-import type { LogEntry } from "../render/types.ts";
+} from "../render/table/index.ts";
 
-/** Table predicate bound to the GFM parser (matches ChatLogComponent's ring). */
-const hasTable = (e: { kind: string; lines?: readonly string[] }): boolean =>
-  isProseTable(e, (text) => parseTable(text));
-
-/** Scroll geometry of the focused table entry at the log's width: the
- *  viewport-body width and the expanded table's total rendered width. Same
- *  `resolveTableLayout` the entry renderer uses, so the scroll bounds always
- *  match what is on screen. */
+/**
+ * Scroll geometry of the focused table at the log's width: the viewport-body
+ * width and the table's total rendered width. Same `resolveTableLayout` the
+ * entry renderer uses, and the SAME table (the focused one, not the first),
+ * so the scroll bounds always match what is on screen.
+ */
 function focusedTableLayout(
-  entry: { lines: string[] },
+  entry: LogEntry,
+  tableIndex: number,
   cols: number,
 ): { cols: number; totalW: number } {
   const bodyW = Math.max(1, cols - 2);
-  const table = parseTable(entry.lines.join("\n"));
-  if (table === null) return { cols: bodyW, totalW: 0 };
+  const sections = splitTableSections(entry.lines.join("\n"));
+  const tables = sections.filter((s) => s.kind === "table");
+  const section = tables[tableIndex];
+  if (section === undefined || section.kind !== "table") return { cols: bodyW, totalW: 0 };
+  const state = entry.tables?.[tableIndex];
   const layout = resolveTableLayout(
-    table.columns.map((c) => c.width),
+    section.table.columns.map((c) => c.width),
     bodyW,
-    true,
+    state?.expanded === true,
   );
   return { cols: bodyW, totalW: tableRowWidth(layout.widths) };
 }
@@ -71,7 +73,7 @@ export class ChatViewport extends ChatLogComponent {
 
   /** Rows available to this viewport in the current terminal layout. */
   private viewportHeight(): number {
-    return this.viewportRows ?? Math.max(1, (process.stdout.rows ?? 24) - 2);
+    return this.viewportRows ?? 24;
   }
 
   /** Keep the focused entry fully visible; commit only if scroll moved. */
@@ -122,44 +124,52 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   /**
-   * Horizontal scroll for the focused table: Left/Right (via
-   * `tableScrollKey`) and h/l. The focused entry must carry a table AND be
-   * tableExpanded — collapsed tables render inside the viewport and have
-   * nothing to scroll. Unclaimed keys bubble to the next responder.
+   * The focused table: its entry and its index within that entry. A table
+   * is only scrollable when its layout overflows the viewport — the
+   * expanded layout of a squeezable table.
    */
-  /** The focused prose entry carries an expanded (horizontally scrollable)
-   *  table. Reused by both key handlers. */
-  private focusedExpandedTable(): LogEntry | null {
+  private focusedTable(): { entry: LogEntry; index: number } | null {
     this.syncFromStore();
+    const index = this.focusTarget.table;
+    if (index < 0) return null;
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return null;
     if (entry.kind !== "user" && entry.kind !== "assistant") return null;
-    if (entry.tableExpanded !== true) return null;
-    return hasTable(entry) ? entry : null;
+    return { entry, index };
   }
 
   override handleKey(seq: string): "handled" | "unhandled" {
-    const entry = this.focusedExpandedTable();
-    if (entry === null) return "unhandled";
+    const focused = this.focusedTable();
+    if (focused === null) return "unhandled";
     // Fast path: skip the expensive parse for keys that can't scroll
     // horizontally — the layout is only needed for scroll steps.
     if (!isTableScrollSeq(seq)) return "unhandled";
-    const layout = focusedTableLayout(entry, this.cols);
-    const step = tableScrollKey(seq, entry.tableScrollX ?? 0, layout.totalW, layout.cols);
+    const layout = focusedTableLayout(focused.entry, focused.index, this.cols);
+    const step = tableScrollKey(
+      seq,
+      tableStateOf(focused.entry, focused.index).scrollX,
+      layout.totalW,
+      layout.cols,
+    );
     if (step === null) return "unhandled";
-    entry.tableScrollX = step.scrollX;
+    tableState(focused.entry, focused.index).scrollX = step.scrollX;
     this.commit();
     return "handled";
   }
 
   override handleChar(ch: string): "handled" | "unhandled" {
     if (ch === "h" || ch === "l") {
-      const entry = this.focusedExpandedTable();
-      if (entry === null) return "unhandled";
-      const layout = focusedTableLayout(entry, this.cols);
-      const step = tableScrollChar(ch, entry.tableScrollX ?? 0, layout.totalW, layout.cols);
+      const focused = this.focusedTable();
+      if (focused === null) return "unhandled";
+      const layout = focusedTableLayout(focused.entry, focused.index, this.cols);
+      const step = tableScrollChar(
+        ch,
+        tableStateOf(focused.entry, focused.index).scrollX,
+        layout.totalW,
+        layout.cols,
+      );
       if (step === null) return "unhandled";
-      entry.tableScrollX = step.scrollX;
+      tableState(focused.entry, focused.index).scrollX = step.scrollX;
       this.commit();
       return "handled";
     }

@@ -5,7 +5,7 @@ import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
 import { routeChar, routeKey, type Globals } from "../../../src/ui/components/keyRouter.ts";
 import type { Component } from "../../../src/ui/components/Component.ts";
-import type { LogEntry } from "../../../src/ui/render/index.ts";
+import type { LogEntry } from "../../../src/core/entries.ts";
 
 /** Fixture: system(0), chunk(1), tool(2) — focusable: [1, 2]. */
 function fixture(): LogEntry[] {
@@ -37,6 +37,7 @@ function entryFocusGlobals(viewport: ChatViewport): Globals {
     jump: (top) => viewport.jump(top, 24),
     submit: () => undefined,
     abortTurn: () => undefined,
+    pageRows: () => 24,
   };
 }
 

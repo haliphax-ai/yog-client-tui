@@ -11,7 +11,6 @@ import {
   routeChar,
   routeKey,
   type Globals,
-  type Routed,
 } from "../../../src/ui/components/keyRouter.ts";
 
 /** Stub component: claims only the keys/chars given, records every call. */
@@ -46,7 +45,7 @@ class Stub extends BaseComponent {
 }
 
 /** Globals double: records which binding ran. */
-function globalsSpy(): { globals: Globals; calls: string[] } {
+function globalsSpy(rows = 24): { globals: Globals; calls: string[] } {
   const calls: string[] = [];
   const globals: Globals = {
     quit: () => calls.push("quit"),
@@ -56,6 +55,7 @@ function globalsSpy(): { globals: Globals; calls: string[] } {
     jump: (top) => calls.push(`jump:${top}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    pageRows: () => rows,
   };
   return { globals, calls };
 }
@@ -105,7 +105,15 @@ describe("routeKey — focused first, then bubble, then globals", () => {
     expect(routeKey([a, b], "\x1b[Z", globals)).toBe(true); // Shift+Tab
     expect(calls).toEqual(["focusPrev"]);
     expect(routeKey([a, b], "\x1b[6~", globals)).toBe(true); // PageDown
-    expect(calls).toEqual(["focusPrev", `scrollBy:${process.stdout.rows ?? 24}`]);
+    expect(calls).toEqual(["focusPrev", "scrollBy:24"]);
+  });
+
+  it("the page size comes from the injected terminal height", () => {
+    const log: string[] = [];
+    const a = new Stub({ log });
+    const { globals, calls } = globalsSpy(10);
+    expect(routeKey([a], "\x1b[5~", globals)).toBe(true); // PageUp
+    expect(calls).toEqual(["scrollBy:-10"]);
   });
 });
 
@@ -158,14 +166,10 @@ describe("cycleFocus — loss before gain, with wrap", () => {
     a.id = "a";
     const b = new Stub({ focusable: true, log });
     b.id = "b";
-    const ring: Routed[] = [
-      { id: "a", component: a },
-      { id: "b", component: b },
-    ];
     a.onFocus(true);
     log.length = 0;
 
-    cycleFocus(ring, 1);
+    cycleFocus([a, b], 1);
     expect(log).toEqual(["loss:a", "gain:b"]);
     expect(a.isFocused).toBe(false);
     expect(b.isFocused).toBe(true);
@@ -176,18 +180,14 @@ describe("cycleFocus — loss before gain, with wrap", () => {
     a.id = "a";
     const b = new Stub({ focusable: true });
     b.id = "b";
-    const ring: Routed[] = [
-      { id: "a", component: a },
-      { id: "b", component: b },
-    ];
 
-    cycleFocus(ring, 1); // nothing focused → first
+    cycleFocus([a, b], 1); // nothing focused → first
     expect([a.isFocused, b.isFocused]).toEqual([true, false]);
-    cycleFocus(ring, 1); // a → b
+    cycleFocus([a, b], 1); // a → b
     expect([a.isFocused, b.isFocused]).toEqual([false, true]);
-    cycleFocus(ring, 1); // wrap: b → a
+    cycleFocus([a, b], 1); // wrap: b → a
     expect([a.isFocused, b.isFocused]).toEqual([true, false]);
-    cycleFocus(ring, -1); // backward wrap: a → b
+    cycleFocus([a, b], -1); // backward wrap: a → b
     expect([a.isFocused, b.isFocused]).toEqual([false, true]);
   });
 });

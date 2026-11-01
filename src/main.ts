@@ -43,12 +43,12 @@
  *                    leaves focus mode)
  */
 import { loadConfig, persistSessionKey, resolveBaseUrl } from "./config.ts";
+import { type LogEntry } from "./core/entries.ts";
 import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { getState, setState } from "./core/store.ts";
 import { toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
 import { YogClient, YogError, type TurnEvents, type TurnOutcome } from "./yogClient.ts";
-import { type LogEntry } from "./ui/render/index.ts";
 import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
@@ -361,6 +361,7 @@ async function run(argv: readonly string[]): Promise<void> {
     jump: (top) => viewport.jump(top, viewportRows()),
     submit,
     abortTurn: abortActiveTurn,
+    pageRows: () => process.stdout.rows ?? 24,
   };
 
   // ---- key handling ------------------------------------------------------

@@ -36,6 +36,10 @@ function scanContentRules() {
   const defaultServerUrl =
     /(?:127\.0\.0\.1|localhost):8111|\b(?:const|let|var)\b[^\n]*=[^\n]*\b8111\b|\b\w+\s*:\s*["'`][^"'`]*\b8111\b["'`]/;
 
+  // Rule 10 - the ANSI escape-matching regex lives in util/ansi.ts only.
+  // A second copy drifts out of sync and silently mis-parses escapes.
+  const ansiEscapeRegex = /\\x1b\\\]/;
+
   for (const rel of files) {
     const file = path.join(root, rel);
     const lines = fs.readFileSync(file, "utf8").split("\n");
@@ -48,6 +52,11 @@ function scanContentRules() {
       if (rel !== "config.ts" && defaultServerUrl.test(line)) {
         violations.push(
           `no-default-server-url-outside-config: ${file}:${i + 1} defines a default server URL/port constant`,
+        );
+      }
+      if (rel !== "util/ansi.ts" && ansiEscapeRegex.test(line)) {
+        violations.push(
+          `no-duplicate-ansi-escape-regex: ${file}:${i + 1} duplicates the ANSI escape regex — use util/ansi.ts`,
         );
       }
     });
@@ -110,6 +119,27 @@ module.exports = {
       comment: "the presenter talks to the store, not the transport",
       from: { path: "^src/ui/" },
       to: { path: ["^src/(yogClient\\.ts$|client/)", "^(node:)?fs(/|$)"] },
+    },
+
+    // 5b. The render layer must not depend on the component layer: a
+    // renderer that knows about components cannot be reused, and the
+    // dependency inverts the natural direction.
+    {
+      name: "render-no-component-imports",
+      severity: "error",
+      comment: "ui/render draws; ui/components own state and keys",
+      from: { path: "^src/ui/render/" },
+      to: { path: "^src/ui/components/" },
+    },
+
+    // 5c. The domain layer must not depend on the presentation layer.
+    // The log-entry shape lives in core/; the renderer draws it.
+    {
+      name: "core-no-render-imports",
+      severity: "error",
+      comment: "core owns the domain; ui/render draws it",
+      from: { path: "^src/core/" },
+      to: { path: "^src/ui/render/" },
     },
 
     // 7. Only the composition root may import config/.

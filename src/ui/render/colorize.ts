@@ -9,9 +9,7 @@
  * wrap split stays string-colored into the continuation row.
  */
 import { C } from "../theme.ts";
-
-/** Matches one ANSI escape sequence at the current position, if any. */
-const ESC = /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|^\x1b\[[0-9;?]*[ -/]*[@-~]|^\x1b[@-Z\\-_]/;
+import { matchEscape } from "../../util/ansi.ts";
 
 export function colorizeToolLine(text: string): string {
   let pending = ""; // open token color carried across a row split
@@ -50,11 +48,11 @@ export function colorizeToolLine(text: string): string {
       if (open) pending = color;
     };
     const escape = (): void => {
-      const m = row.slice(i).match(ESC);
+      const m = matchEscape(row.slice(i));
       if (m) {
-        if (headDone) out += m[0];
-        else head += m[0];
-        i += m[0].length;
+        if (headDone) out += m;
+        else head += m;
+        i += m.length;
       } else {
         i += 1; // drop a bare ESC
       }
@@ -145,7 +143,7 @@ export function colorizeToolLine(text: string): string {
           const c = row[j] as string;
           if (c === "\\") {
             danglingEscape = true;
-            j += 2; // \" and \\\\ pass through: they cannot close the string
+            j += 2; // \" and \\ pass through: they cannot close the string
             continue;
           }
           danglingEscape = false;
@@ -158,7 +156,7 @@ export function colorizeToolLine(text: string): string {
         }
         if (closed) {
           let k = j;
-          while (k < row.length && (row[k] === " " || row[k] === "\\t")) k += 1;
+          while (k < row.length && (row[k] === " " || row[k] === "\t")) k += 1;
           colorize(row.slice(i, j), row[k] === ":" ? C.key : C.str);
           i = j;
           continue;

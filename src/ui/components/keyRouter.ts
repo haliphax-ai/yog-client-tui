@@ -6,7 +6,9 @@
  * "unhandled" to let the rest bubble.
  *
  * The router owns no state of its own: it walks the chain and lets the
- * responders do their work.
+ * responders do their work. Terminal geometry comes from the composition
+ * root through the `Globals` surface — the router never reads
+ * `process.stdout` itself.
  */
 import type { Component } from "./Component.ts";
 import { Binding, matches, newBinding, withHelp, withKeys } from "@oakoliver/bubbles";
@@ -27,6 +29,8 @@ export interface Globals {
   submit(): void;
   /** Esc with no focused entry: abort the in-flight turn (no-op when idle). */
   abortTurn(): void;
+  /** Terminal height in rows — the page size for PageUp/PageDown. */
+  pageRows(): number;
 }
 
 /**
@@ -51,11 +55,11 @@ const GLOBAL_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   },
   {
     binding: newBinding(withKeys("\x1b[5~"), withHelp("PageUp", "scroll up one page")),
-    run: (g) => g.scrollBy(-(process.stdout.rows ?? 24)),
+    run: (g) => g.scrollBy(-g.pageRows()),
   },
   {
     binding: newBinding(withKeys("\x1b[6~"), withHelp("PageDown", "scroll down one page")),
-    run: (g) => g.scrollBy(process.stdout.rows ?? 24),
+    run: (g) => g.scrollBy(g.pageRows()),
   },
   {
     binding: newBinding(withKeys("\x1bOA"), withHelp("Up", "scroll up one line")),
@@ -137,29 +141,23 @@ export function routeChar(chain: readonly Component[], ch: string, globals: Glob
   return false;
 }
 
-/** A component plus a router-assigned id (the focus ring is over these). */
-export interface Routed {
-  id: string;
-  component: Component;
-}
-
 /**
  * Cycle focus through the focusable components (`dir` +1 forward, -1
  * backward). Loss fires before gain so the outgoing component never sees
  * itself focused while the incoming one already is.
  */
-export function cycleFocus(chain: readonly Routed[], dir: 1 | -1): void {
-  const focusables = chain.filter((r) => r.component.focusable);
+export function cycleFocus(chain: readonly Component[], dir: 1 | -1): void {
+  const focusables = chain.filter((c) => c.focusable);
   if (focusables.length === 0) return;
-  const current = focusables.findIndex((r) => r.component.isFocused);
+  const current = focusables.findIndex((c) => c.isFocused);
   const next =
     current === -1
       ? dir === 1
         ? 0
         : focusables.length - 1
       : (current + dir + focusables.length) % focusables.length;
-  for (const r of focusables) {
-    if (r.component.isFocused) r.component.onFocus(false);
+  for (const c of focusables) {
+    if (c.isFocused) c.onFocus(false);
   }
-  (focusables[next] as Routed).component.onFocus(true);
+  (focusables[next] as Component).onFocus(true);
 }

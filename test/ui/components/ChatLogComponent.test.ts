@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
 import { type FocusTarget } from "../../../src/core/focus.ts";
-import { totalRows, type LogEntry } from "../../../src/ui/render/index.ts";
+import { totalRows } from "../../../src/ui/render/index.ts";
+import { cacheOf } from "../../../src/ui/render/entry.ts";
+import type { LogEntry } from "../../../src/core/entries.ts";
 import { stripAnsi } from "../../../src/util/ansi.ts";
 
 /** Concrete log with test accessors for the scroll/follow state. */
@@ -268,11 +270,11 @@ describe("ChatLogComponent — memoized row cache", () => {
     log.setViewportRows(VIEWPORT);
     const entry = log.getEntries()[1] as LogEntry;
     const first = log.render({ cols: COLS });
-    const cached = entry.cache;
+    const cached = cacheOf(entry);
     expect(cached).toBeDefined();
 
     const second = log.render({ cols: COLS });
-    expect(entry.cache).toBe(cached); // same cache slot — no re-render
+    expect(cacheOf(entry)).toBe(cached); // same cache slot — no re-render
     expect(second.join("\n")).toBe(first.join("\n")); // byte-identical
   });
 
@@ -281,10 +283,10 @@ describe("ChatLogComponent — memoized row cache", () => {
     log.setViewportRows(VIEWPORT);
     const entry = log.getEntries()[1] as LogEntry;
     log.render({ cols: COLS });
-    const before = entry.cache;
+    const before = cacheOf(entry);
     log.setFocus(T(1));
     log.render({ cols: COLS });
-    expect(entry.cache).not.toBe(before);
+    expect(cacheOf(entry)).not.toBe(before);
   });
 
   it("invalidates on width change", () => {
@@ -292,10 +294,10 @@ describe("ChatLogComponent — memoized row cache", () => {
     log.setViewportRows(VIEWPORT);
     const entry = log.getEntries()[3] as LogEntry;
     log.render({ cols: COLS });
-    const before = entry.cache;
+    const before = cacheOf(entry);
     log.render({ cols: 40 });
-    expect(entry.cache).not.toBe(before);
-    expect(entry.cache?.key).toContain("40|");
+    expect(cacheOf(entry)).not.toBe(before);
+    expect(cacheOf(entry)?.key).toContain("40|");
   });
 
   it("invalidates when entry content mutates", () => {
@@ -303,18 +305,18 @@ describe("ChatLogComponent — memoized row cache", () => {
     log.setViewportRows(VIEWPORT);
     const entry = log.getEntries()[3] as LogEntry;
     log.render({ cols: COLS });
-    const before = entry.cache;
+    const before = cacheOf(entry);
     entry.lines.push("more content");
     log.render({ cols: COLS });
-    expect(entry.cache).not.toBe(before);
-    const plain = stripAnsi(entry.cache?.rows.join("\n") ?? "");
+    expect(cacheOf(entry)).not.toBe(before);
+    const plain = stripAnsi(cacheOf(entry)?.rows.join("\n") ?? "");
     expect(plain).toContain("more content");
   });
 
   it("scrolling over a warm cache does not evict it", () => {
     const log = new Log(fixture());
     log.setViewportRows(VIEWPORT);
-    const caches = (): (LogEntry["cache"] | undefined)[] => log.getEntries().map((e) => e.cache);
+    const caches = (): unknown[] => log.getEntries().map((e) => cacheOf(e));
     log.render({ cols: COLS });
     const before = caches();
     log.scrollBy(-1, VIEWPORT);
