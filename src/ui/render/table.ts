@@ -207,9 +207,10 @@ export function resolveTableLayout(
   if (colWidths.length === 0) return { expandable: false, widths: [] };
 
   // State 1: natural widths fit → collapsed, not expandable. The table
-  // shrink-wraps to its content — it does not stretch to fill the viewport.
+  // stretches to fill the viewport instead of shrink-wrapping to its
+  // content — a table with long text uses the full available width.
   if (tableRowWidth(colWidths) <= cols) {
-    return { expandable: false, widths: [...colWidths] };
+    return { expandable: false, widths: stretchWidths(colWidths, cols) };
   }
 
   // Collapsed layout: squeeze widest-first, floored at TABLE_MIN_COL,
