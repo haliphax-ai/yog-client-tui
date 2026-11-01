@@ -44,10 +44,14 @@ const COLLAPSE_LINES = 5;
 /** Left-border rune marking assistant prose (themed via ST.assistantBorder). */
 const BORDER_RUNE = "▐";
 
-/** A fully styled entry: its rendered rows and their count. */
+/** A fully styled entry: its rendered rows, their count, and the row offset
+ *  of every table section within the rendered block (0-based, relative to the
+ *  entry's first row). Used by `revealFocus` to scroll a focused table — not
+ *  just the entry that contains it — into the viewport. */
 interface EntryRender {
   rendered: string;
   rows: number;
+  tableOffsets: number[];
 }
 
 /**
@@ -113,6 +117,7 @@ function renderEntry(
     const first = sections[0];
     const last = sections[sections.length - 1];
     const parts: string[] = [];
+    const tableOffsets: number[] = [];
     let tableIndex = 0;
     for (const section of sections) {
       if (section.kind === "prose") {
@@ -130,6 +135,10 @@ function renderEntry(
         // Focus is per-table: only the focused table renders blue; every
         // other table in the entry renders white (unfocused).
         const isFocusedTable = focusedTable && tableIndex === focusedTableIndex;
+        // Record the row offset of this table BEFORE its rendered rows are
+        // appended — that offset is what `revealFocus` needs to scroll the
+        // table (not just the entry that contains it) into the viewport.
+        tableOffsets.push(parts.length);
         const tc = new TableComponent();
         tc.setTable(section.table);
         tc.setMargin({
@@ -154,7 +163,7 @@ function renderEntry(
     if (parts.length === 0) parts.push("");
     if (isUser) {
       const rendered = ST.user.width(cols).render(parts.join("\n"));
-      return { rendered, rows: rendered.split("\n").length };
+      return { rendered, rows: rendered.split("\n").length, tableOffsets };
     }
     // Style each prose row by itself, then glue the border in front — the
     // border never crosses the prose styling and vice versa, and pre-wrapped
@@ -163,7 +172,7 @@ function renderEntry(
     const border = ST.assistantBorder.render(BORDER_RUNE);
     const rows = parts.map((row) => `${border} ${row}`);
     const rendered = rows.join("\n");
-    return { rendered, rows: rows.length };
+    return { rendered, rows: rows.length, tableOffsets };
   }
 
   if (entry.kind === "chunk") {
@@ -183,7 +192,7 @@ function renderEntry(
     const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
       const rendered = style.render([styledHeader, ...body].join("\n"));
-      return { rendered, rows: rendered.split("\n").length };
+      return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
     }
     const shown = body.slice(0, COLLAPSE_LINES);
     const hidden = body.length - shown.length;
@@ -192,7 +201,7 @@ function renderEntry(
         "\n",
       ),
     );
-    return { rendered, rows: rendered.split("\n").length };
+    return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
   }
 
   if (entry.kind === "tool") {
@@ -207,7 +216,11 @@ function renderEntry(
         : [truncateAnsi(entry.lines[0] ?? "", Math.max(1, cols - 2))];
     const style = (focusedTable ? ST.toolFocus : ST.toolPlain).width(cols);
     const rendered = style.render(rows.join("\n"));
-    return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
+    return {
+      rendered: colorizeToolLine(rendered),
+      rows: rendered.split("\n").length,
+      tableOffsets: [],
+    };
   }
 
   if (entry.kind === "notice") {
@@ -225,14 +238,14 @@ function renderEntry(
       detail === ""
         ? head
         : `${head}\x1b[39m· ${ST.noticeDetail.render(truncateAnsi(detail, Math.max(0, budget - displayWidth(label))))}`;
-    return { rendered: body, rows: 1 };
+    return { rendered: body, rows: 1, tableOffsets: [] };
   }
 
   const lines: string[] = [];
   for (const line of entry.lines) lines.push(...wrapText(line, cols));
   if (lines.length === 0) lines.push("");
   const rendered = kindStyle(entry.kind).render(lines.join("\n"));
-  return { rendered, rows: lines.length };
+  return { rendered, rows: lines.length, tableOffsets: [] };
 }
 
 /**
@@ -277,9 +290,20 @@ export function cachedRows(
   }|${tableSignature(lines, entry.tableExpanded, entry.tableScrollX)}`;
   const hit = entry.cache;
   if (hit !== undefined && hit.entry === entry && hit.key === key) return hit.rows;
-  const rows = renderEntry(entry, cols, focused, focusedTableIndex).rendered.split("\n");
-  entry.cache = { entry, key, rows };
+  const rendered = renderEntry(entry, cols, focused, focusedTableIndex);
+  const rows = rendered.rendered.split("\n");
+  entry.cache = { entry, key, rows, tableOffsets: rendered.tableOffsets };
   return rows;
+}
+
+/** Row offsets of every table section inside an entry's rendered block.
+ *  Returns `undefined` for entries that carry no table (or whose cache
+ *  hasn't been populated yet). Used by `revealFocus` to scroll a focused
+ *  table — not just the entry that contains it — into the viewport. */
+export function tableOffsetsOf(entry: LogEntry): number[] | undefined {
+  const hit = entry.cache;
+  if (hit === undefined || hit.entry !== entry) return undefined;
+  return hit.tableOffsets;
 }
 
 /** Number of rows the given entries occupy at `cols` (incl. separators). */

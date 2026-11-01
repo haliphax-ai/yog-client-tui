@@ -26,5 +26,5 @@ export interface LogEntry {
   /** Horizontal scroll offset (in cells) for the entry's expanded tables. */
   tableScrollX?: number;
   /** Memoized rendered rows (internal — do not mutate from outside the render domain). */
-  cache?: { entry: LogEntry; key: string; rows: string[] };
+  cache?: { entry: LogEntry; key: string; rows: string[]; tableOffsets: number[] };
 }
