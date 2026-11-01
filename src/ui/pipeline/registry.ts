@@ -6,7 +6,7 @@
  * run after the stage's core work, each one receiving and returning the
  * current frame so later hooks see earlier hooks' output.
  */
-import { STAGES, type Stage } from "./stages.ts";
+import { type Stage } from "./stages.ts";
 
 /** One stage hook: takes the current frame, returns the frame to continue with. */
 export type StageHook = (frame: string) => string;

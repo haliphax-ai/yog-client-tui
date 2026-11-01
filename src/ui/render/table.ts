@@ -147,11 +147,14 @@ export function capWidths(colWidths: number[], cols: number): number[] {
   const fits = (ws: number[]): boolean => tableRowWidth(ws) <= cols;
   if (fits(colWidths)) return [...colWidths];
   const w = [...colWidths];
+  // Shrink ALL columns above the floor together (not just the widest):
+  // shrinking only the widest column concentrates the reduction there,
+  // leaving narrow columns untouched while one column absorbs the entire
+  // squeeze — the result is an uneven layout. Shrinking every column
+  // above TABLE_MIN_COL by one cell per pass distributes the pain.
   while (!fits(w) && w.some((x) => x > TABLE_MIN_COL)) {
-    let max = 0;
-    for (const x of w) if (x > max) max = x;
     for (let i = 0; i < w.length; i++) {
-      if (w[i] === max) w[i] = max - 1;
+      if (w[i]! > TABLE_MIN_COL) w[i] = w[i]! - 1;
     }
   }
   return w;
@@ -286,20 +289,32 @@ function stretchWidths(
 
   const result = [...natural];
   let remaining = slack;
-  // Round-robin so no single column hogs the slack. Cap at each column's
-  // ceiling width — content, not an arbitrary number.
+  // Distribute slack EQUALLY across growable columns (not round-robin):
+  // each column gets the same share per pass, capped at its ceiling. When
+  // some columns hit their ceiling the remainder is re-split among the
+  // rest, so no single column hogs the space and narrow columns don't
+  // starve wide ones of their fair share.
   while (remaining > 0) {
+    const growable: number[] = [];
+    for (let i = 0; i < result.length; i++) {
+      const c = ceiling[i];
+      const room = c === undefined ? Infinity : c - (result[i] ?? 0);
+      if (room > 0) growable.push(i);
+    }
+    if (growable.length === 0) break;
+    const share = Math.ceil(remaining / growable.length);
     let grew = false;
-    for (let i = 0; i < result.length && remaining > 0; i++) {
-      const room = (ceiling[i] ?? 0) - (result[i] ?? 0);
-      if (room > 0) {
-        const add = Math.min(remaining, room);
+    for (const i of growable) {
+      const c = ceiling[i];
+      const room = c === undefined ? Infinity : c - (result[i] ?? 0);
+      const add = Math.min(share, room, remaining);
+      if (add > 0 && isFinite(add)) {
         result[i] = (result[i] ?? 0) + add;
         remaining -= add;
         grew = true;
       }
     }
-    if (!grew) break; // every column at its ceiling
+    if (!grew) break;
   }
   return result;
 }
@@ -520,7 +535,6 @@ export function renderTable(
           cols,
         );
   const colWidths = w;
-  const numCols = colWidths.length;
 
   // Total table width: │ cell1 │ cell2 │ ... │ — Σ(w+2) per cell block plus
   // the (n+1) border runes (corners + one between every cell pair).

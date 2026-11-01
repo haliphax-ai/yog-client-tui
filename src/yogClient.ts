@@ -407,7 +407,6 @@ export class YogClient {
     let turnId: string | undefined;
     let sawFinished = false;
     let sawAborted = false;
-    let failure: string | undefined;
     let serverError: string | undefined;
 
     /** Apply one envelope to the callbacks; used by stream and recovery. */

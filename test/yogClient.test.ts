@@ -10,7 +10,6 @@ import {
   YogError,
   type TurnEnvelope,
   YogClient,
-  type TranscriptMessage,
 } from "../src/yogClient.ts";
 
 /** Build a fetch-style Response whose body streams the given chunks. */
