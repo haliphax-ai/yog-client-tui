@@ -35,10 +35,8 @@ export const ST = {
   status: newStyle().foreground("#64748b"),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
-  /** Focused table border: pink runes — distinct from the assistant prose
-   *  border (also blue) so the focus indicator is unmistakable on every
-   *  row, including those that carry the ▐ gutter. */
-  tableBorderFocused: newStyle().foreground("#f472b6"),
+  /** Focused table border: blue runes (the focus indicator — not a row bg). */
+  tableBorderFocused: newStyle().foreground("#60a5fa"),
 } as const;
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */
