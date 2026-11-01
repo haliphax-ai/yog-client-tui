@@ -207,10 +207,9 @@ export function resolveTableLayout(
   if (colWidths.length === 0) return { expandable: false, widths: [] };
 
   // State 1: natural widths fit → collapsed, not expandable. The table
-  // stretches to fill the viewport instead of shrink-wrapping to its
-  // content — a table with long text uses the full available width.
+  // shrink-wraps to its content — it does not stretch to fill the viewport.
   if (tableRowWidth(colWidths) <= cols) {
-    return { expandable: false, widths: stretchWidths(colWidths, cols) };
+    return { expandable: false, widths: [...colWidths] };
   }
 
   // Collapsed layout: squeeze widest-first, floored at TABLE_MIN_COL,
@@ -256,16 +255,19 @@ function buildExpanded(
     return stretchWidths(naturalExpanded, cols);
   }
 
-  // Overflow: cap reflowed columns at TABLE_MAX_COL.
-  return natural.map((n, i) =>
+  // Overflow: cap reflowed columns at TABLE_MAX_COL, then stretch to fill
+  // the viewport. The cap is a starting point, not a hard ceiling —
+  // slack goes to columns that have room up to their natural width.
+  const capped = natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );
+  return stretchWidths(capped, cols);
 }
 
 /** Stretch column widths to fill `cols`, distributing slack evenly across
- *  columns up to their natural width. A reflowed table uses the full
- *  viewport width instead of stopping short. Columns never exceed their
- *  natural width — the cap is content, not an arbitrary ceiling. */
+ *  columns up to `TABLE_MAX_COL` (30). A reflowed table uses the full
+ *  viewport width instead of stopping short. The cap is a ceiling, not
+ *  a target — columns already at or above it are skipped. */
 function stretchWidths(natural: readonly number[], cols: number): number[] {
   const current = tableRowWidth(natural);
   const slack = cols - current;
@@ -273,7 +275,8 @@ function stretchWidths(natural: readonly number[], cols: number): number[] {
 
   const result = [...natural];
   let remaining = slack;
-  // Round-robin so no single column hogs the slack.
+  // Round-robin so no single column hogs the slack. Cap at each column's
+  // natural width — the cap is content, not an arbitrary ceiling.
   while (remaining > 0) {
     let grew = false;
     for (let i = 0; i < result.length && remaining > 0; i++) {
@@ -520,18 +523,29 @@ export function renderTable(
   // always white regardless of stale SGR state from a previously-focused
   // table rendered above. Bare runes would inherit the terminal's
   // current fg, which may still be blue.
-  const whiteRune = (rune: string): string => `\x1b[38;2;255;255;255m${rune}`;
-  const border = focused ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "") : whiteRune("│");
-  const hBorder = focused ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "") : whiteRune("─");
+  const whiteRune = (rune: string): string =>
+    ST.tableBorderUnfocused.render(rune).replace(/\x1b\[0?m$/, "");
+  const border = focused
+    ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "")
+    : whiteRune("│");
+  const hBorder = focused
+    ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "")
+    : whiteRune("─");
   const tl = focused ? ST.tableBorderFocused.render("┌").replace(/\x1b\[0?m$/, "") : whiteRune("┌");
   const tr = focused ? ST.tableBorderFocused.render("┐").replace(/\x1b\[0?m$/, "") : whiteRune("┐");
   const ml = focused ? ST.tableBorderFocused.render("├").replace(/\x1b\[0?m$/, "") : whiteRune("├");
   const mr = focused ? ST.tableBorderFocused.render("┤").replace(/\x1b\[0?m$/, "") : whiteRune("┤");
   const bl = focused ? ST.tableBorderFocused.render("└").replace(/\x1b\[0?m$/, "") : whiteRune("└");
   const br = focused ? ST.tableBorderFocused.render("┘").replace(/\x1b\[0?m$/, "") : whiteRune("┘");
-  const cross = focused ? ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "") : whiteRune("┼");
-  const tCross = focused ? ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "") : whiteRune("┬");
-  const bCross = focused ? ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "") : whiteRune("┴");
+  const cross = focused
+    ? ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "")
+    : whiteRune("┼");
+  const tCross = focused
+    ? ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "")
+    : whiteRune("┬");
+  const bCross = focused
+    ? ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "")
+    : whiteRune("┴");
 
   // Pad ONE RENDERED physical line of a cell to `width` display cells,
   // honoring the cell's alignment on EVERY line (GFM centers blocks, not

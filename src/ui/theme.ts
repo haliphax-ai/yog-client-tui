@@ -37,6 +37,10 @@ export const ST = {
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Focused table border: blue runes (the focus indicator — not a row bg). */
   tableBorderFocused: newStyle().foreground("#60a5fa"),
+  /** Unfocused table border: plain white runes so the border is always
+   *  visible regardless of stale SGR state from a previously-focused
+   *  table rendered above. */
+  tableBorderUnfocused: newStyle().foreground("#ffffff"),
 } as const;
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */
