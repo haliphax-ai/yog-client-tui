@@ -19,7 +19,7 @@ import {
   moveFocus,
   tableCount,
 } from "../../core/focus.ts";
-import { cachedRows, totalRows } from "../render/index.ts";
+import { cachedRows, tableOffsetsOf, totalRows } from "../render/index.ts";
 import { parseTable, splitTableSections } from "../render/table.ts";
 import type { LogEntry } from "../render/types.ts";
 
@@ -118,6 +118,31 @@ export abstract class ChatLogComponent extends ViewportComponent {
     if (entry < 0 || entry >= this.entries.length) return;
     const rows = Math.max(1, viewportRows);
     const { top, height } = entryBounds(this.entries, this.cols, entry);
+
+    // When a table inside the entry is focused (not the entry itself),
+    // scroll the TABLE into view — not just the entry. An entry can be
+    // taller than the viewport with the table at the bottom, and scrolling
+    // only the entry top leaves the table off-screen.
+    if (this.focusTarget.table >= 0) {
+      const offsets = tableOffsetsOf(this.entries[entry] as LogEntry);
+      if (offsets !== undefined && this.focusTarget.table < offsets.length) {
+        const tableTop = top + (offsets[this.focusTarget.table] ?? 0);
+        const tableHeight = Math.max(
+          1,
+          (offsets[this.focusTarget.table + 1] ?? height) - (offsets[this.focusTarget.table] ?? 0),
+        );
+        if (tableTop < this.scrollOffset) {
+          this.follow = false;
+          this.scrollOffset = tableTop;
+        } else if (tableTop + tableHeight > this.scrollOffset + rows) {
+          this.follow = false;
+          this.scrollOffset = Math.min(tableTop, tableTop + tableHeight - rows);
+        }
+        return;
+      }
+    }
+
+    // Entry-level focus (no table): scroll the whole entry into view.
     if (top < this.scrollOffset) {
       this.follow = false;
       this.scrollOffset = top;
