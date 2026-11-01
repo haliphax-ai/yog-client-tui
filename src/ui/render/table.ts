@@ -253,7 +253,8 @@ function buildExpanded(
     (collapsed[i] ?? 0) < n ? n : (collapsed[i] ?? 0),
   );
   if (tableRowWidth(naturalExpanded) <= cols) {
-    // Fits — stretch to fill the viewport instead of shrink-wrapping.
+    // Fits — stretch to fill the viewport (a reflowed table uses the full
+    // width; the cap is a ceiling, not a target).
     return stretchWidths(naturalExpanded, cols);
   }
 
