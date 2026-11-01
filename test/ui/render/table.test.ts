@@ -479,7 +479,7 @@ describe("renderTable — styled output", () => {
     const rows = renderTable(t, 80, false, 0);
     // top border segment spans width + 2 = 11 dashes (not 15)
     // (strip ANSI — the white fg now wraps each dash)
-    expect(stripAnsi(rows[1])).toContain("─".repeat(11));
+    expect(stripAnsi(rows[1]!)).toContain("─".repeat(11));
     // padding matches: content line ends flush with the border
     expect(stripAnsi(rows[4]!)).toContain("│ Pour Over │");
   });
