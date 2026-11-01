@@ -43,7 +43,7 @@
  *                    leaves focus mode)
  */
 import { loadConfig, persistSessionKey, resolveBaseUrl } from "./config.ts";
-import { FOCUS_NONE } from "./core/focus.ts";
+import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { getState, setState } from "./core/store.ts";
 import { toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
@@ -416,7 +416,7 @@ async function run(argv: readonly string[]): Promise<void> {
       ...seedEntries,
     ],
     model: config.model,
-    focusIndex: FOCUS_NONE,
+    focusTarget: FOCUS_NONE_TARGET,
   });
 
   // 4. Take over the terminal and draw the first frame.

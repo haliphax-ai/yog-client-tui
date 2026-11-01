@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { isProseTable, moveFocus } from "../../../src/core/focus.ts";
+import { FOCUS_NONE_TARGET, isProseTable, moveFocus, tableCount } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
 import { cachedRows } from "../../../src/ui/render/entry.ts";
 import type { LogEntry } from "../../../src/ui/render/types.ts";
@@ -8,6 +8,7 @@ import {
   parseTable,
   renderTable,
   resolveTableLayout,
+  splitTableSections,
   TABLE_MAX_COL,
   tableRowWidth,
   tableScrollChar,
@@ -172,10 +173,34 @@ describe("isProseTable + focus ring", () => {
 
   it("moveFocus includes table-bearing prose entries in the ring", () => {
     const entries = fixture();
-    // Ring: chunk (0), table prose (1). Plain prose (2) is skipped.
-    expect(moveFocus(entries, FOCUS_NONE, 1, (e) => isProseTable(e, parseTable))).toBe(0);
-    expect(moveFocus(entries, 0, 1, (e) => isProseTable(e, parseTable))).toBe(1);
-    expect(moveFocus(entries, 1, 1, (e) => isProseTable(e, parseTable))).toBe(-1); // wrap
+    // Ring: chunk (0,-1), table prose (1,0). Plain prose (2) is skipped.
+    expect(
+      moveFocus(
+        entries,
+        FOCUS_NONE_TARGET,
+        1,
+        (e) => isProseTable(e, parseTable),
+        (e) => tableCount(e, splitTableSections),
+      ),
+    ).toEqual({ entry: 0, table: -1 });
+    expect(
+      moveFocus(
+        entries,
+        { entry: 0, table: -1 },
+        1,
+        (e) => isProseTable(e, parseTable),
+        (e) => tableCount(e, splitTableSections),
+      ),
+    ).toEqual({ entry: 1, table: 0 });
+    expect(
+      moveFocus(
+        entries,
+        { entry: 1, table: 0 },
+        1,
+        (e) => isProseTable(e, parseTable),
+        (e) => tableCount(e, splitTableSections),
+      ),
+    ).toEqual(FOCUS_NONE_TARGET); // wrap
   });
 });
 
@@ -189,10 +214,10 @@ describe("ChatViewport — table focus interactions", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(0); // chunk first
+    expect(getState().focusTarget).toEqual({ entry: 0, table: -1 }); // chunk first
 
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(1); // table prose
+    expect(getState().focusTarget).toEqual({ entry: 1, table: 0 }); // table prose
 
     // Not expanded yet: Left/Right are inert (bubble).
     expect(viewport.handleKey("\x1b[C")).toBe("unhandled");
@@ -246,7 +271,7 @@ describe("ChatViewport — table focus interactions", () => {
     viewport.setViewportRows(24);
     viewport.cycleFocus(1);
     // No focusable entries → ring stays at none; Enter falls through.
-    expect(getState().focusIndex).toBe(FOCUS_NONE);
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
     expect(viewport.handleChar("\r")).toBe("unhandled");
   });
 
@@ -259,14 +284,14 @@ describe("ChatViewport — table focus interactions", () => {
     viewport.setViewportRows(24);
     viewport.render({ cols: 40 });
     viewport.cycleFocus(1); // → the table entry (index 0)
-    expect(getState().focusIndex).toBe(0);
+    expect(getState().focusTarget).toEqual({ entry: 0, table: 0 });
     viewport.handleChar("\r"); // expand
     expect(viewport.handleKey("\x1b[C")).toBe("handled");
     const scrollX = getState().entries[0]!.tableScrollX ?? 0;
     expect(scrollX).toBe(1);
     // Rendered rows stay within cell bounds: the border slice never shreds
     // the ✅ into a stray half-width artifact at this width.
-    const rows = cachedRows(getState().entries[0]!, 40, true);
+    const rows = cachedRows(getState().entries[0]!, 40, true, 0);
     const plain = stripAnsi(rows.join("\n"));
     expect(plain).toContain("✅");
   });

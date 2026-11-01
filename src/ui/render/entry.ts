@@ -91,7 +91,12 @@ function flattenMarkdown(rows: string[]): string[] {
  * headers show `↓` when expanded (bodies <= COLLAPSE_LINES are always
  * expanded), `→` when collapsed. Other rows wrap plain.
  */
-function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRender {
+function renderEntry(
+  entry: LogEntry,
+  cols: number,
+  focusedTable = false,
+  focusedTableIndex = -1,
+): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
     const isUser = entry.kind === "user";
     const text = entry.lines.join("\n");
@@ -110,6 +115,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
     const first = sections[0];
     const last = sections[sections.length - 1];
     const parts: string[] = [];
+    let tableIndex = 0;
     for (const section of sections) {
       if (section.kind === "prose") {
         const md = renderMarkdown(section.text, bodyW);
@@ -123,6 +129,9 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
         // the shrink-to-fit widths while focused-collapsed, and render at
         // min(natural, 30) once the entry's tableExpanded flag is set. The
         // expanded row may exceed `cols` — horizontal scroll reveals it.
+        // Focus is per-table: only the focused table renders blue; every
+        // other table in the entry renders white (unfocused).
+        const isFocusedTable = focusedTable && tableIndex === focusedTableIndex;
         const tc = new TableComponent();
         tc.setTable(section.table);
         tc.setMargin({
@@ -135,12 +144,13 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
           entry.tableExpanded === true,
         );
         tc.setFitWidths(layout.widths);
-        tc.onFocus(focused);
+        tc.onFocus(isFocusedTable);
         if (entry.tableScrollX !== undefined && layout.expandable) {
           const totalW = tableRowWidth(layout.widths);
           tc.scrollX = Math.max(0, Math.min(entry.tableScrollX, Math.max(0, totalW - bodyW)));
         }
         parts.push(...tc.render({ cols: bodyW }));
+        tableIndex++;
       }
     }
     if (parts.length === 0) parts.push("");
@@ -172,7 +182,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
         ? CHUNK_HEADER.ok
         : CHUNK_HEADER.fail;
     const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
-    const style = (focused ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
+    const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
       const rendered = style.render([styledHeader, ...body].join("\n"));
       return { rendered, rows: rendered.split("\n").length };
@@ -197,7 +207,7 @@ function renderEntry(entry: LogEntry, cols: number, focused = false): EntryRende
       entry.expanded && entry.full !== undefined
         ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
         : [truncateAnsi(entry.lines[0] ?? "", Math.max(1, cols - 2))];
-    const style = (focused ? ST.toolFocus : ST.toolPlain).width(cols);
+    const style = (focusedTable ? ST.toolFocus : ST.toolPlain).width(cols);
     const rendered = style.render(rows.join("\n"));
     return { rendered: colorizeToolLine(rendered), rows: rendered.split("\n").length };
   }
@@ -253,18 +263,23 @@ function tableSignature(
  * Entries only ever grow (in place for the same signature), so a matching
  * key means a byte-identical render — safe to reuse.
  */
-export function cachedRows(entry: LogEntry, cols: number, focused = false): string[] {
+export function cachedRows(
+  entry: LogEntry,
+  cols: number,
+  focused = false,
+  focusedTableIndex = -1,
+): string[] {
   const lines = entry.lines;
   // O(1) content signature: line count + first/last line lengths cover every
   // mutation this codebase performs (append rows, grow last row, amend label).
-  const key = `${cols}|${focused ? 1 : 0}|${entry.collapsed ? 1 : 0}|${
+  const key = `${cols}|${focused ? 1 : 0}|${focusedTableIndex}|${entry.collapsed ? 1 : 0}|${
     entry.expanded ? 1 : 0
   }|${lines.length}|${lines[0]?.length ?? 0}|${lines[lines.length - 1]?.length ?? 0}|${
     entry.label ?? ""
   }|${tableSignature(lines, entry.tableExpanded, entry.tableScrollX)}`;
   const hit = entry.cache;
   if (hit !== undefined && hit.entry === entry && hit.key === key) return hit.rows;
-  const rows = renderEntry(entry, cols, focused).rendered.split("\n");
+  const rows = renderEntry(entry, cols, focused, focusedTableIndex).rendered.split("\n");
   entry.cache = { entry, key, rows };
   return rows;
 }

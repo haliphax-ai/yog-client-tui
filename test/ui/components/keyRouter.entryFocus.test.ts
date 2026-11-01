@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
-import { FOCUS_NONE } from "../../../src/core/focus.ts";
+import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
 import { routeChar, routeKey, type Globals } from "../../../src/ui/components/keyRouter.ts";
 import type { Component } from "../../../src/ui/components/Component.ts";
@@ -43,42 +43,42 @@ function entryFocusGlobals(viewport: ChatViewport): Globals {
 describe("Tab / Shift-Tab → entry focus ring wiring", () => {
   beforeEach(() => {
     resetForTests();
-    setState({ entries: fixture(), focusIndex: FOCUS_NONE });
+    setState({ entries: fixture(), focusTarget: FOCUS_NONE_TARGET });
   });
 
-  it("Tab (routeChar) walks focusIndex forward through the store with wrap-through-none", () => {
+  it("Tab (routeChar) walks focusTarget forward through the store with wrap-through-none", () => {
     const viewport = new ChatViewport();
     const chain: readonly Component[] = [viewport];
     const globals = entryFocusGlobals(viewport);
 
     expect(routeChar(chain, "\t", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(1); // chunk
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 }); // chunk
 
     expect(routeChar(chain, "\t", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(2); // tool
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // tool
 
     expect(routeChar(chain, "\t", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(FOCUS_NONE); // wrap through none
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET); // wrap through none
 
     expect(routeChar(chain, "\t", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(1); // re-enters from the start
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 }); // re-enters from the start
   });
 
-  it("Shift-Tab (routeKey) walks focusIndex backward through the store", () => {
+  it("Shift-Tab (routeKey) walks focusTarget backward through the store", () => {
     const viewport = new ChatViewport();
     const chain: readonly Component[] = [viewport];
     const globals = entryFocusGlobals(viewport);
 
     expect(routeKey(chain, "\x1b[Z", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(2); // enters at the last focusable
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // enters at the last focusable
 
     expect(routeKey(chain, "\x1b[Z", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(1);
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 });
 
     expect(routeKey(chain, "\x1b[Z", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(FOCUS_NONE);
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
 
     expect(routeKey(chain, "\x1b[Z", globals)).toBe(true);
-    expect(getState().focusIndex).toBe(2); // re-enters from the end
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // re-enters from the end
   });
 });

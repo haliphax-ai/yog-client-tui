@@ -14,7 +14,7 @@
  *     finally the global bindings.
  */
 import { ChatLogComponent } from "./ChatLogComponent.ts";
-import { FOCUS_NONE, isProseTable } from "../../core/focus.ts";
+import { type FocusTarget, isProseTable } from "../../core/focus.ts";
 import { getState, setState } from "../../core/store.ts";
 import {
   isTableScrollSeq,
@@ -56,7 +56,7 @@ export class ChatViewport extends ChatLogComponent {
     this.entries = state.entries;
     this.scrollOffset = state.scrollOffset;
     this.follow = state.follow;
-    this.focusIndex = state.focusIndex;
+    this.focusTarget = state.focusTarget;
   }
 
   /** Push mutations back to the store (notifies the render scheduler). */
@@ -65,7 +65,7 @@ export class ChatViewport extends ChatLogComponent {
       entries: this.entries,
       scrollOffset: this.scrollOffset,
       follow: this.follow,
-      focusIndex: this.focusIndex,
+      focusTarget: this.focusTarget,
     });
   }
 
@@ -94,8 +94,8 @@ export class ChatViewport extends ChatLogComponent {
     return rows;
   }
 
-  override setFocus(index: number): void {
-    super.setFocus(index);
+  override setFocus(target: FocusTarget): void {
+    super.setFocus(target);
     this.commit();
   }
 
@@ -122,8 +122,8 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   /**
-   * Horizontal scroll for the focused table entry: Left/Right (via
-   * `tableScrollKey`) and h/l. The focused entry must be `table` kind AND
+   * Horizontal scroll for the focused table: Left/Right (via
+   * `tableScrollKey`) and h/l. The focused entry must carry a table AND be
    * tableExpanded — collapsed tables render inside the viewport and have
    * nothing to scroll. Unclaimed keys bubble to the next responder.
    */
@@ -131,7 +131,7 @@ export class ChatViewport extends ChatLogComponent {
    *  table. Reused by both key handlers. */
   private focusedExpandedTable(): LogEntry | null {
     this.syncFromStore();
-    const entry = this.entries[this.getFocusIndex()];
+    const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return null;
     if (entry.kind !== "user" && entry.kind !== "assistant") return null;
     if (entry.tableExpanded !== true) return null;
@@ -166,7 +166,7 @@ export class ChatViewport extends ChatLogComponent {
     if (ch === "\r" || ch === "\n") {
       this.syncFromStore();
       // No focused entry (or a non-toggleable one) → bubble to submit.
-      if (this.getFocusIndex() === FOCUS_NONE) return "unhandled";
+      if (this.focusTarget.entry < 0) return "unhandled";
       if (!this.toggleFocused()) return "unhandled";
       this.commit(); // entries mutated in place — notify subscribers
       this.reveal();
@@ -176,7 +176,7 @@ export class ChatViewport extends ChatLogComponent {
       // Esc: leave entry focus mode; nothing focused → bubble to the global
       // abort binding (the turn-abort Esc path).
       this.syncFromStore();
-      if (this.getFocusIndex() !== FOCUS_NONE) {
+      if (this.focusTarget.entry >= 0) {
         this.clearFocus();
         return "handled";
       }
@@ -185,7 +185,7 @@ export class ChatViewport extends ChatLogComponent {
     return "unhandled";
   }
 
-  /** Tab / Shift-Tab: move the entry focus ring and keep the target visible. */
+  /** Tab / Shift-Tab: move the focus ring and keep the target visible. */
   cycleFocus(dir: 1 | -1): void {
     this.syncFromStore();
     this.moveFocus(dir); // commits the new ring position

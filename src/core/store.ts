@@ -5,6 +5,7 @@
  * a type-only import of the log entry shape.
  */
 import type { LogEntry } from "../ui/render/types.ts";
+import { FOCUS_NONE_TARGET, type FocusTarget } from "./focus.ts";
 
 /** Application UI state held by the store. */
 export interface UiState {
@@ -19,8 +20,8 @@ export interface UiState {
   connection: "connecting" | "connected" | "error";
   model: string;
   statusNote: string;
-  /** Focused log entry (-1 = none); Enter toggles chunk collapse. */
-  focusIndex: number;
+  /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
+  focusTarget: FocusTarget;
 }
 
 let state: UiState = initialState();
@@ -40,7 +41,7 @@ function initialState(): UiState {
     connection: "connected",
     model: "",
     statusNote: "",
-    focusIndex: -1,
+    focusTarget: FOCUS_NONE_TARGET,
   };
 }
 
