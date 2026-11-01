@@ -308,10 +308,10 @@ describe("renderTable — styled output", () => {
     expect(focused.join("")).toContain("─");
     expect(unfocused.join("")).toContain("│");
     expect(unfocused.join("")).toContain("─");
-    // Focused border carries the pink fg (ST.tableBorderFocused = #f472b6)
-    expect(focused.join("")).toContain("38;2;244;114;182");
-    // Unfocused border has no pink tint
-    expect(unfocused.join("")).not.toContain("38;2;244;114;182");
+    // Focused border carries the blue fg (ST.tableBorderFocused = #60a5fa)
+    expect(focused.join("")).toContain("38;2;96;165;250");
+    // Unfocused border has no blue tint
+    expect(unfocused.join("")).not.toContain("38;2;96;165;250");
     // Corner runes are the same glyph in both modes (strip ANSI — the rune
     // is now wrapped in an SGR sequence when focused)
     expect(stripAnsi(focused[1]!).charAt(0)).toBe("┌");
@@ -435,7 +435,7 @@ describe("renderTable — styled output", () => {
     // 0 margin, 1 top, 2 header, 3 sep, 4 data0, 5 divider, 6 data1,
     // 7 bottom, 8 margin
     expect(rows.length).toBe(9);
-    expect(rows[5]).toMatch(/^├─+┤$/);
+    expect(stripAnsi(rows[5]!)).toMatch(/^├─+┤$/);
   });
 
   it("never stripes dividers (zebra is for content rows only)", () => {
@@ -452,7 +452,7 @@ describe("renderTable — styled output", () => {
     expect(rows[6]).not.toMatch(zebra);
     expect(rows[8]).toMatch(zebra);
     for (const idx of [5, 7]) {
-      expect(rows[idx]).toMatch(/^├─+┤$/);
+      expect(stripAnsi(rows[idx]!)).toMatch(/^├─+┤$/);
       expect(rows[idx]).not.toMatch(zebra);
     }
   });
@@ -478,7 +478,8 @@ describe("renderTable — styled output", () => {
     expect(t.columns[0]!.width).toBe(9);
     const rows = renderTable(t, 80, false, 0);
     // top border segment spans width + 2 = 11 dashes (not 15)
-    expect(rows[1]).toContain("─".repeat(11));
+    // (strip ANSI — the white fg now wraps each dash)
+    expect(stripAnsi(rows[1])).toContain("─".repeat(11));
     // padding matches: content line ends flush with the border
     expect(stripAnsi(rows[4]!)).toContain("│ Pour Over │");
   });

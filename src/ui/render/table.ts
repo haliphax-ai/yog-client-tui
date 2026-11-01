@@ -482,17 +482,23 @@ export function renderTable(
   // a reset inside a zebra-striped row would punch a hole in the zebra
   // background (the row is wrapped in ST.tableZebra.render() below, and
   // each border rune's \x1b[0m would override the bg it just set).
-  const border = focused ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "") : "│";
-  const hBorder = focused ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "") : "─";
-  const tl = focused ? ST.tableBorderFocused.render("┌").replace(/\x1b\[0?m$/, "") : "┌";
-  const tr = focused ? ST.tableBorderFocused.render("┐").replace(/\x1b\[0?m$/, "") : "┐";
-  const ml = focused ? ST.tableBorderFocused.render("├").replace(/\x1b\[0?m$/, "") : "├";
-  const mr = focused ? ST.tableBorderFocused.render("┤").replace(/\x1b\[0?m$/, "") : "┤";
-  const bl = focused ? ST.tableBorderFocused.render("└").replace(/\x1b\[0?m$/, "") : "└";
-  const br = focused ? ST.tableBorderFocused.render("┘").replace(/\x1b\[0?m$/, "") : "┘";
-  const cross = focused ? ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "") : "┼";
-  const tCross = focused ? ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "") : "┬";
-  const bCross = focused ? ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "") : "┴";
+  // Unfocused border runes carry an explicit white fg (#ffffff) so the
+  // border is visible against any background — bare runes inherit the
+  // terminal default, which may not be white. The trailing reset is
+  // stripped (same as the focused path) so the fg doesn't punch a hole
+  // in the zebra background on data rows.
+  const whiteRune = (rune: string): string => `\x1b[38;2;255;255;255m${rune}`;
+  const border = focused ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "") : whiteRune("│");
+  const hBorder = focused ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "") : whiteRune("─");
+  const tl = focused ? ST.tableBorderFocused.render("┌").replace(/\x1b\[0?m$/, "") : whiteRune("┌");
+  const tr = focused ? ST.tableBorderFocused.render("┐").replace(/\x1b\[0?m$/, "") : whiteRune("┐");
+  const ml = focused ? ST.tableBorderFocused.render("├").replace(/\x1b\[0?m$/, "") : whiteRune("├");
+  const mr = focused ? ST.tableBorderFocused.render("┤").replace(/\x1b\[0?m$/, "") : whiteRune("┤");
+  const bl = focused ? ST.tableBorderFocused.render("└").replace(/\x1b\[0?m$/, "") : whiteRune("└");
+  const br = focused ? ST.tableBorderFocused.render("┘").replace(/\x1b\[0?m$/, "") : whiteRune("┘");
+  const cross = focused ? ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "") : whiteRune("┼");
+  const tCross = focused ? ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "") : whiteRune("┬");
+  const bCross = focused ? ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "") : whiteRune("┴");
 
   // Pad ONE RENDERED physical line of a cell to `width` display cells,
   // honoring the cell's alignment on EVERY line (GFM centers blocks, not
