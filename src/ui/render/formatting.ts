@@ -1,33 +1,12 @@
 /**
- * Entry-level formatting helpers: tool-call argument rendering and tool
- * result status/preview.
+ * Entry-level formatting helpers: tool-result body rows.
+ *
+ * The tool-call argument formatting lives in `core/toolFormat.ts` — the
+ * presenter builds the call line from it, and the domain must not depend
+ * on the presentation layer.
  */
-import { highlightBlock } from "./entry.ts";
+import { highlightBlock } from "./markdown.ts";
 import { wrapText } from "../../util/ansi.ts";
-
-/**
- * Render tool-call arguments as JSON. `compact` (default): whitespace-
- * collapsed, capped to `max` cells with an ellipsis — the inline call line.
- * `pretty`: 2-space indented, uncapped — the expanded view.
- */
-export function prettyArgs(
-  value: unknown,
-  max: number,
-  mode: "compact" | "pretty" = "compact",
-): string {
-  let text: string;
-  try {
-    if (typeof value === "string") text = value;
-    else
-      text = JSON.stringify(value, undefined, mode === "pretty" ? 2 : undefined) ?? String(value);
-  } catch {
-    text = String(value);
-  }
-  if (mode === "pretty") return text;
-  const clean = text.replace(/\s+/g, " ").trim();
-  const limit = Math.max(12, max);
-  return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
-}
 
 /**
  * Body rows for a tool-result block. The bash tool's shape (stdout/stderr)
@@ -67,15 +46,6 @@ function previewBody(result: unknown, cols: number): string[] | undefined {
   const plain = text.split("\n");
   if (plain.length > CAP) return plain.slice(0, CAP).flatMap((line) => wrapText(line, target));
   return plain.flatMap((line) => wrapText(line, target));
-}
-
-/** Exit/runtime status for a tool result: `exit 0 · 42ms` ("" if none). */
-export function resultStatus(result: unknown): string {
-  if (result === null || typeof result !== "object" || Array.isArray(result)) return "";
-  const obj = result as Record<string, unknown>;
-  const exit = typeof obj["exitCode"] === "number" ? `exit ${obj["exitCode"]}` : "";
-  const runtime = typeof obj["runtimeMs"] === "number" ? ` · ${obj["runtimeMs"]}ms` : "";
-  return exit || runtime ? `${exit}${runtime}` : "";
 }
 
 /** Body rows for a tool-result block ([] when there is nothing to show). */

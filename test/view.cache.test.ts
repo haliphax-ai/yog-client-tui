@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cachedRows, type LogEntry } from "../src/ui/render/index.ts";
+import { cachedRows } from "../src/ui/render/index.ts";
+import type { LogEntry } from "../src/core/entries.ts";
 import { stripAnsi } from "../src/util/ansi.ts";
 
 /** Fresh chunk entry (8 body rows so it is collapsible). */
@@ -43,8 +44,7 @@ describe("cachedRows — signature hits", () => {
     expect(cachedRows(entry, 10)).not.toBe(wide); // width change = new render
     // back to the original signature: byte-identical, even if the slot moved
     expect(cachedRows(entry, 40).join("\n")).toBe(wide.join("\n"));
-    // focus flip = new render (content only differs for styles that use focus;
-    // see the chunk focus test below for the byte-level difference)
+    // focus flip = new render (content only differs for styles that use focus)
     const focused = cachedRows(entry, 40, true);
     const unfocused = cachedRows(entry, 40, false);
     expect(focused).not.toBe(unfocused);
@@ -142,6 +142,28 @@ describe("cachedRows — mutation paths force a new render", () => {
     expect(narrow).not.toBe(wide);
     expect(narrow.length).toBeGreaterThan(wide.length);
     expect(narrow.join("\n")).not.toBe(wide.join("\n"));
+  });
+
+  it("a table's expansion re-renders the entry", () => {
+    const entry: LogEntry = {
+      kind: "assistant",
+      lines: ["| A |", "| --- |", "| a |"],
+    };
+    const before = cachedRows(entry, 40);
+    entry.tables = { 0: { scrollX: 0, expanded: true } };
+    const after = cachedRows(entry, 40);
+    expect(after).not.toBe(before);
+  });
+
+  it("a table's scroll offset re-renders the entry", () => {
+    const entry: LogEntry = {
+      kind: "assistant",
+      lines: ["| A |", "| --- |", "| a |"],
+    };
+    const before = cachedRows(entry, 40);
+    entry.tables = { 0: { scrollX: 3, expanded: true } };
+    const after = cachedRows(entry, 40);
+    expect(after).not.toBe(before);
   });
 });
 

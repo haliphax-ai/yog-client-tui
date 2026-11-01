@@ -9,7 +9,7 @@ import {
 } from "../../src/core/turnPresenter.ts";
 import { toTranscriptEntries } from "../../src/core/transcript.ts";
 import type { TranscriptMessage } from "../../src/yogClient.ts";
-import type { LogEntry } from "../../src/ui/render/index.ts";
+import type { LogEntry } from "../../src/core/entries.ts";
 import { parseToolArgs } from "../../src/yogClient.ts";
 
 /** Column width used across these tests. */
@@ -67,18 +67,19 @@ describe("annotateToolCall", () => {
 
 describe("toolResultChunk", () => {
   it("renders a bash-shaped result as text with the exit status", () => {
-    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 42, stdout: "out\n" }, COLS);
+    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 42, stdout: "out\n" });
     expect(chunk.kind).toBe("chunk");
     expect(chunk.collapsed).toBe(true);
     expect(chunk.lines[0]).toBe("bash → exit 0 · 42ms");
-    expect(chunk.lines).toContain("out");
+    // The body is the RAW result — the renderer expands it to display rows.
+    expect(chunk.result).toEqual({ exitCode: 0, runtimeMs: 42, stdout: "out\n" });
   });
 
-  it("renders a status-only result with its highlighted JSON body", () => {
-    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 1 }, COLS);
+  it("renders a status-only result with its raw payload", () => {
+    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 1 });
     expect(chunk.lines[0]).toBe("bash → exit 0 · 1ms");
-    // Same as the live path: the JSON body renders as a styled block.
-    expect(chunk.lines.length).toBeGreaterThan(1);
+    // The body is the raw result; the renderer turns it into rows.
+    expect(chunk.result).toEqual({ exitCode: 0, runtimeMs: 1 });
   });
 });
 
@@ -241,9 +242,10 @@ describe("transcriptLogEntries", () => {
     const call = out[1] as LogEntry & { label?: string };
     expect(call.label).toBe("⚙️ bash ✅");
     expect(call.full).toBe('{\n  "cmd": "ls"\n}');
-    const chunk = out[2] as LogEntry & { lines: string[] };
+    const chunk = out[2] as LogEntry & { lines: string[]; result?: unknown };
     expect(chunk.lines[0]).toBe("bash → exit 0");
-    expect(chunk.lines).toContain("out");
+    // The body is the RAW result — the renderer expands it to rows.
+    expect(chunk.result).toEqual({ exitCode: 0, stdout: "out\n" });
   });
 
   it("pairs multiple calls with their results by toolCallId", () => {

@@ -9,8 +9,9 @@
  * transcript rehydration, so restored rows render exactly like live ones.
  */
 import { parseToolArgs, type TurnEvents } from "../yogClient.ts";
-import { prettyArgs, resultPreview, resultStatus, type LogEntry } from "../ui/render/index.ts";
+import { prettyArgs, resultStatus } from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
+import type { LogEntry } from "./entries.ts";
 import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
 
 /** Anything that can be pushed to the log and schedules a redraw. */
@@ -99,7 +100,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       // has no stdout/stderr/exit data to show: the ❌ + error already on
       // the call line is the whole failure display.
       if (ok && result !== undefined && result !== null) {
-        host.entries.push(toolResultChunk(name, result, host.width()));
+        host.entries.push(toolResultChunk(name, result));
       }
       host.requestRender();
     },
@@ -107,7 +108,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       // The server's canonical reason restates the event ("turn aborted by
       // operator"); keep only the suffix that isn't already on the label.
       const trimmed = reason.replace(/^turn aborted\s*—?\s*/, "");
-      host.append("notice", ["⏹️ turn aborted", trimmed]);
+      host.append("notice", [`⏹️ turn aborted`, trimmed]);
     },
     onError: (code, message) => {
       host.append("error", [`${code}: ${message}`]);
@@ -171,19 +172,19 @@ export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): v
 }
 
 /**
- * Build the collapsible tool-output chunk for a result: the header carries
- * the tool name and status (`exit 0 · 42ms` when present); the body is []
- * for status-only results — short blocks render full height, long ones stay
- * collapsible. Shared by the live turn path and rehydration.
+ * Build the collapsible tool-output chunk for a result: the header carries the
+ * tool name and status (`exit 0 · 42ms` when present); the body is the RAW
+ * result — the renderer expands it to display rows at the current width, so
+ * the domain never formats it. Shared by the live turn path and rehydration.
  */
-export function toolResultChunk(name: string, result: unknown, cols: number): LogEntry {
-  const body = resultPreview(result, cols);
+export function toolResultChunk(name: string, result: unknown): LogEntry {
   const status = resultStatus(result);
   const arrow = status ? ` → ${status}` : " →";
   return {
     kind: "chunk",
-    lines: [`${name || "tool"}${arrow}`, ...body],
+    lines: [`${name || "tool"}${arrow}`],
     collapsed: true,
+    result,
   };
 }
 
@@ -225,7 +226,7 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         const decoded = decodeToolResult(next.raw);
         annotateToolCall(call.entry, decoded.ok, decoded.error);
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-          out.push(toolResultChunk(call.name, decoded.value, cols));
+          out.push(toolResultChunk(call.name, decoded.value));
         }
         i += 1;
       }
@@ -237,7 +238,7 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
     } else if (e.role === "tool") {
       // Orphan result row (its call row predates the transcript). Success:
       // standalone status line + output chunk. Failure: nothing beyond the
-      // error itself to show — the ❌ line carries it, as with live calls.
+      // error itself to show (the ❌ line carries it, as with live calls).
       const decoded = decodeToolResult(e.raw);
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
       out.push({
@@ -247,7 +248,7 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(toolResultChunk(label, decoded.value, cols));
+        out.push(toolResultChunk(label, decoded.value));
       }
     } else {
       out.push({ kind: "system", lines: [e.text] });

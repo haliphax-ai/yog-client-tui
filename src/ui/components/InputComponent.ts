@@ -9,6 +9,11 @@
  * The input claims every editing key whenever it is reached (focused or
  * not); submit / Tab / Ctrl+C / Esc bubble up so the globals and the
  * viewport can claim them first.
+ *
+ * Every width here is measured in terminal CELLS. The cursor highlights
+ * the character under it — which may be a wide rune (an emoji is one
+ * character but two cells) — so the text after the cursor is capped by the
+ * cursor's own cell width, not by one assumed cell.
  */
 import { joinHorizontal, Left } from "@oakoliver/lipgloss";
 import { BaseComponent, type RenderContext } from "./Component.ts";
@@ -33,6 +38,19 @@ const INPUT_KEYS: Record<string, () => void> = {
   "\x1b[C": () => moveCursor(1), // Right
   "\x1b[D": () => moveCursor(-1), // Left
 };
+
+/** The code point at `index`, as a string (never splits a surrogate pair). */
+function codePointAt(text: string, index: number): string {
+  const cp = text.codePointAt(index);
+  return cp === undefined ? "" : String.fromCodePoint(cp);
+}
+
+/** The code point width in cells at `index` (2 for a wide rune, 0 for none). */
+function codePointWidth(text: string, index: number): number {
+  const cp = text.codePointAt(index);
+  if (cp === undefined) return 0;
+  return displayWidth(String.fromCodePoint(cp));
+}
 
 /** Insert text at the cursor (control characters stripped). */
 export function insert(text: string): void {
@@ -91,16 +109,25 @@ export class InputComponent extends BaseComponent {
 
     // Keep the cursor inside the visible window; the window lives in the
     // store and is persisted back only when it actually changes.
+    // The window start advances by whole code points so a wide rune is
+    // never split across the window edge.
     let scroll = Math.max(0, Math.min(state.inputScroll, Math.max(0, text.length)));
     if (pos < scroll) scroll = pos;
-    while (scroll < pos && displayWidth(text.slice(scroll, pos)) > avail - 1) scroll += 1;
+    while (scroll < pos && displayWidth(text.slice(scroll, pos)) > avail - 1) {
+      const next = scroll + codePointWidth(text, scroll);
+      scroll = next === scroll ? scroll + 1 : next;
+    }
     if (scroll !== state.inputScroll) setState({ inputScroll: scroll });
 
     const win = text.slice(scroll);
     const before = win.slice(0, pos - scroll);
-    const at = win.slice(pos - scroll, pos - scroll + 1);
-    const after = win.slice(pos - scroll + 1);
-    const widthAfter = Math.max(0, avail - displayWidth(before) - 1);
+    // The cursor covers the whole code point under it — a wide rune is
+    // highlighted as one unit, and its cell width is what the text after
+    // it is capped by.
+    const at = codePointAt(win, pos - scroll);
+    const after = win.slice(pos - scroll + at.length);
+    const atWidth = at === "" ? 1 : codePointWidth(win, pos - scroll);
+    const widthAfter = Math.max(0, avail - displayWidth(before) - atWidth);
 
     const parts: string[] = [
       ST.promptMarker.render(PROMPT),

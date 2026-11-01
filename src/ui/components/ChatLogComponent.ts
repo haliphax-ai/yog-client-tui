@@ -12,24 +12,10 @@
  * `ui/render/entry.ts` — the single memoization implementation in the codebase.
  */
 import { ViewportComponent } from "./ViewportComponent.ts";
-import {
-  FOCUS_NONE_TARGET,
-  type FocusTarget,
-  isProseTable,
-  moveFocus,
-  tableCount,
-} from "../../core/focus.ts";
-import { cachedRows, tableOffsetsOf, totalRows } from "../render/index.ts";
-import { parseTable, splitTableSections } from "../render/table.ts";
-import type { LogEntry } from "../render/types.ts";
-
-/** Table predicate bound to the GFM parser (one wiring point for the ring). */
-const hasTable = (e: { kind: string; lines?: readonly string[] }): boolean =>
-  isProseTable(e, (text) => parseTable(text));
-
-/** Number of tables in a prose entry (0 for non-prose). */
-const numTables = (e: { kind: string; lines?: readonly string[] }): number =>
-  tableCount(e, (text) => splitTableSections(text));
+import { FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "../../core/focus.ts";
+import { tableState, type LogEntry } from "../../core/entries.ts";
+import { cachedRows, focusUnits, tableOffsetsOf, totalRows } from "../render/index.ts";
+import { resolveTableLayout, splitTableSections } from "../render/table/index.ts";
 
 /** Bounds of entry `i`: first row and full block height (incl. separator). */
 function entryBounds(
@@ -105,7 +91,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * independently focusable, so Tab walks through them before moving on.
    */
   moveFocus(dir: 1 | -1): void {
-    this.focusTarget = moveFocus(this.entries, this.focusTarget, dir, hasTable, numTables);
+    this.focusTarget = moveFocus(focusUnits(this.entries), this.focusTarget, dir);
   }
 
   /**
@@ -154,23 +140,41 @@ export abstract class ChatLogComponent extends ViewportComponent {
 
   // -- collapse / expand ---------------------------------------------------
 
-  /** Toggle the focused entry's collapse/expand; false when nothing is focused. */
+  /**
+   * Toggle the focused unit: a chunk collapses/expands, a tool call
+   * expands/collapses its args, a table switches between its collapsed and
+   * expanded layouts. False when the focused unit has nothing to toggle.
+   *
+   * A table's state is per-table, so expanding one table in an entry
+   * leaves the entry's other tables untouched.
+   */
   toggleFocused(): boolean {
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return false;
     if (entry.kind === "chunk") {
       entry.collapsed = !entry.collapsed;
-    } else if (entry.kind === "tool") {
-      entry.expanded = !entry.expanded;
-    } else if ((entry.kind === "user" || entry.kind === "assistant") && hasTable(entry)) {
-      // Prose carrying a table: Enter toggles horizontal expansion. A table
-      // with nothing reflowed renders identically expanded — harmless.
-      entry.tableExpanded = !entry.tableExpanded;
-      if (!entry.tableExpanded) entry.tableScrollX = 0; // unexpanded resets scroll
-    } else {
-      return false;
+      return true;
     }
-    return true;
+    if (entry.kind === "tool") {
+      entry.expanded = !entry.expanded;
+      return true;
+    }
+    if ((entry.kind === "user" || entry.kind === "assistant") && this.focusTarget.table >= 0) {
+      const table = this.focusTarget.table;
+      const sections = splitTableSections(entry.lines.join("\n"));
+      const tables = sections.filter((s) => s.kind === "table");
+      const section = tables[table];
+      if (section === undefined || section.kind !== "table") return false;
+      const bodyW = Math.max(1, this.cols - 2);
+      const natural = section.table.columns.map((c) => c.width);
+      const state = tableState(entry, table);
+      const layout = resolveTableLayout(natural, bodyW, state.expanded === true);
+      if (!layout.expandable) return false; // nothing to toggle
+      state.expanded = !state.expanded;
+      if (state.expanded !== true) state.scrollX = 0; // collapsing resets the scroll
+      return true;
+    }
+    return false;
   }
 
   // -- rendering -----------------------------------------------------------

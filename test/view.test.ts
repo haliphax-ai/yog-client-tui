@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
+
 import {
   colorizeToolLine,
   highlightBlock,
-  prettyArgs,
   renderMarkdown,
   resultPreview,
-  resultStatus,
   totalRows,
-  type LogEntry,
 } from "../src/ui/render/index.ts";
+import { prettyArgs, resultStatus } from "../src/core/toolFormat.ts";
+import type { LogEntry } from "../src/core/entries.ts";
 import { displayWidth, stripAnsi, wrapText } from "../src/util/ansi.ts";
 
 /** Build a plain log entry with sensible defaults. */
@@ -31,7 +31,7 @@ describe("prettyArgs", () => {
   it("truncates to the limit with an ellipsis", () => {
     const out = prettyArgs("abcdefghijklmnopqrstuvwxyz0123456789", 12);
     expect(out).toBe("abcdefghijk…");
-    expect(out.length).toBe(12);
+    expect(displayWidth(out)).toBe(12);
     expect(out.endsWith("…")).toBe(true);
   });
 
@@ -46,6 +46,13 @@ describe("prettyArgs", () => {
   it("caps by display width for wide characters", () => {
     expect(displayWidth(prettyArgs("x".repeat(30), 20))).toBe(20);
     expect(prettyArgs({ n: "你好世界" }, 100)).toBe('{"n":"你好世界"}');
+  });
+
+  it("caps emoji by CELLS, not characters (regression)", () => {
+    // 20 emoji are 20 characters but 40 cells — a char-count cut would
+    // produce 50 cells, blowing past the 30-cell budget.
+    const out = prettyArgs({ cmd: "✅".repeat(20) }, 30);
+    expect(displayWidth(out)).toBeLessThanOrEqual(30);
   });
 
   it("leaves values under the limit untouched", () => {
@@ -414,8 +421,8 @@ describe("displayWidth / stripAnsi", () => {
   });
 
   it("ignores combining marks and zero-width characters", () => {
-    expect(displayWidth("e\u0301")).toBe(1);
-    expect(displayWidth("\u200b")).toBe(0);
+    expect(displayWidth("é")).toBe(1);
+    expect(displayWidth("​")).toBe(0);
   });
 
   it("strips CSI sequences with parameters", () => {

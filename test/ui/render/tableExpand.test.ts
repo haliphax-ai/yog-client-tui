@@ -1,30 +1,26 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { FOCUS_NONE_TARGET, isProseTable, moveFocus, tableCount } from "../../../src/core/focus.ts";
+import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
 import { cachedRows } from "../../../src/ui/render/entry.ts";
-import type { LogEntry } from "../../../src/ui/render/types.ts";
+import { tableState, type LogEntry } from "../../../src/core/entries.ts";
 import {
   parseTable,
   renderTable,
   resolveTableLayout,
-  splitTableSections,
-  TABLE_MAX_COL,
   tableRowWidth,
   tableScrollChar,
   tableScrollKey,
-} from "../../../src/ui/render/table.ts";
+  TABLE_MAX_COL,
+} from "../../../src/ui/render/table/index.ts";
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
 import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
 /**
  * A table that overflows a 40-cell viewport: col A is 45 wide naturally (one
- * long token), col B is 8 — together 45+8+3*2+1 = 61 cells, far past 40. The
- * reflow squeezes col A to 32 and col B to 3.
+ * long token), col B is 8 — together 45+8+3*2+1 = 61 cells, far past 40.
  */
-const WIDE_TABLE = `| Name | Count |
-| --- | --- |
-| Supercalifragilisticexpialidocious-and-then-some | 42 |`;
+const WIDE_TABLE = `| Name | Count |\n| --- | --- |\n| Supercalifragilisticexpialidocious-and-then-some | 42 |`;
 
 /** Fixture: chunk, wide-table prose, plain prose. Focusable: [0, 1]. */
 function fixture(): LogEntry[] {
@@ -36,54 +32,53 @@ function fixture(): LogEntry[] {
 }
 
 /** A table with two naturally-narrow columns that always fits — never reflowed. */
-const FIT_TABLE = `| A | B |
+const FIT_TABLE = `| A | B |\n| --- | --- |\n| one | two |`;
+
+/** Two tables in one entry, each with its own wide column. */
+const TWO_WIDE = `| First | Count |
 | --- | --- |
-| one | two |`;
+| ${"a".repeat(45)} | 42 |
+
+| Second | Count |
+| --- | --- |
+| ${"b".repeat(45)} | 42 |`;
 
 describe("resolveTableLayout — reflow classification", () => {
-  it("marks a table expandable exactly when reflow had to reshape a column", () => {
-    const natural = [45, 8];
-    // 40-cell body: fit squeezes 45→32, 8→3.
-    const collapsed = resolveTableLayout(natural, 40, false);
+  it("marks a table expandable exactly when a pane was squeezed below the ceiling", () => {
+    // 40-cell body: the space for the panes is 40 - 3 - 4 = 33, split
+    // evenly → 17/16. Both panes are below the ceiling → expandable.
+    const collapsed = resolveTableLayout([45, 8], 40, false);
     expect(collapsed.expandable).toBe(true);
     expect(collapsed.widths[0]!).toBeLessThan(45);
 
     // Wide viewport: nothing reshaped → not expandable, natural widths.
-    const wide = resolveTableLayout(natural, 200, false);
+    const wide = resolveTableLayout([45, 8], 200, false);
     expect(wide.expandable).toBe(false);
-    expect(wide.widths).toEqual(natural);
+    expect(wide.widths).toEqual([45, 8]);
   });
 
-  it("expanded layout gives squeezed columns up to the 30-cell ceiling", () => {
+  it("expanded layout gives squeezed panes up to the ceiling", () => {
     const collapsed = resolveTableLayout([45, 8], 40, false);
-    expect(collapsed.expandable).toBe(true); // col 0 squeezed below 30
+    expect(collapsed.expandable).toBe(true);
     const expanded = resolveTableLayout([45, 8], 40, true);
     expect(expanded.expandable).toBe(true);
-    // Col 0 was squeezed (45 → 32) → expanded to min(natural, 30) = 30.
-    // Col 1 was untouched (natural 8, fit 8) → keeps its fit width.
+    // The squeezed pane gets the ceiling; the pane that needed only 8
+    // keeps its (settled) width.
     expect(expanded.widths[0]!).toBe(TABLE_MAX_COL);
     expect(expanded.widths[1]!).toBe(8);
     // The expanded row overflows the viewport (that's the point).
     expect(tableRowWidth(expanded.widths)).toBeGreaterThan(40);
   });
 
-  it("expanded widths cap squeezed columns at 30, never their natural width", () => {
-    // Columns 60 and 100 in a 50-cell viewport: fit squeezes both; expanded
-    // gives each 30 — breathing room up to the ceiling, never past it (the
-    // 100-wide cell scrolls, it does not render at natural width).
-    const expanded = resolveTableLayout([60, 100], 50, true);
-    expect(expanded.widths).toEqual([30, 30]);
-  });
-
-  it("a squeezed-but-over-30 reflow never expands (all cells fit within 30)", () => {
-    // Two 40-wide columns in a 90-cell viewport: fit squeezes 40 → 33/34 —
-    // reflow engaged, but nothing landed below the ceiling, so Enter is
-    // inert and the widths stay at the fit.
-    const collapsed = resolveTableLayout([40, 40], 90, false);
+  it("a table that fits the viewport is never expanded", () => {
+    // 30 + 30 in a 90-cell viewport: it fits, so it renders as-is and
+    // Enter does nothing.
+    const collapsed = resolveTableLayout([30, 30], 90, false);
     expect(collapsed.expandable).toBe(false);
-    const expanded = resolveTableLayout([40, 40], 90, true);
+    expect(collapsed.widths).toEqual([30, 30]);
+    const expanded = resolveTableLayout([30, 30], 90, true);
     expect(expanded.expandable).toBe(false);
-    expect(expanded.widths).toEqual(collapsed.widths);
+    expect(expanded.widths).toEqual([30, 30]);
   });
 });
 
@@ -160,56 +155,13 @@ describe("tableScrollKey / tableScrollChar — pure scroll steps", () => {
   });
 });
 
-describe("isProseTable + focus ring", () => {
-  it("detects a GFM table in prose entries only", () => {
-    expect(isProseTable({ kind: "assistant", lines: WIDE_TABLE.split("\n") }, parseTable)).toBe(
-      true,
-    );
-    expect(isProseTable({ kind: "user", lines: WIDE_TABLE.split("\n") }, parseTable)).toBe(true);
-    expect(isProseTable({ kind: "assistant", lines: ["just prose"] }, parseTable)).toBe(false);
-    expect(isProseTable({ kind: "chunk", lines: WIDE_TABLE.split("\n") }, parseTable)).toBe(false);
-  });
-
-  it("moveFocus includes table-bearing prose entries in the ring", () => {
-    const entries = fixture();
-    // Ring: chunk (0,-1), table prose (1,0). Plain prose (2) is skipped.
-    expect(
-      moveFocus(
-        entries,
-        FOCUS_NONE_TARGET,
-        1,
-        (e) => isProseTable(e, parseTable),
-        (e) => tableCount(e, splitTableSections),
-      ),
-    ).toEqual({ entry: 0, table: -1 });
-    expect(
-      moveFocus(
-        entries,
-        { entry: 0, table: -1 },
-        1,
-        (e) => isProseTable(e, parseTable),
-        (e) => tableCount(e, splitTableSections),
-      ),
-    ).toEqual({ entry: 1, table: 0 });
-    expect(
-      moveFocus(
-        entries,
-        { entry: 1, table: 0 },
-        1,
-        (e) => isProseTable(e, parseTable),
-        (e) => tableCount(e, splitTableSections),
-      ),
-    ).toEqual(FOCUS_NONE_TARGET); // wrap
-  });
-});
-
 describe("ChatViewport — table focus interactions", () => {
   beforeEach(() => {
     resetForTests();
     setState({ entries: fixture() });
   });
 
-  it("Tab lands on the table entry; Left/Right scroll the expanded table", () => {
+  it("Tab lands on the table entry; Left/Right scroll the focused table", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.cycleFocus(1);
@@ -218,39 +170,39 @@ describe("ChatViewport — table focus interactions", () => {
     viewport.cycleFocus(1);
     expect(getState().focusTarget).toEqual({ entry: 1, table: 0 }); // table prose
 
-    // Not expanded yet: Left/Right are inert (bubble).
-    expect(viewport.handleKey("\x1b[C")).toBe("unhandled");
-
     // Render once so the component sees the terminal width (as the live
     // render loop does before any key routing).
     viewport.render({ cols: 40 });
 
     // Enter expands; committed to the store.
     expect(viewport.handleChar("\r")).toBe("handled");
-    expect(getState().entries[1]!.tableExpanded).toBe(true);
+    expect(tableState(getState().entries[1]!, 0).expanded).toBe(true);
 
     // Right scrolls; committed.
     expect(viewport.handleKey("\x1b[C")).toBe("handled");
-    expect(getState().entries[1]!.tableScrollX).toBeGreaterThan(0);
+    expect(tableState(getState().entries[1]!, 0).scrollX).toBeGreaterThan(0);
 
     // h/l also scroll.
     expect(viewport.handleChar("l")).toBe("handled");
-    const after = getState().entries[1]!.tableScrollX ?? 0;
+    const after = tableState(getState().entries[1]!, 0).scrollX;
     expect(after).toBeGreaterThan(0);
 
     // Left scrolls back and clamps at 0.
     for (let i = 0; i < 200; i++) viewport.handleKey("\x1b[D");
-    expect(getState().entries[1]!.tableScrollX).toBe(0);
+    expect(tableState(getState().entries[1]!, 0).scrollX).toBe(0);
   });
 
-  it("collapsed (unexpanded) tables never scroll; keys bubble", () => {
+  it("a collapsed (fitting) table never scrolls; keys bubble", () => {
+    setState({
+      entries: [{ kind: "assistant", lines: FIT_TABLE.split("\n") }],
+    });
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
-    viewport.cycleFocus(1);
-    viewport.cycleFocus(1); // → table entry, not expanded
+    viewport.cycleFocus(1); // → the table
+    viewport.render({ cols: 40 });
     expect(viewport.handleChar("l")).toBe("unhandled");
     expect(viewport.handleKey("\x1b[C")).toBe("unhandled");
-    expect(getState().entries[1]!.tableScrollX).toBeUndefined();
+    expect(getState().entries[0]!.tables).toBeUndefined();
   });
 
   it("fitting tables render identically expanded and unexpanded", () => {
@@ -259,7 +211,7 @@ describe("ChatViewport — table focus interactions", () => {
     });
     const entry = getState().entries[0]!;
     const collapsed = cachedRows(entry, 40);
-    entry.tableExpanded = true;
+    tableState(entry, 0).expanded = true;
     const expanded = cachedRows(entry, 40);
     expect(expanded).toEqual(collapsed); // no reflow → expansion changes nothing
   });
@@ -275,9 +227,7 @@ describe("ChatViewport — table focus interactions", () => {
   });
 
   it("emoji cells keep cell-accurate widths through expansion (regression)", () => {
-    const md = `| Status | Note |
-| --- | --- |
-| ✅ done | ${"x".repeat(50)} |`;
+    const md = `| Status | Note |\n| --- | --- |\n| ✅ done | ${"x".repeat(50)} |`;
     setState({ entries: [{ kind: "assistant", lines: md.split("\n") }] });
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
@@ -286,12 +236,70 @@ describe("ChatViewport — table focus interactions", () => {
     expect(getState().focusTarget).toEqual({ entry: 0, table: 0 });
     viewport.handleChar("\r"); // expand
     expect(viewport.handleKey("\x1b[C")).toBe("handled");
-    const scrollX = getState().entries[0]!.tableScrollX ?? 0;
+    const scrollX = tableState(getState().entries[0]!, 0).scrollX;
     expect(scrollX).toBe(1);
     // Rendered rows stay within cell bounds: the border slice never shreds
     // the ✅ into a stray half-width artifact at this width.
     const rows = cachedRows(getState().entries[0]!, 40, true, 0);
     const plain = stripAnsi(rows.join("\n"));
     expect(plain).toContain("✅");
+  });
+});
+
+describe("ChatViewport — per-table state is independent", () => {
+  beforeEach(() => {
+    resetForTests();
+    setState({ entries: [{ kind: "assistant", lines: TWO_WIDE.split("\n") }] });
+  });
+
+  it("expanding table 1 leaves table 0 alone", () => {
+    const viewport = new ChatViewport();
+    viewport.setViewportRows(24);
+    viewport.render({ cols: 40 });
+    viewport.cycleFocus(1); // → table 0
+    expect(getState().focusTarget).toEqual({ entry: 0, table: 0 });
+    viewport.cycleFocus(1); // → table 1
+    expect(getState().focusTarget).toEqual({ entry: 0, table: 1 });
+
+    viewport.handleChar("\r"); // expand table 1
+    const entry = getState().entries[0]!;
+    expect(tableState(entry, 1).expanded).toBe(true);
+    expect(tableState(entry, 0).expanded).toBeUndefined();
+  });
+
+  it("scrolling table 1 leaves table 0's offset at 0", () => {
+    const viewport = new ChatViewport();
+    viewport.setViewportRows(24);
+    viewport.render({ cols: 40 });
+    viewport.cycleFocus(1); // → table 0
+    viewport.cycleFocus(1); // → table 1
+    viewport.handleChar("\r"); // expand table 1 so it can scroll
+    for (let i = 0; i < 5; i++) viewport.handleKey("\x1b[C");
+
+    const entry = getState().entries[0]!;
+    // The scroll clamps at the table's own maximum offset.
+    expect(tableState(entry, 1).scrollX).toBeGreaterThan(0);
+    expect(tableState(entry, 0).scrollX).toBe(0);
+  });
+
+  it("the focused table's scroll bounds come from its own layout", () => {
+    const viewport = new ChatViewport();
+    viewport.setViewportRows(24);
+    viewport.render({ cols: 40 });
+    viewport.cycleFocus(1); // → table 0
+    viewport.cycleFocus(1); // → table 1
+    viewport.handleChar("\r"); // expand table 1
+    // Right scrolls to the max of TABLE 1's own row width.
+    for (let i = 0; i < 500; i++) viewport.handleKey("\x1b[C");
+    const entry = getState().entries[0]!;
+    const state = tableState(entry, 1);
+    const sections = entry.lines.join("\n");
+    expect(state.scrollX).toBeGreaterThan(0);
+    // The offset is bounded by table 1's own row width — table 0's identical
+    // width means the bound is the same, but the state is separate.
+    expect(state.scrollX).toBeLessThanOrEqual(
+      tableRowWidth(resolveTableLayout([45, 4], 38, true).widths),
+    );
+    expect(sections).toContain("Second");
   });
 });

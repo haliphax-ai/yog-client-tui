@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
 import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState, subscribe } from "../../../src/core/store.ts";
-import { totalRows, type LogEntry } from "../../../src/ui/render/index.ts";
+import { totalRows } from "../../../src/ui/render/index.ts";
+import type { LogEntry } from "../../../src/core/entries.ts";
 
 /** Fresh chunk entry (8 body rows so it is collapsible). */
 function chunkEntry(): LogEntry {

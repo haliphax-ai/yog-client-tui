@@ -1,22 +1,26 @@
 /**
  * Entry rendering: glamour markdown, per-kind styling, chunk headers, and
  * the memoized row cache.
+ *
+ * The cache is split in two: the parsed sections (prose/table split) are
+ * cached per content signature, and the rendered rows are cached per render
+ * signature. A cache hit never re-parses the entry.
  */
 import type { Style } from "@oakoliver/lipgloss";
 import { ST, CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import { renderMarkdown } from "./markdown.ts";
-import type { EntryKind, LogEntry } from "./types.ts";
+import { resultPreview } from "./formatting.ts";
+import type { EntryKind, LogEntry } from "../../core/entries.ts";
+import type { FocusTarget } from "../../core/focus.ts";
 import {
-  parseTable,
+  type TableSection,
+  renderTable,
   resolveTableLayout,
   splitTableSections,
   tableRowWidth,
-  TableComponent,
-} from "./table.ts";
-
-export { highlightBlock, renderMarkdown } from "./markdown.ts";
+} from "./table/index.ts";
 
 /** Style for an entry kind. */
 function kindStyle(kind: EntryKind): Style {
@@ -55,11 +59,6 @@ interface EntryRender {
 }
 
 /**
- * Render a parsed table as styled rows: box-drawing borders, bold header,
- * zebra-striped data rows, and 1-cell top/bottom margins. Width-capped to
- * `cols` — columns scale proportionally when the table is too wide.
-
-/**
  * Flatten glamour's theme colors out of a rendered markdown row, keeping only
  * structural emphasis (bold/italic): inside the prompt bubble the role style
  * (light-grey text on light-grey bg) must win, and background resets would
@@ -84,6 +83,81 @@ function flattenMarkdown(rows: string[]): string[] {
 }
 
 /**
+ * O(1) content signature: line count + first/last line lengths cover every
+ * mutation this codebase performs (append rows, grow last row, amend label).
+ */
+function contentKeyOf(entry: LogEntry): string {
+  const lines = entry.lines;
+  return `${lines.length}|${lines[0]?.length ?? 0}|${lines[lines.length - 1]?.length ?? 0}`;
+}
+
+/** The cached prose/table split of one entry. */
+interface SectionCache {
+  contentKey: string;
+  sections: TableSection[];
+}
+
+/** The cached rendered rows of one entry. */
+interface RowCache {
+  key: string;
+  rows: string[];
+  tableOffsets: number[];
+}
+
+const sectionCaches = new WeakMap<LogEntry, SectionCache>();
+const rowCaches = new WeakMap<LogEntry, RowCache>();
+
+/**
+ * The entry's prose/table sections, parsed once per content change.
+ *
+ * This is the single source of truth about which parts of an entry are
+ * tables: the renderer draws the table sections, the focus ring walks the
+ * same sections, and the scroll bounds measure the same sections. They
+ * cannot disagree.
+ */
+export function sectionsOf(entry: LogEntry): TableSection[] {
+  if (entry.kind !== "user" && entry.kind !== "assistant") return [];
+  const contentKey = contentKeyOf(entry);
+  const hit = sectionCaches.get(entry);
+  if (hit !== undefined && hit.contentKey === contentKey) return hit.sections;
+  const sections = splitTableSections(entry.lines.join("\n"));
+  sectionCaches.set(entry, { contentKey, sections });
+  return sections;
+}
+
+/** The cached rendered rows of an entry, if it has been rendered. */
+export function cacheOf(entry: LogEntry): RowCache | undefined {
+  return rowCaches.get(entry);
+}
+
+/**
+ * The focusable units of the given entries, in document order.
+ *
+ * A chunk or tool entry contributes one unit (`{entry, table: -1}`); a
+ * prose entry with N tables contributes N units (`{entry, table: 0..N-1}`).
+ * The units come from the same sections the renderer draws, so every table
+ * that renders is a table that can be focused.
+ */
+export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
+  const units: FocusTarget[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i] as LogEntry;
+    if (entry.kind === "chunk" || entry.kind === "tool") {
+      units.push({ entry: i, table: -1 });
+      continue;
+    }
+    let table = 0;
+    for (const section of sectionsOf(entry)) {
+      if (section.kind === "table") {
+        units.push({ entry: i, table });
+        table += 1;
+      }
+    }
+  }
+  return units;
+}
+
+/**
  * Render one entry to its styled block at `cols`. Prompts and responses go
  * through the glamour markdown renderer first: prompts render in a light-grey
  * padded bubble with theme colors flattened to the bubble's light-grey text
@@ -101,19 +175,17 @@ function renderEntry(
 ): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
     const isUser = entry.kind === "user";
-    const text = entry.lines.join("\n");
     // Prompt: 1-cell padding each side sits INSIDE the style width, so the
     // content wraps at cols-2 while the block spans the full terminal.
     // Assistant: rows are prefixed with the border cell + one space, so the
     // prose wraps at cols-2 too and the border gutter survives wrapping.
     const bodyW = Math.max(1, cols - 2);
-    const sections = splitTableSections(text);
-    // Render each section: prose through glamour, tables through the
-    // viewport-backed component. The FIRST and LAST sections of the sequence
-    // render WITHOUT their outer margin — spacing to the entry's neighbors
-    // is the separator's job, so a leading table sits flush under the entry
-    // start and a trailing one flush above the entry end. The same rule will
-    // apply to any future component type (images, thinking output).
+    const sections = sectionsOf(entry);
+    // Render each section: prose through glamour, tables through the table
+    // renderer. The FIRST and LAST sections of the sequence render WITHOUT
+    // their outer margin — spacing to the entry's neighbors is the
+    // separator's job, so a leading table sits flush under the entry start
+    // and a trailing one flush above the entry end.
     const first = sections[0];
     const last = sections[sections.length - 1];
     const parts: string[] = [];
@@ -125,40 +197,37 @@ function renderEntry(
         parts.push(
           ...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)),
         );
-      } else {
-        // Route table sections through TableComponent so the shared viewport
-        // logic (clamp/slice/pad) is used instead of a bypass call. The
-        // column layout comes from resolveTableLayout: reflowed columns keep
-        // the shrink-to-fit widths while focused-collapsed, and render at
-        // min(natural, 30) once the entry's tableExpanded flag is set. The
-        // expanded row may exceed `cols` — horizontal scroll reveals it.
-        // Focus is per-table: only the focused table renders blue; every
-        // other table in the entry renders white (unfocused).
-        const isFocusedTable = focusedTable && tableIndex === focusedTableIndex;
-        // Record the row offset of this table BEFORE its rendered rows are
-        // appended — that offset is what `revealFocus` needs to scroll the
-        // table (not just the entry that contains it) into the viewport.
-        tableOffsets.push(parts.length);
-        const tc = new TableComponent();
-        tc.setTable(section.table);
-        tc.setMargin({
-          top: section !== first,
-          bottom: section !== last,
-        });
-        const layout = resolveTableLayout(
-          section.table.columns.map((c) => c.width),
-          bodyW,
-          entry.tableExpanded === true,
-        );
-        tc.setFitWidths(layout.widths);
-        tc.onFocus(isFocusedTable);
-        if (entry.tableScrollX !== undefined && layout.expandable) {
-          const totalW = tableRowWidth(layout.widths);
-          tc.scrollX = Math.max(0, Math.min(entry.tableScrollX, Math.max(0, totalW - bodyW)));
-        }
-        parts.push(...tc.render({ cols: bodyW }));
-        tableIndex++;
+        continue;
       }
+      // A table section. The column layout comes from the layout engine:
+      // the collapsed layout fits the viewport, the expanded one widens the
+      // panes that were squeezed. The expanded row may exceed `cols` —
+      // horizontal scroll reveals it.
+      // Focus is per-table: only the focused table renders blue; every
+      // other table in the entry renders white (unfocused).
+      const isFocusedTable = focusedTable && tableIndex === focusedTableIndex;
+      // Record the row offset of this table BEFORE its rendered rows are
+      // appended — that offset is what `revealFocus` needs to scroll the
+      // table (not just the entry that contains it) into the viewport.
+      tableOffsets.push(parts.length);
+      const state = entry.tables?.[tableIndex];
+      const natural = section.table.columns.map((c) => c.width);
+      const layout = resolveTableLayout(natural, bodyW, state?.expanded === true);
+      const totalW = tableRowWidth(layout.widths);
+      const maxScroll = Math.max(0, totalW - bodyW);
+      const scrollX = Math.max(0, Math.min(state?.scrollX ?? 0, maxScroll));
+      const rows = renderTable(
+        section.table,
+        bodyW,
+        isFocusedTable,
+        scrollX,
+        { top: section !== first, bottom: section !== last },
+        layout.widths,
+      );
+      // The table's cell budget is the entry's body width: a row wider
+      // than that (the expanded layout) is clipped to the visible window.
+      for (const row of rows) parts.push(truncateAnsi(row, bodyW));
+      tableIndex++;
     }
     if (parts.length === 0) parts.push("");
     if (isUser) {
@@ -176,7 +245,11 @@ function renderEntry(
   }
 
   if (entry.kind === "chunk") {
-    const body = entry.lines.slice(1);
+    // The body comes from the raw result when the entry carries one (the
+    // presenter stores the data; the renderer formats it), else from the
+    // pre-rendered body lines.
+    const body =
+      entry.result !== undefined ? resultPreview(entry.result, cols) : entry.lines.slice(1);
     const expandable = body.length > COLLAPSE_LINES;
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
@@ -249,30 +322,41 @@ function renderEntry(
 }
 
 /**
- * Table signature for the cache key: column count + row count + per-column
- * widths, plus the entry's table flags. Captures everything `renderEntry`'s
- * table path derives output from — if any of these change, the rendered
- * table changes too.
+ * Render signature for the row cache: everything `renderEntry` derives
+ * output from — display width, the focus flag, the collapse/expand toggles,
+ * the content signature (streaming entries mutate `lines`, tool calls get
+ * `label`/`lines[0]` amended when the result lands), and the per-table state
+ * (expansion and scroll offset).
  */
-function tableSignature(
-  lines: string[],
-  tableExpanded: boolean | undefined,
-  tableScrollX: number | undefined,
+function renderKeyOf(
+  entry: LogEntry,
+  cols: number,
+  focused: boolean,
+  focusedTableIndex: number,
 ): string {
-  const t = parseTable(lines.join("\n"));
-  if (!t) return "0";
-  const widths = t.columns.map((c) => c.width).join(",");
-  return `${t.columns.length}:${t.rows.length}:${widths}:${tableExpanded ? 1 : 0}:${tableScrollX ?? 0}`;
+  const tables = entry.tables;
+  const tableState =
+    tables === undefined
+      ? ""
+      : Object.keys(tables)
+          .map(
+            (k) => `${k}:${tables[Number(k)]?.expanded ? 1 : 0}:${tables[Number(k)]?.scrollX ?? 0}`,
+          )
+          .join(",");
+  return `${cols}|${focused ? 1 : 0}|${focusedTableIndex}|${entry.collapsed ? 1 : 0}|${
+    entry.expanded ? 1 : 0
+  }|${contentKeyOf(entry)}|${entry.label ?? ""}|${tableState}`;
 }
 
 /**
  * Rendered rows for one entry, memoized on the `LogEntry` object. The key
- * captures everything `renderEntry` derives output from: display width, the
- * focus flag, the expand/collapse toggles, a content signature (streaming
- * entries mutate `lines`, tool calls get `label`/`lines[0]` amended when the
- * result lands), and a table signature (column count + row count + widths).
- * Entries only ever grow (in place for the same signature), so a matching
- * key means a byte-identical render — safe to reuse.
+ * captures everything `renderEntry` derives output from (see
+ * {@link renderKeyOf}). Entries only ever grow (in place for the same
+ * signature), so a matching key means a byte-identical render — safe to
+ * reuse.
+ *
+ * A cache hit performs no table parse: the prose/table split is cached
+ * separately, keyed by the content signature.
  */
 export function cachedRows(
   entry: LogEntry,
@@ -280,19 +364,12 @@ export function cachedRows(
   focused = false,
   focusedTableIndex = -1,
 ): string[] {
-  const lines = entry.lines;
-  // O(1) content signature: line count + first/last line lengths cover every
-  // mutation this codebase performs (append rows, grow last row, amend label).
-  const key = `${cols}|${focused ? 1 : 0}|${focusedTableIndex}|${entry.collapsed ? 1 : 0}|${
-    entry.expanded ? 1 : 0
-  }|${lines.length}|${lines[0]?.length ?? 0}|${lines[lines.length - 1]?.length ?? 0}|${
-    entry.label ?? ""
-  }|${tableSignature(lines, entry.tableExpanded, entry.tableScrollX)}`;
-  const hit = entry.cache;
-  if (hit !== undefined && hit.entry === entry && hit.key === key) return hit.rows;
+  const key = renderKeyOf(entry, cols, focused, focusedTableIndex);
+  const hit = rowCaches.get(entry);
+  if (hit !== undefined && hit.key === key) return hit.rows;
   const rendered = renderEntry(entry, cols, focused, focusedTableIndex);
   const rows = rendered.rendered.split("\n");
-  entry.cache = { entry, key, rows, tableOffsets: rendered.tableOffsets };
+  rowCaches.set(entry, { key, rows, tableOffsets: rendered.tableOffsets });
   return rows;
 }
 
@@ -301,9 +378,7 @@ export function cachedRows(
  *  hasn't been populated yet). Used by `revealFocus` to scroll a focused
  *  table — not just the entry that contains it — into the viewport. */
 export function tableOffsetsOf(entry: LogEntry): number[] | undefined {
-  const hit = entry.cache;
-  if (hit === undefined || hit.entry !== entry) return undefined;
-  return hit.tableOffsets;
+  return rowCaches.get(entry)?.tableOffsets;
 }
 
 /** Number of rows the given entries occupy at `cols` (incl. separators). */

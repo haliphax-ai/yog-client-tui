@@ -1,173 +1,77 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  FOCUS_NONE_TARGET,
-  focusRing,
-  isProseTable,
-  moveFocus,
-  tableCount,
-} from "../../src/core/focus.ts";
-import { parseTable, splitTableSections } from "../../src/ui/render/table.ts";
+import { FOCUS_NONE_TARGET, moveFocus, type FocusTarget } from "../../src/core/focus.ts";
 
-const k = (kind: string, lines?: string[]) => ({ kind, lines: lines ?? [] });
+/** A focus unit: an entry index + a table index within that entry. */
+const U = (entry: number, table = -1): FocusTarget => ({ entry, table });
 
-/** A prose entry carrying exactly one table. */
-const ONE_TABLE = (md: string) => k("assistant", md.split("\n"));
-const TWO_TABLE = (a: string, b: string) => k("assistant", `${a}\n\n${b}`.split("\n"));
+/**
+ * The ring is computed by the UI layer (it knows which entries carry
+ * tables); `core` only does the ring arithmetic. These tests exercise
+ * that arithmetic over explicit unit lists.
+ */
+const RING: FocusTarget[] = [
+  U(1), // chunk
+  U(2), // tool
+  U(4, 0), // table in prose entry 4
+  U(5, 0), // table in prose entry 5
+];
 
-const T1 = `| A | B |
-| --- | --- |
-| 1 | 2 |`;
-const T2 = `| X | Y |
-| --- | --- |
-| 3 | 4 |`;
-
-const isTable = (e: { kind: string; lines?: readonly string[] }) =>
-  isProseTable(e, (text) => parseTable(text));
-const nTables = (e: { kind: string; lines?: readonly string[] }) =>
-  tableCount(e, (text) => splitTableSections(text));
-
-describe("focusRing — flat list of targets", () => {
-  it("chunk/tool entries contribute one target each", () => {
-    const entries = [k("system"), k("tool"), k("user"), k("chunk"), k("assistant")];
-    expect(focusRing(entries, ["chunk", "tool"])).toEqual([
-      { entry: 1, table: -1 },
-      { entry: 3, table: -1 },
-    ]);
+describe("moveFocus — flat ring over units", () => {
+  it("enters at the first unit when starting from none (Tab)", () => {
+    expect(moveFocus(RING, FOCUS_NONE_TARGET, 1)).toEqual(U(1));
   });
 
-  it("a prose entry with one table contributes one table target", () => {
-    const entries = [ONE_TABLE(T1)];
-    expect(focusRing(entries, ["chunk", "tool"], isTable, nTables)).toEqual([
-      { entry: 0, table: 0 },
-    ]);
-  });
-
-  it("a prose entry with two tables contributes two table targets", () => {
-    const entries = [TWO_TABLE(T1, T2)];
-    expect(focusRing(entries, ["chunk", "tool"], isTable, nTables)).toEqual([
-      { entry: 0, table: 0 },
-      { entry: 0, table: 1 },
-    ]);
-  });
-
-  it("tables are walked before the next entry", () => {
-    const entries = [k("chunk"), ONE_TABLE(T1), ONE_TABLE(T2)];
-    expect(focusRing(entries, ["chunk", "tool"], isTable, nTables)).toEqual([
-      { entry: 0, table: -1 },
-      { entry: 1, table: 0 },
-      { entry: 2, table: 0 },
-    ]);
-  });
-
-  it("is empty when nothing is focusable", () => {
-    expect(focusRing([k("system"), k("user")], ["chunk", "tool"], isTable, nTables)).toEqual([]);
-  });
-});
-
-describe("tableCount", () => {
-  it("counts tables in prose entries", () => {
-    expect(tableCount(ONE_TABLE(T1), splitTableSections)).toBe(1);
-    expect(tableCount(TWO_TABLE(T1, T2), splitTableSections)).toBe(2);
-    expect(tableCount(k("assistant", ["just prose"]), splitTableSections)).toBe(0);
-    expect(tableCount(k("chunk", ["x"]), splitTableSections)).toBe(0);
-  });
-});
-
-describe("moveFocus — table-level ring", () => {
-  const entries = [k("system"), k("tool"), k("user"), k("chunk"), ONE_TABLE(T1), ONE_TABLE(T2)];
-  // ring: tool(1,-1), chunk(3,-1), table0(4,0), table1(5,0)
-
-  it("enters at the first target when starting from none (Tab)", () => {
-    expect(moveFocus(entries, FOCUS_NONE_TARGET, 1, isTable, nTables)).toEqual({
-      entry: 1,
-      table: -1,
-    });
-  });
-
-  it("enters at the last target when starting from none (Shift-Tab)", () => {
-    expect(moveFocus(entries, FOCUS_NONE_TARGET, -1, isTable, nTables)).toEqual({
-      entry: 5,
-      table: 0,
-    });
+  it("enters at the last unit when starting from none (Shift-Tab)", () => {
+    expect(moveFocus(RING, FOCUS_NONE_TARGET, -1)).toEqual(U(5, 0));
   });
 
   it("cycles forward through the ring", () => {
-    expect(moveFocus(entries, { entry: 1, table: -1 }, 1, isTable, nTables)).toEqual({
-      entry: 3,
-      table: -1,
-    });
-    expect(moveFocus(entries, { entry: 3, table: -1 }, 1, isTable, nTables)).toEqual({
-      entry: 4,
-      table: 0,
-    });
-    expect(moveFocus(entries, { entry: 4, table: 0 }, 1, isTable, nTables)).toEqual({
-      entry: 5,
-      table: 0,
-    });
+    expect(moveFocus(RING, U(1), 1)).toEqual(U(2));
+    expect(moveFocus(RING, U(2), 1)).toEqual(U(4, 0));
+    expect(moveFocus(RING, U(4, 0), 1)).toEqual(U(5, 0));
   });
 
   it("cycles backward through the ring", () => {
-    expect(moveFocus(entries, { entry: 5, table: 0 }, -1, isTable, nTables)).toEqual({
-      entry: 4,
-      table: 0,
-    });
-    expect(moveFocus(entries, { entry: 4, table: 0 }, -1, isTable, nTables)).toEqual({
-      entry: 3,
-      table: -1,
-    });
-    expect(moveFocus(entries, { entry: 3, table: -1 }, -1, isTable, nTables)).toEqual({
-      entry: 1,
-      table: -1,
-    });
+    expect(moveFocus(RING, U(5, 0), -1)).toEqual(U(4, 0));
+    expect(moveFocus(RING, U(4, 0), -1)).toEqual(U(2));
+    expect(moveFocus(RING, U(2), -1)).toEqual(U(1));
   });
 
   it("wraps through none at the end of the ring (Tab past last)", () => {
-    expect(moveFocus(entries, { entry: 5, table: 0 }, 1, isTable, nTables)).toEqual(
-      FOCUS_NONE_TARGET,
-    );
+    expect(moveFocus(RING, U(5, 0), 1)).toEqual(FOCUS_NONE_TARGET);
     // …and the next press continues from that end.
-    expect(moveFocus(entries, FOCUS_NONE_TARGET, 1, isTable, nTables)).toEqual({
-      entry: 1,
-      table: -1,
-    });
+    expect(moveFocus(RING, FOCUS_NONE_TARGET, 1)).toEqual(U(1));
   });
 
   it("wraps through none at the start of the ring (Shift-Tab past first)", () => {
-    expect(moveFocus(entries, { entry: 1, table: -1 }, -1, isTable, nTables)).toEqual(
-      FOCUS_NONE_TARGET,
-    );
+    expect(moveFocus(RING, U(1), -1)).toEqual(FOCUS_NONE_TARGET);
     // …and the next press continues from that end.
-    expect(moveFocus(entries, FOCUS_NONE_TARGET, -1, isTable, nTables)).toEqual({
-      entry: 5,
-      table: 0,
-    });
+    expect(moveFocus(RING, FOCUS_NONE_TARGET, -1)).toEqual(U(5, 0));
   });
 
-  it("stays at none when there are no focusable entries", () => {
-    const plain = [k("system"), k("user")];
-    expect(moveFocus(plain, FOCUS_NONE_TARGET, 1, isTable, nTables)).toEqual(FOCUS_NONE_TARGET);
-    expect(moveFocus(plain, { entry: 0, table: -1 }, -1, isTable, nTables)).toEqual(
-      FOCUS_NONE_TARGET,
-    );
+  it("stays at none when there are no focusable units", () => {
+    expect(moveFocus([], FOCUS_NONE_TARGET, 1)).toEqual(FOCUS_NONE_TARGET);
+    expect(moveFocus([], U(0), -1)).toEqual(FOCUS_NONE_TARGET);
   });
 });
 
 describe("moveFocus — tables inside one entry are independent", () => {
   it("walks through both tables in a two-table entry before moving on", () => {
-    const entries = [TWO_TABLE(T1, T2), k("chunk")];
-    // ring: table0(0,0), table1(0,1), chunk(1,-1)
-    expect(moveFocus(entries, FOCUS_NONE_TARGET, 1, isTable, nTables)).toEqual({
-      entry: 0,
-      table: 0,
-    });
-    expect(moveFocus(entries, { entry: 0, table: 0 }, 1, isTable, nTables)).toEqual({
-      entry: 0,
-      table: 1,
-    });
-    expect(moveFocus(entries, { entry: 0, table: 1 }, 1, isTable, nTables)).toEqual({
-      entry: 1,
-      table: -1,
-    });
+    const ring: FocusTarget[] = [U(0, 0), U(0, 1), U(1)];
+    expect(moveFocus(ring, FOCUS_NONE_TARGET, 1)).toEqual(U(0, 0));
+    expect(moveFocus(ring, U(0, 0), 1)).toEqual(U(0, 1));
+    expect(moveFocus(ring, U(0, 1), 1)).toEqual(U(1));
+  });
+});
+
+describe("moveFocus — a vanished target lands on the closest valid one", () => {
+  it("steps forward from the nearest unit when the target is gone", () => {
+    // The focused table disappeared (the entry's content changed).
+    expect(moveFocus(RING, U(4, 3), 1)).toEqual(U(5, 0));
+  });
+
+  it("steps backward from the nearest unit when the target is gone", () => {
+    expect(moveFocus(RING, U(4, 3), -1)).toEqual(U(2));
   });
 });
