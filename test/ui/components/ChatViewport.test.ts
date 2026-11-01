@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
-import { FOCUS_NONE } from "../../../src/core/focus.ts";
+import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState, subscribe } from "../../../src/core/store.ts";
 import { totalRows, type LogEntry } from "../../../src/ui/render/index.ts";
 
@@ -105,37 +105,37 @@ describe("ChatViewport — Tab / Shift-Tab entry focus ring", () => {
     setState({ entries: fixture() });
   });
 
-  it("cycleFocus(1) moves focusIndex through the store with wrap-through-none", () => {
+  it("cycleFocus(1) moves focusTarget through the store with wrap-through-none", () => {
     const viewport = new ChatViewport();
-    expect(getState().focusIndex).toBe(FOCUS_NONE);
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
 
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(1); // chunk
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 }); // chunk
 
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(2); // tool
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // tool
 
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(FOCUS_NONE); // wrap through none
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET); // wrap through none
 
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(1); // re-enters from the start
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 }); // re-enters from the start
   });
 
   it("cycleFocus(-1) wraps backward through none", () => {
     const viewport = new ChatViewport();
 
     viewport.cycleFocus(-1);
-    expect(getState().focusIndex).toBe(2); // enters at the last focusable
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // enters at the last focusable
 
     viewport.cycleFocus(-1);
-    expect(getState().focusIndex).toBe(1);
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 });
 
     viewport.cycleFocus(-1);
-    expect(getState().focusIndex).toBe(FOCUS_NONE);
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
 
     viewport.cycleFocus(-1);
-    expect(getState().focusIndex).toBe(2); // re-enters from the end
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // re-enters from the end
   });
 
   it("keeps the store as the source of truth across cycles", () => {
@@ -147,7 +147,7 @@ describe("ChatViewport — Tab / Shift-Tab entry focus ring", () => {
 
     viewport.cycleFocus(1);
     expect(notifications).toBeGreaterThan(0);
-    expect(viewport.getFocusIndex()).toBe(getState().focusIndex);
+    expect(viewport.getFocusIndex()).toBe(getState().focusTarget.entry);
   });
 });
 
@@ -160,10 +160,10 @@ describe("ChatViewport — Esc routing", () => {
   it("claims Esc while an entry is focused: clears it and does not bubble", () => {
     const viewport = new ChatViewport();
     viewport.cycleFocus(1);
-    expect(getState().focusIndex).toBe(1);
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 });
 
     expect(viewport.handleChar("\x1b")).toBe("handled");
-    expect(getState().focusIndex).toBe(FOCUS_NONE);
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
   });
 
   it("bubbles Esc when nothing is focused (the turn-abort path)", () => {

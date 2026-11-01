@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
-import { FOCUS_NONE } from "../../../src/core/focus.ts";
+import { FOCUS_NONE_TARGET, type FocusTarget } from "../../../src/core/focus.ts";
 import { totalRows, type LogEntry } from "../../../src/ui/render/index.ts";
 import { stripAnsi } from "../../../src/util/ansi.ts";
 
@@ -148,10 +148,12 @@ describe("ChatLogComponent — follow mode", () => {
   });
 });
 
+const T = (e: number, t = -1): FocusTarget => ({ entry: e, table: t });
+
 describe("ChatLogComponent — focus ring (wrap through none)", () => {
   it("enters at the first focusable entry going forward", () => {
     const log = new Log(fixture());
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
     log.moveFocus(1);
     expect(log.getFocusIndex()).toBe(1); // chunk
     log.moveFocus(1);
@@ -168,18 +170,18 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
 
   it("wraps through none at the end of the ring", () => {
     const log = new Log(fixture());
-    log.setFocus(2);
+    log.setFocus(T(2));
     log.moveFocus(1);
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
     log.moveFocus(1); // next press re-enters from the start
     expect(log.getFocusIndex()).toBe(1);
   });
 
   it("wraps through none at the start of the ring", () => {
     const log = new Log(fixture());
-    log.setFocus(1);
+    log.setFocus(T(1));
     log.moveFocus(-1);
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
     log.moveFocus(-1); // next press re-enters from the end
     expect(log.getFocusIndex()).toBe(2);
   });
@@ -187,17 +189,17 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
   it("stays at none when there is nothing focusable", () => {
     const log = new Log([{ kind: "system", lines: ["plain"] }]);
     log.moveFocus(1);
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
     log.moveFocus(-1);
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
   });
 
   it("setFocus/clearFocus manage focus directly", () => {
     const log = new Log(fixture());
-    log.setFocus(3);
+    log.setFocus(T(3));
     expect(log.getFocusIndex()).toBe(3);
     log.clearFocus();
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
   });
 
   it("render colors only the focused entry", () => {
@@ -207,7 +209,7 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
     log.setFollow(false);
     log.setOffset(0);
     const unfocused = log.render({ cols: COLS }).join("\n");
-    log.setFocus(1);
+    log.setFocus(T(1));
     const focused = log.render({ cols: COLS }).join("\n");
     expect(focused).toContain("\x1b[48"); // focus background present
     expect(focused).not.toBe(unfocused); // focus changes the rendered rows
@@ -217,7 +219,7 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
 describe("ChatLogComponent — collapse/expand toggling", () => {
   it("toggles a focused chunk's collapsed flag", () => {
     const log = new Log(fixture());
-    log.setFocus(1);
+    log.setFocus(T(1));
     expect(log.toggleFocused()).toBe(true);
     expect(log.getEntries()[1]?.collapsed).toBe(true);
     expect(log.toggleFocused()).toBe(true);
@@ -226,7 +228,7 @@ describe("ChatLogComponent — collapse/expand toggling", () => {
 
   it("toggles a focused tool call's expanded flag", () => {
     const log = new Log(fixture());
-    log.setFocus(2);
+    log.setFocus(T(2));
     expect(log.toggleFocused()).toBe(true);
     expect(log.getEntries()[2]?.expanded).toBe(true);
     expect(log.toggleFocused()).toBe(true);
@@ -235,7 +237,7 @@ describe("ChatLogComponent — collapse/expand toggling", () => {
 
   it("returns false for non-toggleable entries", () => {
     const log = new Log(fixture());
-    log.setFocus(0); // system entry
+    log.setFocus(T(0)); // system entry
     expect(log.toggleFocused()).toBe(false);
     expect(log.getEntries()[0]?.collapsed).toBeUndefined();
     expect(log.getEntries()[0]?.expanded).toBeUndefined();
@@ -243,14 +245,14 @@ describe("ChatLogComponent — collapse/expand toggling", () => {
 
   it("returns false when nothing is focused", () => {
     const log = new Log(fixture());
-    expect(log.getFocusIndex()).toBe(FOCUS_NONE);
+    expect(log.getFocusIndex()).toBe(-1);
     expect(log.toggleFocused()).toBe(false);
   });
 
   it("collapsing changes what render shows (fewer rows)", () => {
     const log = new Log(fixture());
     log.setViewportRows(12);
-    log.setFocus(1);
+    log.setFocus(T(1));
     const open = log.render({ cols: COLS });
     log.toggleFocused();
     const closed = log.render({ cols: COLS });
@@ -280,7 +282,7 @@ describe("ChatLogComponent — memoized row cache", () => {
     const entry = log.getEntries()[1] as LogEntry;
     log.render({ cols: COLS });
     const before = entry.cache;
-    log.setFocus(1);
+    log.setFocus(T(1));
     log.render({ cols: COLS });
     expect(entry.cache).not.toBe(before);
   });

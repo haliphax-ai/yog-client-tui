@@ -12,14 +12,24 @@
  * `ui/render/entry.ts` — the single memoization implementation in the codebase.
  */
 import { ViewportComponent } from "./ViewportComponent.ts";
-import { FOCUS_NONE, isProseTable, moveFocus } from "../../core/focus.ts";
+import {
+  FOCUS_NONE_TARGET,
+  type FocusTarget,
+  isProseTable,
+  moveFocus,
+  tableCount,
+} from "../../core/focus.ts";
 import { cachedRows, totalRows } from "../render/index.ts";
-import { parseTable } from "../render/table.ts";
+import { parseTable, splitTableSections } from "../render/table.ts";
 import type { LogEntry } from "../render/types.ts";
 
 /** Table predicate bound to the GFM parser (one wiring point for the ring). */
 const hasTable = (e: { kind: string; lines?: readonly string[] }): boolean =>
   isProseTable(e, (text) => parseTable(text));
+
+/** Number of tables in a prose entry (0 for non-prose). */
+const numTables = (e: { kind: string; lines?: readonly string[] }): number =>
+  tableCount(e, (text) => splitTableSections(text));
 
 /** Bounds of entry `i`: first row and full block height (incl. separator). */
 function entryBounds(
@@ -36,8 +46,8 @@ function entryBounds(
 export abstract class ChatLogComponent extends ViewportComponent {
   /** The log's entries (shared with the store in the current wiring). */
   protected entries: LogEntry[];
-  /** Focused entry index (`FOCUS_NONE` = none). */
-  protected focusIndex: number = FOCUS_NONE;
+  /** Focused table target (`{entry:-1, table:-1}` = none). */
+  protected focusTarget: FocusTarget = FOCUS_NONE_TARGET;
 
   constructor(entries: LogEntry[] = []) {
     super();
@@ -63,27 +73,39 @@ export abstract class ChatLogComponent extends ViewportComponent {
 
   // -- focus ring ----------------------------------------------------------
 
-  /** Focused entry index (`FOCUS_NONE` = none). */
+  /** Focused entry index (`-1` = none). Convenience view of the target. */
   getFocusIndex(): number {
-    return this.focusIndex;
+    return this.focusTarget.entry;
   }
 
-  /** Focus the given entry directly (no ring movement, no reveal). */
-  setFocus(index: number): void {
-    this.focusIndex = index;
+  /** Focused table index within the focused entry (`-1` = entry-level). */
+  getFocusTable(): number {
+    return this.focusTarget.table;
+  }
+
+  /** Is anything focused? */
+  hasFocus(): boolean {
+    return this.focusTarget.entry >= 0;
+  }
+
+  /** Focus the given target directly (no ring movement, no reveal). */
+  setFocus(target: FocusTarget): void {
+    this.focusTarget = target;
   }
 
   /** Drop focus entirely (leaves focus mode). */
   clearFocus(): void {
-    this.focusIndex = FOCUS_NONE;
+    this.focusTarget = FOCUS_NONE_TARGET;
   }
 
   /**
-   * Focus the next/previous focusable entry (wrap-through-none ring: past
-   * the last entry lands on none, and the next press re-enters from that end).
+   * Focus the next/previous focusable unit (wrap-through-none ring: past
+   * the last lands on none, and the next press re-enters from that end).
+   * The ring is a flat list of targets — tables inside one entry are
+   * independently focusable, so Tab walks through them before moving on.
    */
   moveFocus(dir: 1 | -1): void {
-    this.focusIndex = moveFocus(this.entries, this.focusIndex, dir, hasTable);
+    this.focusTarget = moveFocus(this.entries, this.focusTarget, dir, hasTable, numTables);
   }
 
   /**
@@ -92,9 +114,10 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * than the viewport must never be scrolled at from its middle).
    */
   revealFocus(viewportRows: number): void {
-    if (this.focusIndex < 0 || this.focusIndex >= this.entries.length) return;
+    const entry = this.focusTarget.entry;
+    if (entry < 0 || entry >= this.entries.length) return;
     const rows = Math.max(1, viewportRows);
-    const { top, height } = entryBounds(this.entries, this.cols, this.focusIndex);
+    const { top, height } = entryBounds(this.entries, this.cols, entry);
     if (top < this.scrollOffset) {
       this.follow = false;
       this.scrollOffset = top;
@@ -108,7 +131,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
 
   /** Toggle the focused entry's collapse/expand; false when nothing is focused. */
   toggleFocused(): boolean {
-    const entry = this.entries[this.focusIndex];
+    const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return false;
     if (entry.kind === "chunk") {
       entry.collapsed = !entry.collapsed;
@@ -131,12 +154,21 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * Produce all content rows at `cols`: entries walked via the shared
    * memoized row cache, with a blank separator after each entry. The base
    * viewport clamps, slices, and pads — entry-walking here means scrolling
-   * over a warm cache never re-renders.
+   * over a warm cache never re-renders. Focus is per-table: only the focused
+   * table renders blue; every other table in the entry renders white.
    */
   override produceRows(cols: number): string[] {
     const rows: string[] = [];
+    const focusedEntry = this.focusTarget.entry;
+    const focusedTable = this.focusTarget.table;
     for (let i = 0; i < this.entries.length; i++) {
-      const entryRows = cachedRows(this.entries[i] as LogEntry, cols, i === this.focusIndex);
+      const isEntryFocused = i === focusedEntry;
+      const entryRows = cachedRows(
+        this.entries[i] as LogEntry,
+        cols,
+        isEntryFocused,
+        isEntryFocused ? focusedTable : -1,
+      );
       rows.push(...entryRows);
       rows.push(""); // separator after each entry
     }
