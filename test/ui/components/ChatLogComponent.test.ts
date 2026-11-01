@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
-import { FOCUS_NONE_TARGET, type FocusTarget } from "../../../src/core/focus.ts";
+import { type FocusTarget } from "../../../src/core/focus.ts";
 import { totalRows, type LogEntry } from "../../../src/ui/render/index.ts";
 import { stripAnsi } from "../../../src/util/ansi.ts";
 

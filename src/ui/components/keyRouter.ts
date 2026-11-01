@@ -8,7 +8,7 @@
  * The router owns no state of its own: it walks the chain and lets the
  * responders do their work.
  */
-import type { Component, KeyResult } from "./Component.ts";
+import type { Component } from "./Component.ts";
 import { Binding, matches, newBinding, withHelp, withKeys } from "@oakoliver/bubbles";
 
 /** Global binding handlers supplied by the composition root. */

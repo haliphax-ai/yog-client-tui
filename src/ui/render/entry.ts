@@ -4,18 +4,16 @@
  */
 import type { Style } from "@oakoliver/lipgloss";
 import { ST, CHUNK_HEADER } from "../theme.ts";
-import { displayWidth, matchEscape, stripAnsi, truncateAnsi, wrapText } from "../../util/ansi.ts";
+import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
-import { highlightBlock, renderInlineMarkdown, renderMarkdown, trimLeading } from "./markdown.ts";
+import { renderMarkdown } from "./markdown.ts";
 import type { EntryKind, LogEntry } from "./types.ts";
 import {
   parseTable,
-  renderTable,
   resolveTableLayout,
   splitTableSections,
   tableRowWidth,
   TableComponent,
-  type ParsedTable,
 } from "./table.ts";
 
 export { highlightBlock, renderMarkdown } from "./markdown.ts";

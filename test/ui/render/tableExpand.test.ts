@@ -15,7 +15,6 @@ import {
   tableScrollKey,
 } from "../../../src/ui/render/table.ts";
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
-import { FOCUS_NONE } from "../../../src/core/focus.ts";
 import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
 /**

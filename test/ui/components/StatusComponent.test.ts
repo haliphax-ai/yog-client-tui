@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { statusBody } from "../../../src/ui/components/StatusComponent.ts";
 import { resetForTests, setState } from "../../../src/core/store.ts";
