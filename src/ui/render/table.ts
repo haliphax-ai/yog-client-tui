@@ -212,8 +212,10 @@ export function resolveTableLayout(
     return { expandable: false, widths: [...colWidths] };
   }
 
-  // Collapsed layout: squeeze widest-first, floored at TABLE_MIN_COL.
-  const collapsed = capWidths([...colWidths], cols);
+  // Collapsed layout: squeeze widest-first, floored at TABLE_MIN_COL,
+  // then stretch to fill the viewport width. A reflowed table uses the
+  // full available width instead of stopping short.
+  const collapsed = stretchWidths(capWidths([...colWidths], cols), cols);
 
   // State 3a: not collapsible — even at the floor the row doesn't fit.
   // Stay expanded permanently; Enter is inert.
@@ -248,12 +250,43 @@ function buildExpanded(
   const naturalExpanded = natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? n : (collapsed[i] ?? 0),
   );
-  if (tableRowWidth(naturalExpanded) <= cols) return naturalExpanded;
+  if (tableRowWidth(naturalExpanded) <= cols) {
+    // Fits — stretch to fill the viewport instead of shrink-wrapping.
+    return stretchWidths(naturalExpanded, cols);
+  }
 
   // Overflow: cap reflowed columns at TABLE_MAX_COL.
   return natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );
+}
+
+/** Stretch column widths to fill `cols`, distributing slack evenly across
+ *  columns up to their natural width. A reflowed table uses the full
+ *  viewport width instead of stopping short. Columns never exceed their
+ *  natural width — the cap is content, not an arbitrary ceiling. */
+function stretchWidths(natural: readonly number[], cols: number): number[] {
+  const current = tableRowWidth(natural);
+  const slack = cols - current;
+  if (slack <= 0) return [...natural];
+
+  const result = [...natural];
+  let remaining = slack;
+  // Round-robin so no single column hogs the slack.
+  while (remaining > 0) {
+    let grew = false;
+    for (let i = 0; i < result.length && remaining > 0; i++) {
+      const room = (natural[i] ?? 0) - (result[i] ?? 0);
+      if (room > 0) {
+        const add = Math.min(remaining, room);
+        result[i] = (result[i] ?? 0) + add;
+        remaining -= add;
+        grew = true;
+      }
+    }
+    if (!grew) break; // every column at its natural width
+  }
+  return result;
 }
 
 /** True if the line looks like a table row (has pipes and at least one non-empty cell). */
@@ -482,11 +515,10 @@ export function renderTable(
   // a reset inside a zebra-striped row would punch a hole in the zebra
   // background (the row is wrapped in ST.tableZebra.render() below, and
   // each border rune's \x1b[0m would override the bg it just set).
-  // Unfocused border runes carry an explicit white fg (#ffffff) so the
-  // border is visible against any background — bare runes inherit the
-  // terminal default, which may not be white. The trailing reset is
-  // stripped (same as the focused path) so the fg doesn't punch a hole
-  // in the zebra background on data rows.
+  // Unfocused border runes carry an explicit white fg so the border is
+  // always white regardless of stale SGR state from a previously-focused
+  // table rendered above. Bare runes would inherit the terminal's
+  // current fg, which may still be blue.
   const whiteRune = (rune: string): string => `\x1b[38;2;255;255;255m${rune}`;
   const border = focused ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "") : whiteRune("│");
   const hBorder = focused ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "") : whiteRune("─");
