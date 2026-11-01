@@ -214,8 +214,10 @@ export function resolveTableLayout(
 
   // Collapsed layout: squeeze widest-first, floored at TABLE_MIN_COL,
   // then stretch to fill the viewport width. A reflowed table uses the
-  // full available width instead of stopping short.
-  const collapsed = stretchWidths(capWidths([...colWidths], cols), cols);
+  // full available width instead of stopping short. Ceiling is the
+  // original natural widths — columns can grow past TABLE_MAX_COL when
+  // the viewport has slack to give.
+  const collapsed = stretchWidths(capWidths([...colWidths], cols), cols, [...colWidths]);
 
   // State 3a: not collapsible — even at the floor the row doesn't fit.
   // Stay expanded permanently; Enter is inert.
@@ -261,14 +263,22 @@ function buildExpanded(
   const capped = natural.map((n, i) =>
     (collapsed[i] ?? 0) < n ? Math.min(n, TABLE_MAX_COL) : (collapsed[i] ?? 0),
   );
-  return stretchWidths(capped, cols);
+  // Ceiling is the original natural widths: the 30 cap is a starting
+  // point, not a hard ceiling — slack goes to columns that have room
+  // up to their natural width (so a wide table fills the viewport).
+  return stretchWidths(capped, cols, [...natural]);
 }
 
 /** Stretch column widths to fill `cols`, distributing slack evenly across
- *  columns up to `TABLE_MAX_COL` (30). A reflowed table uses the full
- *  viewport width instead of stopping short. The cap is a ceiling, not
- *  a target — columns already at or above it are skipped. */
-function stretchWidths(natural: readonly number[], cols: number): number[] {
+ *  columns up to `ceiling` (defaults to the input widths). A reflowed table
+ *  uses the full viewport width instead of stopping short. The ceiling is
+ *  per-column content width, not an arbitrary cap — columns already at or
+ *  above it are skipped. */
+function stretchWidths(
+  natural: readonly number[],
+  cols: number,
+  ceiling: readonly number[] = natural,
+): number[] {
   const current = tableRowWidth(natural);
   const slack = cols - current;
   if (slack <= 0) return [...natural];
@@ -276,11 +286,11 @@ function stretchWidths(natural: readonly number[], cols: number): number[] {
   const result = [...natural];
   let remaining = slack;
   // Round-robin so no single column hogs the slack. Cap at each column's
-  // natural width — the cap is content, not an arbitrary ceiling.
+  // ceiling width — content, not an arbitrary number.
   while (remaining > 0) {
     let grew = false;
     for (let i = 0; i < result.length && remaining > 0; i++) {
-      const room = (natural[i] ?? 0) - (result[i] ?? 0);
+      const room = (ceiling[i] ?? 0) - (result[i] ?? 0);
       if (room > 0) {
         const add = Math.min(remaining, room);
         result[i] = (result[i] ?? 0) + add;
@@ -288,7 +298,7 @@ function stretchWidths(natural: readonly number[], cols: number): number[] {
         grew = true;
       }
     }
-    if (!grew) break; // every column at its natural width
+    if (!grew) break; // every column at its ceiling
   }
   return result;
 }
