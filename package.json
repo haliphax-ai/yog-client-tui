@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "lint:deps": "depcruise --config .dependency-cruiser.cjs src",
+    "depcruise": "dependency-cruiser src test --config .dependency-cruiser.cjs",
+    "depcruise:graph": "dependency-cruiser src --output-type mermaid",
     "commitlint": "commitlint",
     "prepare": "husky || true"
   },
