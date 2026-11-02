@@ -456,21 +456,21 @@ describe("renderTable — styled output", () => {
   it("sequence position drives margins in the entry renderer", () => {
     const tableMd = ["| A |", "| --- |", "| one |"];
     const entry = (lines: string[]): LogEntry => ({ kind: "assistant", lines });
-    // Assistant rows carry the border prefix ("▐ ") on every line.
+    // Assistant prose rows no longer carry a border prefix — the table
     // Table FIRST in the sequence: no top margin (row 0 = top border).
     const leadTable = cachedRows(entry([...tableMd]), 60);
-    expect(stripAnsi(leadTable[0]!).startsWith("▐ ┌")).toBe(true);
+    // borders are the first visible content on every row.
     // Prose then table: table LAST — no bottom margin (last row = bottom border).
     const proseThenTable = cachedRows(entry(["Intro prose.", ...tableMd]), 60);
     expect(stripAnsi(proseThenTable[proseThenTable.length - 1]!).endsWith("┘")).toBe(true);
     // Table then prose: table FIRST — no top margin.
     const tableThenProse = cachedRows(entry([...tableMd, "Outro prose."]), 60);
-    expect(stripAnsi(tableThenProse[0]!).startsWith("▐ ┌")).toBe(true);
+    expect(stripAnsi(tableThenProse[0]!).startsWith("┌")).toBe(true);
     // Table ONLY: both first and last — no top OR bottom margin. Rows are
     // top border, header, separator, data, bottom border (5).
     const tableOnly = cachedRows(entry([...tableMd]), 60);
     expect(tableOnly).toHaveLength(5);
-    expect(stripAnsi(tableOnly[0]!).startsWith("▐ ┌")).toBe(true);
+    expect(stripAnsi(tableOnly[0]!).startsWith("┌")).toBe(true);
     expect(stripAnsi(tableOnly[tableOnly.length - 1]!).endsWith("┘")).toBe(true);
   });
 
