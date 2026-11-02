@@ -288,6 +288,22 @@ describe("renderTable — styled output", () => {
     expect(scrolled[4]).not.toBe(noScroll[4]);
   });
 
+  it("scrollX replaces a straddling wide grapheme's visible half with blank cells", () => {
+    // 🧠 is 2 cells; when its first cell is off-screen to the left, the
+    // second cell must render as a space (not pull the whole glyph in).
+    // Row layout: │ 🧠 brain │ x │ — 🧠 occupies cells 2-3, so scrollX=3
+    // cuts between its two cells: first cell gone, second → space.
+    const md = `| Name | Value |\n| --- | --- |\n| 🧠 brain | x |`;
+    const table = parseTable(md)!;
+    const scrolled = renderTable(table, 80, false, 3);
+    const plain = stripAnsi(scrolled[4]!);
+    // The visible half of 🧠 is ONE cell (a space), not the 2-cell glyph.
+    expect(plain.startsWith(" ")).toBe(true);
+    expect(plain).not.toContain("🧠");
+    // "brain" follows the replacement space — content not shifted.
+    expect(plain).toContain("brain");
+  });
+
   it("emits one physical line per <br> display break", () => {
     const md = `| A | B |\n| --- | --- |\n| line1<br>line2 | single |`;
     const rows = renderTable(parseTable(md)!, 80, false, 0);
