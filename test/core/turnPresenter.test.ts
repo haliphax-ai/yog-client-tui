@@ -198,6 +198,18 @@ describe("createTurnPresenter", () => {
     expect(prose).toHaveLength(1);
     expect(prose[0]?.lines.join("")).toBe("hello");
   });
+
+  it("emits nothing for an empty delta — no empty prose block before tool calls", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.begin("q");
+    turn.events.onDelta?.("");
+    turn.events.onDelta?.("   ");
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "out\n" });
+    turn.finish();
+    expect(entries.filter((e) => e.kind === "assistant")).toHaveLength(0);
+  });
 });
 
 describe("transcriptLogEntries", () => {

@@ -50,6 +50,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
 
   const events: TurnEvents = {
     onDelta: (text) => {
+      if (text.trim() === "") return;
       // Invariant: a prose entry is only ever appended to while it is the
       // log tail. Tool calls close the open block eagerly (see onToolCall);
       // if anything else interposed (error/recovery note, orphan result
