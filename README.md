@@ -100,6 +100,13 @@ to run `cp config.example.json config.json`.
 | `Shift+Tab`                                       | Focus the previous unit (wraps through "none")                                   |
 | `Esc`                                             | Leave focus mode · abort the in-flight turn (idle → no-op)                       |
 
+Input keystrokes are ignored while a turn is in flight (one turn at a time); the
+status line shows a spinner and key hints — including `Esc abort` while busy.
+Esc with a focused entry only leaves focus mode; with nothing focused it aborts
+the active turn via the server's `POST /v1/sessions/{id}/abort` endpoint: the
+server kills the tool call in flight, closes the model stream, heals the
+transcript, and settles the turn, and the TUI logs a `⏹ turn aborted` line.
+
 ### Tables
 
 A message containing a GFM pipe table is focusable, and every table in the
@@ -129,13 +136,6 @@ fits the viewport when collapsed keeps its columns exactly as they are,
 and a column wider than 30 cells is never shrunk below its own width.
 Each table's expansion and scroll offset are tracked per table, so two
 tables in one message expand and scroll independently.
-
-Input keystrokes are ignored while a turn is in flight (one turn at a time); the
-status line shows a spinner and key hints — including `Esc abort` while busy.
-Esc with a focused entry only leaves focus mode; with nothing focused it aborts
-the active turn via the server's `POST /v1/sessions/{id}/abort` endpoint: the
-server kills the tool call in flight, closes the model stream, heals the
-transcript, and settles the turn, and the TUI logs a `⏹ turn aborted` line.
 
 ## How it talks to yog
 
