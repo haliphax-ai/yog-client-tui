@@ -45,8 +45,6 @@ function kindStyle(kind: EntryKind): Style {
 /** Rows a tool-output block body shows before truncation (label excluded). */
 const COLLAPSE_LINES = 5;
 
-/** Left-border rune marking assistant prose (themed via ST.assistantBorder). */
-const BORDER_RUNE = "▐";
 
 /** A fully styled entry: its rendered rows, their count, and the row offset
  *  of every table section within the rendered block (0-based, relative to the
@@ -175,11 +173,10 @@ function renderEntry(
 ): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
     const isUser = entry.kind === "user";
-    // Prompt: 1-cell padding each side sits INSIDE the style width, so the
-    // content wraps at cols-2 while the block spans the full terminal.
-    // Assistant: rows are prefixed with the border cell + one space, so the
-    // prose wraps at cols-2 too and the border gutter survives wrapping.
-    const bodyW = Math.max(1, cols - 2);
+    // Prompts and assistant prose now wrap at the full terminal width:
+    // the user bubble's vertical padding (1 row top/bottom) and the assistant's
+    // former border gutter are gone; only the background delineates blocks.
+    const bodyW = Math.max(1, cols);
     const sections = sectionsOf(entry);
     // Render each section: prose through glamour, tables through the table
     // renderer. The FIRST and LAST sections of the sequence render WITHOUT
@@ -234,12 +231,9 @@ function renderEntry(
       const rendered = ST.user.width(cols).render(parts.join("\n"));
       return { rendered, rows: rendered.split("\n").length, tableOffsets };
     }
-    // Style each prose row by itself, then glue the border in front — the
-    // border never crosses the prose styling and vice versa, and pre-wrapped
-    // rows (md or wrapText, both <= bodyW = cols-2 cells) leave room for the
-    // two-cell gutter on every row.
-    const border = ST.assistantBorder.render(BORDER_RUNE);
-    const rows = parts.map((row) => `${border} ${row}`);
+    // Assistant: style each prose row with the assistant style (white text,
+    // no border, no padding — full-width rows for easy selection).
+    const rows = parts.map((row) => ST.assistant.render(row));
     const rendered = rows.join("\n");
     return { rendered, rows: rows.length, tableOffsets };
   }
