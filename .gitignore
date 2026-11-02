@@ -1,12 +1,9 @@
-/PLAN.md
-node_modules/
-coverage/
 *.log
-config.json
 *.swp
-# The workspace-wide excludesfile (projects/gitignore) has a bare `core`
-# pattern for core dumps; it also matches the tracked source directories
-# here. Negate exactly those paths (a leading `/` in a negation anchors it
-# to this .gitignore's directory).
+/assets
+config.json
+coverage/
+node_modules/
+# exclusions
 !/src/core/
 !/test/core/

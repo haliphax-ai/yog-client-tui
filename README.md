@@ -10,6 +10,12 @@ with `@oakoliver/glamour` markdown rendering.
 
 ## Architecture
 
+<details><summary>Dependency graph</summary>
+<br />
+
+![Dependency graph](https://raw.githubusercontent.com/haliphax-ai/yog-client-tui/refs/heads/assets/dependencies.jpg)
+</details>
+
 The code is split into responsibility domains with enforced dependency rules
 (dependency-cruiser checks them in `npm run lint:deps`):
 
