@@ -5,8 +5,7 @@
  * The renderer owns presentation only: the widths come from the layout
  * engine, the scroll offset from the caller.
  */
-import { sliceAnsi } from "@oakoliver/lipgloss";
-import { displayWidth, stripAnsi, wrapText } from "../../../util/ansi.ts";
+import { displayWidth, scrollLeft, stripAnsi, wrapText } from "../../../util/ansi.ts";
 import { ST } from "../../theme.ts";
 import { renderInlineMarkdown } from "../markdown.ts";
 import { cellLines, type ParsedTable } from "./parse.ts";
@@ -191,7 +190,7 @@ export function renderTable(
   // as a broken table.
   const applyScroll = (line: string): string => {
     if (scrollX <= 0) return line;
-    const sliced = sliceAnsi(line, scrollX);
+    const sliced = scrollLeft(line, scrollX);
     const padBack = Math.max(0, totalWidth - displayWidth(stripAnsi(sliced)));
     return sliced + " ".repeat(padBack);
   };
