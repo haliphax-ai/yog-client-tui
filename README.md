@@ -17,12 +17,12 @@ with `@oakoliver/glamour` markdown rendering.
 </details>
 
 The code is split into responsibility domains with enforced dependency rules
-(dependency-cruiser checks them in `npm run lint:deps`):
+(dependency-cruiser checks them in `npm run depcruise`):
 
 | Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                           |
 | ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                            |
-| `config`         | `src/config.ts`    | Config parsing and validation: `model` (required), optional `baseUrl`, and `resolveBaseUrl` (config → `YOG_SERVER_URL` env → `http://127.0.0.1:8111`).                                                                                                                                                                                                                                   |
+| `config`         | `src/config.ts`    | Config parsing and validation: `model` and `baseUrl` (both required); config/state file locations resolved from `XDG_CONFIG_HOME` → `HOME` → `PWD`. |
 | `core`           | `src/core/`        | The domain: the log-entry shape (`core/entries`), the tiny state store (`getState` / `setState` / `subscribe`), the focus ring (`core/focus`), scroll math, tool-argument/result formatting (`core/toolFormat`), transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering). Never imports the presentation layer. |
 | `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → prompt-only `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → transcript rehydration (`GET /v1/sessions/{id}/transcript`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem. |
 | `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, the table engine — parse / layout / render / scroll, the memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem. |
@@ -61,7 +61,10 @@ and the flush runs the stages.
 
 ```sh
 npm install
-cp config.example.json config.json
+# Copy the template into one of the locations from Configuration below
+# ($XDG_CONFIG_HOME → $HOME → PWD); for example:
+mkdir -p ~/.config/yog-client-tui
+cp config.example.json ~/.config/yog-client-tui/config.json
 # edit config.json and set your model id
 npm start
 ```
@@ -71,21 +74,24 @@ step). `npm run typecheck` runs `tsc --noEmit`.
 
 ## Configuration
 
-`config.json` is read from the current working directory, falling back to the
-package root. See `config.example.json` for the committed template — a real
-`config.json` is git-ignored.
+The client looks for `config.json` in the first existing location of:
 
-| Key       | Required | Description                                                                                                                                                                                                                                                                                                                           |
-| --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `model`   | yes      | Model id sent with every turn.                                                                                                                                                                                                                                                                                                        |
-| `baseUrl` | no       | Server base URL.                                                                                                                                                                                                                                                                                                                      |
-| `session` | no       | Session id to resume. Left empty (or absent) to create a fresh session. The client rewrites this key after every startup, so a relaunch automatically resumes the last session; use the `--new` flag (or clear the key) to start fresh. If the stored id no longer exists server-side, the client starts a new session automatically. |
+- `$XDG_CONFIG_HOME/yog-client-tui/config.json` (when `XDG_CONFIG_HOME` is set)
+- `$HOME/.yog-client-tui/config.json` (when `HOME` is set)
+- `./yog-client-tui/config.json` (relative to the current working directory)
 
-Base URL resolution order: `baseUrl` from `config.json` → `YOG_SERVER_URL`
-environment variable → `http://127.0.0.1:8111` (default).
+See `config.example.json` for the committed template — a real `config.json` is
+git-ignored. Session state lives alongside it in `state.json`.
 
-If `config.json` is missing or invalid, the client exits with an error telling you
-to run `cp config.example.json config.json`.
+| Key       | Required | Description                                                            |
+| --------- | -------- | ---------------------------------------------------------------------- |
+| `model`   | yes      | Model id sent with every turn.                                         |
+| `baseUrl` | yes      | Server base URL (e.g. `http://127.0.0.1:8111` for a local daemon).     |
+
+The session to resume comes from `--session <id>` (CLI), else the
+`lastSessionId` persisted in `state.json`, else a fresh session; `--new`
+forces a fresh one. If the config file is missing or malformed, the client
+exits with an error.
 
 ## Key bindings
 
@@ -156,7 +162,7 @@ The server owns the canonical conversation. At startup the client:
    without it is not running the current contract — the client exits with an
    error rather than compensating).
 2. Resolves the session: `--session <id>` from the command line, else the
-   `session` key in `config.json`, else a fresh session (`--new` forces a
+   stored `lastSessionId` in `state.json`, else a fresh session (`--new` forces a
    fresh one regardless). A resumable id is validated with
    `GET /v1/sessions/{id}`; a stale id (`unknown_session`) falls back to a
    fresh session with a one-line note.
@@ -164,7 +170,7 @@ The server owns the canonical conversation. At startup the client:
    (`GET /v1/sessions/{id}/transcript`) — every message kind, full fidelity:
    tool calls render as the same rich, expandable entries a live turn
    produces, annotated with their results, before the first frame is drawn.
-4. Persists the resolved session id into `config.json` so the next launch
+4. Persists the resolved session id into `state.json` so the next launch
    resumes automatically (a failed startup never overwrites the stored id).
 
 On each turn the client then:
@@ -187,4 +193,4 @@ On each turn the client then:
    where this one left off. Only a server-side purge (`DELETE ?purge=true`)
    or the 30-day retention prune truly ends a session.
 
-Default server: `http://127.0.0.1:8111`.
+The bundled `config.example.json` points at the local daemon `http://127.0.0.1:8111`.
