@@ -39,6 +39,10 @@ export const ST = {
    *  visible regardless of stale SGR state from a previously-focused
    *  table rendered above. */
   tableBorderUnfocused: newStyle().foreground("#ffffff"),
+  /** Slash-command menu: unselected candidate. */
+  suggestion: newStyle().foreground("#94a3b8"),
+  /** Slash-command menu: selected candidate. */
+  suggestionSel: newStyle().foreground("#ffffff").background("#7c3aed").bold(true),
 } as const;
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */

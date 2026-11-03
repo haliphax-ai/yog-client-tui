@@ -13,6 +13,8 @@ export interface UiState {
   input: string;
   cursor: number;
   inputScroll: number;
+  /** Selected slash-command completion index (resets on any text edit). */
+  commandSel: number;
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
@@ -34,6 +36,7 @@ function initialState(): UiState {
     input: "",
     cursor: 0,
     inputScroll: 0,
+    commandSel: 0,
     scrollOffset: 0,
     follow: true,
     busy: false,
