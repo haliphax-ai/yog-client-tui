@@ -234,7 +234,12 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         const decoded = decodeToolResult(next.raw);
         annotateToolCall(call.entry, decoded.ok, decoded.error);
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-          out.push(toolResultChunk(call.name, decoded.value));
+          const idx = out.indexOf(call.entry);
+          if (idx !== -1) {
+            out.splice(idx + 1, 0, toolResultChunk(call.name, decoded.value));
+          } else {
+            out.push(toolResultChunk(call.name, decoded.value));
+          }
         }
         i += 1;
       }
