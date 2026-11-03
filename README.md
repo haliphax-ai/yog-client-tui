@@ -41,7 +41,7 @@ Every redraw runs through a fixed sequence of stages — the order is data (the
 | --------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
 | `layout`  | Measure terminal geometry (cols/rows/viewport rows) into components.                       | —                                                   |
 | `paint`   | Each component renders its rows.                                                           | components + overlays that draw into the paint pass |
-| `compose` | Join viewport + input + status lines into one frame.                                       | —                                                   |
+| `compose` | Pass-through — paint already joined the rows; compose hooks rewrite the frame. | —                                                   |
 | `post`    | Pad/truncate every ANSI line to the terminal width.                                        | overlays, status widgets, banners                   |
 | `emit`    | Write the finished frame to stdout — a single owner (`writeFrame`); nothing runs after it. | —                                                   |
 
@@ -106,8 +106,9 @@ exits with an error.
 | `Shift+Tab`                                       | Focus the previous unit (wraps through "none")                                   |
 | `Esc`                                             | Leave focus mode · abort the in-flight turn (idle → no-op)                       |
 
-Input keystrokes are ignored while a turn is in flight (one turn at a time); the
-status line shows a spinner and key hints — including `Esc abort` while busy.
+While a turn is in flight, Enter is ignored (one turn at a time); input editing
+continues. The status line shows a spinner and key hints — including `Esc abort`
+while busy.
 Esc with a focused entry only leaves focus mode; with nothing focused it aborts
 the active turn via the server's `POST /v1/sessions/{id}/abort` endpoint: the
 server kills the tool call in flight, closes the model stream, heals the
@@ -180,11 +181,11 @@ On each turn the client then:
    rides along (retries after a failed turn replay from the last turn
    boundary server-side).
 6. Consumes the SSE stream, rendering deltas into the assistant entry, tool
-   call lines with an inline ✓/✗ indicator and syntax-highlighted args,
+   call lines with an inline ✅/❌ indicator and syntax-highlighted args,
    collapsible (Tab + Enter) result chunks for tool output, and error events
    as they arrive.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
-   (a "stream interrupted — turn recovered from turn status" note is logged).
+   (a "stream interrupted — recovered from turn status" note is logged).
 8. Esc (with nothing focused) aborts the active turn via
    `POST /v1/sessions/{id}/abort` — a `⏹ turn aborted` note is logged from
    the stream's terminal `turn.aborted` event.
