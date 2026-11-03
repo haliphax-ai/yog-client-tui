@@ -157,6 +157,13 @@ describe("routeChar — same ordering as routeKey", () => {
     expect(log).toEqual(["char:claimer:\x1b"]);
     expect(calls).toEqual([]);
   });
+  it("Ctrl+C is unbound: bubbles through without running any global binding", () => {
+    const a = new Stub();
+    const b = new Stub();
+    const { globals, calls } = globalsSpy();
+    expect(routeChar([a, b], "\x03", globals)).toBe(false);
+    expect(calls).toEqual([]);
+  });
 });
 
 describe("cycleFocus — loss before gain, with wrap", () => {

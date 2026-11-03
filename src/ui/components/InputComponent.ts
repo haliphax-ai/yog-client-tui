@@ -7,8 +7,10 @@
  * Key handling is scoped by focus: the router offers keys to the focused
  * component first, then the remaining components, then the global bindings.
  * The input claims every editing key whenever it is reached (focused or
- * not); submit / Tab / Ctrl+C / Esc bubble up so the globals and the
- * viewport can claim them first.
+ * not); submit and Esc bubble up so the globals and the viewport can
+ * claim them first. Tab completes a slash command when the line starts
+ * with "/", otherwise bubbles to the focus-cycling global. Ctrl+C is
+ * intentionally unbound (inert).
  *
  * Every width here is measured in terminal CELLS. The cursor highlights
  * the character under it — which may be a wide rune (an emoji is one
@@ -20,6 +22,7 @@ import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
 import { ST } from "../theme.ts";
 import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
+import { SLASH_COMMANDS, completeSlash, slashTokenEnd } from "../../core/commands.ts";
 
 /** Input prompt marker (also sizes the input window). */
 export const PROMPT = "you › ";
@@ -60,6 +63,7 @@ export function insert(text: string): void {
   setState({
     input: state.input.slice(0, state.cursor) + clean + state.input.slice(state.cursor),
     cursor: state.cursor + clean.length,
+    commandSel: 0,
   });
 }
 
@@ -70,6 +74,7 @@ export function backspace(): void {
   setState({
     input: state.input.slice(0, state.cursor - 1) + state.input.slice(state.cursor),
     cursor: state.cursor - 1,
+    commandSel: 0,
   });
 }
 
@@ -79,6 +84,7 @@ export function del(): void {
   if (state.cursor >= state.input.length) return;
   setState({
     input: state.input.slice(0, state.cursor) + state.input.slice(state.cursor + 1),
+    commandSel: 0,
   });
 }
 
@@ -101,9 +107,16 @@ export class InputComponent extends BaseComponent {
 
   /** One styled input row: marker + text window with a highlighted cursor. */
   render(ctx: RenderContext): string {
+    const inputLine = this.renderInputLine(ctx.cols);
+    const menu = this.renderMenu(ctx.cols);
+    return menu === "" ? inputLine : `${inputLine}\n${menu}`;
+  }
+
+  /** The prompt + text window row (single line). */
+  private renderInputLine(cols: number): string {
     const state = getState();
     const markerW = displayWidth(PROMPT);
-    const avail = Math.max(1, ctx.cols - markerW);
+    const avail = Math.max(1, cols - markerW);
     const text = state.input;
     const pos = Math.max(0, Math.min(state.cursor, text.length));
 
@@ -135,20 +148,36 @@ export class InputComponent extends BaseComponent {
       at === "" ? ST.cursor.render(" ") : ST.cursor.render(at),
       ST.inputText.render(truncateAnsi(after, widthAfter)),
     ];
-    const line = joinHorizontal(Left, ...parts);
-    return truncateAnsi(line, ctx.cols);
+    return truncateAnsi(joinHorizontal(Left, ...parts), cols);
   }
 
-  /** Rows this component occupies: always a single line. */
-  measure(_width: number): number {
-    return 1;
+  /**
+   * Slash-command autocomplete row: shown only when the input line starts
+   * with "/" (the trigger) and at least one command matches. The selected
+   * candidate is highlighted; Tab cycles through and applies the selection.
+   */
+  private renderMenu(cols: number): string {
+    const candidates = completeSlash(getState().input);
+    if (candidates.length === 0) return "";
+    const state = getState();
+    const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
+    const parts: string[] = [ST.promptMarker.render("↹ ")];
+    candidates.forEach((candidate, index) => {
+      parts.push(
+        index === sel ? ST.suggestionSel.render(candidate) : ST.suggestion.render(candidate),
+      );
+    });
+    const selected = candidates[sel];
+    const command = SLASH_COMMANDS.find((c) => "/" + c.name === selected);
+    if (command !== undefined) parts.push(ST.suggestion.render(`— ${command.summary}`));
+    return truncateAnsi(joinHorizontal(Left, ...parts), cols);
   }
 
   override handleChar(ch: string): "handled" | "unhandled" {
     if (ch === "\r" || ch === "\n") return "unhandled"; // submit → globals
-    if (ch === "\x03" || ch === "\t" || ch === "\x1b") {
-      return "unhandled"; // quit / focus cycle / Esc → viewport or globals
-    }
+    if (ch === "\t") return this.completeTab() ? "handled" : "unhandled";
+    if (ch === "\x1b") return "unhandled"; // Esc → viewport or globals
+    if (ch === "\x03") return "unhandled"; // Ctrl+C is intentionally unbound
     if (ch === "\x7f" || ch === "\x08") {
       backspace();
       return "handled";
@@ -156,6 +185,28 @@ export class InputComponent extends BaseComponent {
     if (ch < " ") return "handled"; // other control chars stay swallowed
     insert(ch);
     return "handled";
+  }
+
+  /**
+   * Tab inside a slash line: advance the completion selection and apply it
+   * (replaces the typed token; anything after a space is preserved). Returns
+   * false when autocomplete is not active so Tab still bubbles to the global
+   * focus-cycling binding.
+   */
+  private completeTab(): boolean {
+    const state = getState();
+    const candidates = completeSlash(state.input);
+    if (candidates.length === 0) return false;
+    const next = (state.commandSel + 1) % candidates.length;
+    const candidate = candidates[next];
+    if (candidate === undefined) return false;
+    const end = slashTokenEnd(state.input);
+    setState({
+      input: candidate + state.input.slice(end),
+      cursor: candidate.length,
+      commandSel: next,
+    });
+    return true;
   }
 
   override handleKey(seq: string): "handled" | "unhandled" {

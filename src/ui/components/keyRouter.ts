@@ -15,7 +15,7 @@ import { Binding, matches, newBinding, withHelp, withKeys } from "@oakoliver/bub
 
 /** Global binding handlers supplied by the composition root. */
 export interface Globals {
-  /** Ctrl+C: quit the application. */
+  /** /quit slash command: quit the application. */
   quit(): void;
   /** Tab: move the entry focus ring forward. */
   focusNext(): void;
@@ -86,10 +86,6 @@ const GLOBAL_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
  */
 const CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
-    binding: newBinding(withKeys("\x03"), withHelp("Ctrl+C", "quit")),
-    run: (g) => g.quit(),
-  },
-  {
     binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
     run: (g) => g.focusNext(),
   },
@@ -124,7 +120,7 @@ export function routeKey(chain: readonly Component[], seq: string, globals: Glob
 
 /**
  * Route one decoded character with the same ordering as {@link routeKey}.
- * Unclaimed chars fall through to the global bindings (Tab, Enter, Ctrl+C).
+ * Unclaimed chars fall through to the global bindings (Tab, Enter, Esc).
  */
 export function routeChar(chain: readonly Component[], ch: string, globals: Globals): boolean {
   const focused = chain.find((c) => c.isFocused);

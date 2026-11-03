@@ -25,8 +25,10 @@
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
- *   Ctrl+C           quit (restores the terminal; the session stays on the
- *                    server so the next launch can resume it)
+ *   /quit           quit via the slash command (type "/" as the first
+ *                    character, Tab completes, Enter runs it). Ctrl+C is
+ *                    unbound (inert); the session stays on the server so
+ *                    the next launch can resume it.
  *   Left/Right       move the input cursor
  *   Home/End         input cursor to start/end
  *   Backspace/Delete delete before/at cursor
@@ -55,9 +57,7 @@ import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
 import { createScheduler, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
-
-/** Rows reserved below the log: input bar + status line. */
-const STATUS_ROWS = 2;
+import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS } from "./core/commands.ts";
 
 /** Terminal state shared with error paths (module scope, always in sync). */
 let terminalActive = false;
@@ -223,7 +223,11 @@ async function run(argv: readonly string[]): Promise<void> {
       width: cols,
       setMetrics: () => {
         const rows = process.stdout.rows ?? 24;
-        viewport.setViewportRows(Math.max(1, rows - STATUS_ROWS));
+        const cols = process.stdout.columns ?? 80;
+        // The log gets the remainder after the input bar (which grows by
+        // one row when the slash-command autocomplete menu is open) and the
+        // status line.
+        viewport.setViewportRows(Math.max(1, rows - input.measure(cols) - status.measure(cols)));
       },
       paint: () => [...viewport.render({ cols }), input.render({ cols }), status.render({ cols })],
       emit: writeFrame,
@@ -273,10 +277,32 @@ async function run(argv: readonly string[]): Promise<void> {
     }
   };
 
+  /**
+   * Submit the input line. A line beginning with "/" is a slash command:
+   * resolved against the registry and run instead of being sent as a prompt.
+   * Commands bypass the busy gate (e.g. /quit must work mid-turn). Plain
+   * prompts are ignored while a turn is in flight (one turn at a time).
+   */
   const submit = (): void => {
     const state = getState();
     const input = state.input.trim();
-    if (input === "" || state.busy) return; // one turn at a time (documented)
+    if (input === "") return;
+
+    // Slash command path (works even while a turn is in flight).
+    if (isSlash(input)) {
+      const command = resolveSlash(input);
+      if (command !== undefined && command.name === "quit") {
+        void quit(0);
+        return;
+      }
+      const token = slashToken(input) ?? "";
+      const available = SLASH_COMMANDS.map((c) => "/" + c.name).join(", ");
+      pushLines("system", [`unknown command: /${token} — available: ${available}`]);
+      setState({ input: "", cursor: 0, inputScroll: 0, commandSel: 0 });
+      return;
+    }
+
+    if (state.busy) return; // one turn at a time (documented)
 
     const turn = createTurnPresenter({
       entries: state.entries,
@@ -289,6 +315,7 @@ async function run(argv: readonly string[]): Promise<void> {
       input: "",
       cursor: 0,
       inputScroll: 0,
+      commandSel: 0,
       statusNote: "",
       follow: true,
     });
@@ -335,7 +362,13 @@ async function run(argv: readonly string[]): Promise<void> {
   const chain: readonly Component[] = [viewport, input, status];
 
   /** Rows available to the log viewport in the current terminal layout. */
-  const viewportRows = (): number => Math.max(1, (process.stdout.rows ?? 24) - STATUS_ROWS);
+  const viewportRows = (): number =>
+    Math.max(
+      1,
+      (process.stdout.rows ?? 24) -
+        input.measure(process.stdout.columns ?? 80) -
+        status.measure(process.stdout.columns ?? 80),
+    );
 
   /**
    * Quit: restore the terminal and exit. The session is NOT deleted — the
@@ -399,7 +432,6 @@ async function run(argv: readonly string[]): Promise<void> {
     };
     process.stdout.on("resize", onResize);
     process.on("SIGWINCH", onResize);
-    process.on("SIGINT", () => void quit(0));
     process.on("SIGTERM", () => void quit(0));
   };
 
@@ -412,7 +444,7 @@ async function run(argv: readonly string[]): Promise<void> {
         lines: [
           `connected to ${baseUrl} · contract ${caps.contractVersion} · ` +
             `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
-          `model ${config.model} · Ctrl+C quits`,
+          `model ${config.model} · /quit exits`,
         ],
       },
       ...seedEntries,

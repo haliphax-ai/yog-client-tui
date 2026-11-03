@@ -92,7 +92,7 @@ to run `cp config.example.json config.json`.
 | Key                                               | Action                                                                           |
 | ------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `Enter`                                           | Send the current input (on a focused chunk / tool call: expand/collapse it; on a focused table: expand/collapse its columns) |
-| `Ctrl+C`                                          | Quit                                                                             |
+| `/quit`                                           | Quit via the slash command (`/` as the first input character, Tab completes)       |
 | `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input (on a focused expanded table: scroll columns horizontally)            |
 | `PageUp` / `PageDown`, `↑` / `↓`                  | Scroll the log viewport                                                          |
 | `Ctrl+Home` / `Ctrl+End`                          | Jump to top / bottom of the log                                                  |
@@ -106,6 +106,17 @@ Esc with a focused entry only leaves focus mode; with nothing focused it aborts
 the active turn via the server's `POST /v1/sessions/{id}/abort` endpoint: the
 server kills the tool call in flight, closes the model stream, heals the
 transcript, and settles the turn, and the TUI logs a `⏹ turn aborted` line.
+
+### Slash commands
+
+Type `/` as the **very first character** of the input line to open the
+autocomplete menu; it stays closed for slashes anywhere else. `Tab` cycles
+through and applies the highlighted match, `Enter` runs the completed command.
+Commands run even while a turn is in flight.
+
+| Command    | Action |
+| ---------- | ------ |
+| `/quit`    | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it. `Ctrl+C` itself is now unbound / inert. |
 
 ### Tables
 
