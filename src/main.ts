@@ -21,7 +21,7 @@
  * CLI flags:
  *   --session <id>   resume the given server session
  *   --new            start a fresh session (wins over any stored id; the
- *                    new id is written back to config.json)
+ *                    new id is written back to state.json)
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
@@ -42,7 +42,7 @@
  *                    (no-op when idle; with a focused entry it still just
  *                    leaves focus mode)
  */
-import { loadConfig, persistSessionKey, resolveBaseUrl } from "./config.ts";
+import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from "./config.ts";
 import { type LogEntry } from "./core/entries.ts";
 import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { getState, setState } from "./core/store.ts";
@@ -142,8 +142,10 @@ async function run(argv: readonly string[]): Promise<void> {
   const flags = parseFlags(argv);
 
   // 1. Config.
-  const config = await loadConfig();
-  const baseUrl = resolveBaseUrl(config);
+  const config = await loadConfig(configFilePath());
+  const baseUrl = config.baseUrl;
+  const state = await loadState(stateFilePath());
+  const requested = flags.new ? undefined : (flags.session ?? state.lastSessionId ?? undefined);
 
   // ---- log helpers (needed by startup seeding and turns alike) -----------
   const pushLines = (kind: LogEntry["kind"], lines: string[]): void => {
@@ -170,14 +172,13 @@ async function run(argv: readonly string[]): Promise<void> {
   /**
    * Resume-or-create (PLAN §5.5 item 1): `--new` short-circuits everything
    * and forces a fresh session; then an explicit `--session <id>`; then the
-   * stored `session` key; otherwise create. A resumable id is validated with
-   * `reopen` and hydrated from the server transcript (full dump, no
-   * pagination); a stale id (`unknown_session`) falls back to a fresh
+   * stored `lastSessionId` from state.json; otherwise create. A resumable id
+   * is validated with `reopen` and hydrated from the server transcript (full
+   * dump, no pagination); a stale id (`unknown_session`) falls back to a fresh
    * session with a one-line note. Transport failures propagate — only a
    * stale id is recoverable.
    */
   const resolveSession = async (): Promise<void> => {
-    const requested = flags.new ? undefined : (flags.session ?? config.session);
     if (requested === undefined) {
       const id = await client.open();
       startupNote(`new session ${id} (nothing to resume)`);
@@ -209,7 +210,7 @@ async function run(argv: readonly string[]): Promise<void> {
   await resolveSession();
   // Persist the resolved id so the next launch resumes automatically. A
   // startup failure above never reaches this write, so a stored id survives.
-  await persistSessionKey(client.sessionId as string);
+  await saveState(stateFilePath(), { lastSessionId: client.sessionId ?? null });
 
   // ---- state -------------------------------------------------------------
   let quitting = false;
@@ -267,7 +268,7 @@ async function run(argv: readonly string[]): Promise<void> {
       const freshId = await client.open();
       pushLines("system", [`session ${staleId} is gone — started fresh`]);
       pushLines("system", [`new session ${freshId} (nothing to resume)`]);
-      await persistSessionKey(freshId);
+      await saveState(stateFilePath(), { lastSessionId: freshId });
       return await client.runTurn(prompt, config.model, events);
     }
   };

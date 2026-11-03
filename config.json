@@ -1,0 +1,4 @@
+{
+  "baseUrl": "http://127.0.0.1:8111",
+  "model": "nvidia/nemotron-3-ultra-550b-a55b:free"
+}

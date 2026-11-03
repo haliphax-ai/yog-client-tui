@@ -1,7 +1,6 @@
 *.log
 *.swp
 /assets
-config.json
 coverage/
 node_modules/
 # exclusions
