@@ -25,11 +25,11 @@ jobs:
       - uses: haliphax-ai/yog-client-tui/.github@main
       - run: npx vitest run --silent=true
 
-  lint:deps:
+  depcruise:
     runs-on: ubuntu-latest
     steps:
       - uses: haliphax-ai/yog-client-tui/.github@main
-      - run: npm run lint:deps
+      - run: npm run depcruise
 
   oxlint:
     runs-on: ubuntu-latest
