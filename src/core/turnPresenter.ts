@@ -91,17 +91,24 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
+        // Splice the result chunk right after its call entry so the
+        // output stays visually paired with the call that produced it,
+        // even when events arrive batched (call1, call2, result1, result2).
+        if (ok && result !== undefined && result !== null) {
+          const idx = host.entries.indexOf(call);
+          if (idx !== -1) {
+            host.entries.splice(idx + 1, 0, toolResultChunk(name, result));
+          } else {
+            host.entries.push(toolResultChunk(name, result));
+          }
+        }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
-      }
-      // The result itself: a collapsible tool-output block. Only for
-      // successful calls — a failed call (invalid schema, unknown tool)
-      // has no stdout/stderr/exit data to show: the ❌ + error already on
-      // the call line is the whole failure display.
-      if (ok && result !== undefined && result !== null) {
-        host.entries.push(toolResultChunk(name, result));
+        if (ok && result !== undefined && result !== null) {
+          host.entries.push(toolResultChunk(name, result));
+        }
       }
       host.requestRender();
     },
