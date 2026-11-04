@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
 import { InputComponent, MAX_LINES } from "../../../src/ui/components/InputComponent.ts";
 import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
-import { stripAnsi } from "../../../src/util/ansi.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
 /** Type a string into a component, one code point at a time. */
 function typeText(component: InputComponent, text: string): void {
@@ -160,6 +160,16 @@ describe("InputComponent slash autocomplete", () => {
     expect(menu).toContain("exit the client");
     expect(menu).not.toContain("/new");
     expect(menu).not.toContain("/quit");
+  });
+
+  it("truncates long summaries with an ellipsis, one row per candidate", () => {
+    const component = new InputComponent();
+    typeText(component, "/");
+    const out = component.render({ cols: 24 }).split("\n");
+    const menu = out.slice(1).map((line) => stripAnsi(line));
+    expect(menu.length).toBeLessThanOrEqual(5);
+    expect(menu.join("\n")).toContain("…");
+    for (const line of menu) expect(displayWidth(line)).toBeLessThanOrEqual(24);
   });
 
   it("hides the menu when the slash is not the first character", () => {

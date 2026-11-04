@@ -324,7 +324,8 @@ export class InputComponent extends BaseComponent {
     const state = getState();
     const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
     // Ranked order up to the cap; the leading "/" is implied by the trigger
-    // and is not shown. Each row is one candidate + its summary.
+    // and is not shown. Each candidate is one row: label + summary with a
+    // two-space gap, truncated with an ellipsis when it would overflow.
     const shown = candidates.slice(0, MAX_MENU_ROWS);
     const byName = new Map<string, SlashCommand>();
     for (const command of SLASH_COMMANDS) byName.set("/" + command.name, command);
@@ -332,17 +333,24 @@ export class InputComponent extends BaseComponent {
       candidate.startsWith("/") ? candidate.slice(1) : candidate,
     );
     const labelW = Math.max(...labels.map((label) => displayWidth(label)));
-    return labels
-      .map((label, index) => {
-        const command = byName.get(candidates[index] as string);
-        const description = command === undefined ? "" : command.summary;
-        const gap = " ".repeat(Math.max(1, labelW - displayWidth(label) + 1));
-        const row = `${label}${gap}${description}`.trimEnd();
-        const styled = index === sel ? ST.suggestionSel.render(row) : ST.suggestion.render(row);
-        const prefix = index === 0 ? ST.promptMarker.render("↹ ") : "  ";
-        return truncateAnsi(prefix + styled, cols);
-      })
-      .join("\n");
+    const body: string[] = [];
+    for (let index = 0; index < labels.length; index++) {
+      const command = byName.get(candidates[index] as string);
+      const description = command === undefined ? "" : command.summary;
+      const label = labels[index] as string;
+      const lead = index === 0 ? "↹ " : "  ";
+      const labelPadded = label + " ".repeat(labelW - displayWidth(label) + 2);
+      const head = lead + labelPadded;
+      let desc = description;
+      const room = Math.max(0, cols - displayWidth(head));
+      if (displayWidth(desc) > room) {
+        desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
+      }
+      const text = head + desc;
+      const styled = index === sel ? ST.suggestionSel.render(text) : ST.suggestion.render(text);
+      body.push(styled);
+    }
+    return body.join("\n");
   }
 
   /** Insert pasted text verbatim (newlines included) — never submits. */
