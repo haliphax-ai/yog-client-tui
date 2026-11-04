@@ -177,7 +177,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
   toggleFocused(): boolean {
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return false;
-    if (entry.kind === "chunk") {
+    if (entry.kind === "chunk" || entry.kind === "debug") {
       entry.collapsed = !entry.collapsed;
       noteMutation(entry);
       return true;
