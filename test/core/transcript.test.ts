@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  contextTokenTotal,
+  decodeTurnUsage,
   decodeToolCalls,
   decodeToolResult,
   toTranscriptEntries,
@@ -179,5 +181,43 @@ describe("toTranscriptEntries", () => {
 
   it("handles an empty transcript", () => {
     expect(toTranscriptEntries([])).toEqual([]);
+  });
+});
+
+describe("decodeTurnUsage", () => {
+  it("normalizes numeric fields and drops malformed ones", () => {
+    expect(decodeTurnUsage({ prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 })).toEqual({
+      prompt_tokens: 1,
+      completion_tokens: 2,
+      total_tokens: 3,
+    });
+    expect(decodeTurnUsage({ prompt_tokens: "NaN", completion_tokens: 2 })).toEqual({
+      completion_tokens: 2,
+    });
+  });
+
+  it("returns undefined for absent, null, non-object, or empty payloads", () => {
+    expect(decodeTurnUsage(undefined)).toBeUndefined();
+    expect(decodeTurnUsage(null)).toBeUndefined();
+    expect(decodeTurnUsage([])).toBeUndefined();
+    expect(decodeTurnUsage({})).toBeUndefined();
+    expect(decodeTurnUsage({ prompt_tokens: "NaN" })).toBeUndefined();
+  });
+});
+
+describe("contextTokenTotal", () => {
+  it("sums total_tokens across per-turn metrics", () => {
+    expect(
+      contextTokenTotal([
+        { usage: { total_tokens: 150 } },
+        { usage: { total_tokens: 250 } },
+        undefined,
+      ]),
+    ).toBe(400);
+  });
+
+  it("ignores missing, malformed, and non-positive totals", () => {
+    expect(contextTokenTotal([{ usage: {} }, { usage: { total_tokens: -5 } }, {}])).toBe(0);
+    expect(contextTokenTotal(undefined)).toBe(0);
   });
 });
