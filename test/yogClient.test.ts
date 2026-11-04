@@ -530,6 +530,41 @@ describe("YogClient.getTranscript", () => {
     client.sessionId = "s1";
     await expect(client.getTranscript()).rejects.toThrow(/cannot reach yog server/);
   });
+
+  it("parses per-turn metrics (turns) defensively", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            session: { id: "s1", status: "open" },
+            messages: [],
+            turns: [
+              {
+                turnId: 1,
+                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+                durationMs: 1200,
+              },
+              { turnId: 2, usage: { total_tokens: "nope" } }, // malformed usage → dropped
+              { turnId: "not-a-number", usage: { total_tokens: 9 } }, // malformed id → dropped
+              null, // malformed row → dropped
+            ],
+          },
+          200,
+        ),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.getTranscript();
+    expect(result.turns).toEqual([
+      {
+        turnId: 1,
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+        durationMs: 1200,
+      },
+    ]);
+  });
 });
 
 describe("YogClient.runTurn payload", () => {
@@ -799,6 +834,87 @@ describe("YogClient token usage", () => {
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       },
     ]);
+  });
+
+  it("passes per-call tokens through tool.result on the direct path", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: tool.call\ndata: {"id":"c1","name":"bash","args":"{}"}\n\n',
+          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"result":{"exitCode":0},"tokens":7}\n\n',
+          'event: turn.finished\ndata: {"durationMs":1}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const calls: Array<{ id: string; tokens?: number }> = [];
+    const toolCalls: Array<{ id: string; name: string }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onToolCall: (id, name) => toolCalls.push({ id, name }),
+      onToolResult: (id, _name, _ok, _result, _error, tokens) => calls.push({ id, tokens }),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(calls).toEqual([{ id: "c1", tokens: 7 }]);
+    expect(toolCalls).toEqual([{ id: "c1", name: "bash" }]);
+  });
+
+  it("tolerates malformed per-call tokens (none passed through)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"tokens":"NaN"}\n\n',
+          'event: turn.finished\ndata: {"durationMs":1}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const calls: Array<{ id: string; tokens?: number }> = [];
+    await client.runTurn("hello", "model-x", {
+      onToolResult: (id, _name, _ok, _result, _error, tokens) => calls.push({ id, tokens }),
+    });
+    expect(calls).toEqual([{ id: "c1", tokens: undefined }]);
+  });
+
+  it("carries per-call tokens through turn-status recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/turns")) {
+          return failingResponse(
+            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            new Error("reset"),
+          );
+        }
+        return jsonResponse(
+          {
+            turn: {
+              events: [
+                { type: "turn.started", data: { turnId: "t1", model: "m" } },
+                { type: "tool.call", data: { id: "c1", name: "bash", args: "{}" } },
+                { type: "tool.result", data: { id: "c1", name: "bash", ok: true, tokens: 4 } },
+                { type: "turn.finished", data: { durationMs: 5 } },
+              ],
+            },
+          },
+          200,
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const calls: Array<{ id: string; tokens?: number }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onToolResult: (id, _name, _ok, _result, _error, tokens) => calls.push({ id, tokens }),
+    });
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.ok).toBe(true);
+    expect(calls).toEqual([{ id: "c1", tokens: 4 }]);
   });
 });
 

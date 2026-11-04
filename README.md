@@ -202,6 +202,12 @@ The server owns the canonical conversation. At startup the client:
    (`GET /v1/sessions/{id}/transcript`) — every message kind, full fidelity:
    tool calls render as the same rich, expandable entries a live turn
    produces, annotated with their results, before the first frame is drawn.
+   When the server captured per-turn usage, each rehydrated turn ends with
+   the same summary line a live turn shows (runtime · tool-call count ·
+   tokens), per-call token segments are restored on tool results, and the
+   startup note includes the resumed context weight
+   (`resumed session … · ~1.2M tokens in context`). Old servers without the
+   optional metrics simply render as before.
 4. Persists the resolved session id into `state.json` so the next launch
    resumes automatically (a failed startup never overwrites the stored id).
 
