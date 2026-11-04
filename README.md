@@ -98,9 +98,11 @@ exits with an error.
 | Key                                               | Action                                                                           |
 | ------------------------------------------------- | -------------------------------------------------------------------------------- |
 | `Enter`                                           | Send the current input (on a focused chunk / tool call: expand/collapse it; on a focused table: expand/collapse its columns) |
+| `Shift+Enter`                                   | Insert a newline in the input (without sending)                                   |
 | `/quit`                                           | Quit via the slash command (`/` as the first input character, Tab completes)       |
-| `←` / `→`, `Home` / `End`, `Backspace` / `Delete` | Edit input (on a focused expanded table: scroll columns horizontally)            |
-| `PageUp` / `PageDown`, `↑` / `↓`                  | Scroll the log viewport                                                          |
+| `←` / `→` / `↑` / `↓`, `Home` / `End`,          | Edit input; in a multi-line input ↑/↓ move the caret between lines (a single-line input leaves ↑/↓ to scroll the log) |
+| `Backspace` / `Delete`                          | (on a focused expanded table: scroll columns horizontally)                        |
+| `PageUp` / `PageDown`                           | Scroll the log viewport                                                          |
 | `Ctrl+Home` / `Ctrl+End`                          | Jump to top / bottom of the log                                                  |
 | `Tab`                                             | Focus the next expandable unit (tool call / output chunk / table; every table in a message is its own unit; wraps through "none") |
 | `Shift+Tab`                                       | Focus the previous unit (wraps through "none")                                   |
@@ -109,10 +111,16 @@ exits with an error.
 While a turn is in flight, Enter is ignored (one turn at a time); input editing
 continues. The status line shows a spinner and key hints — including `Esc abort`
 while busy.
+
 Esc with a focused entry only leaves focus mode; with nothing focused it aborts
 the active turn via the server's `POST /v1/sessions/{id}/abort` endpoint: the
 server kills the tool call in flight, closes the model stream, heals the
 transcript, and settles the turn, and the TUI logs a `⏹ turn aborted` line.
+
+The input bar is a multi-line textarea: it grows and shrinks to fit its
+content up to ten lines and scrolls vertically beyond that. `Enter` submits;
+`Shift+Enter` inserts a line break. Pasted text (bracketed paste) is inserted
+verbatim — including newlines — and never submits.
 
 ### Slash commands
 

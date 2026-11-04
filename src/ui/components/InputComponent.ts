@@ -1,164 +1,157 @@
 /**
- * Input bar: prompt marker + text window with a highlighted cursor, plus all
- * input-editing key handling (chars, cursor moves, delete). Reads the input
- * buffer / cursor / window scroll from the store and signals edits back via
- * `setState` — the store stays the single source of truth.
+ * Input bar: a bubbletea `TextArea` model drives the whole editing surface —
+ * typing, cursor movement, deletion, soft wrapping, and the virtual cursor.
+ * The model is component-owned state (the widget keeps its own value/cursor/
+ * scroll); the central store stays in sync for the **input text only** (it is
+ * what submit and slash autocomplete read), and nothing else mirrors the
+ * widget's internals. Each edit writes `input` (and resets the slash-command
+ * completion selection) back via `setState`, so the render scheduler fires
+ * through the normal store path.
  *
- * Key handling is scoped by focus: the router offers keys to the focused
- * component first, then the remaining components, then the global bindings.
- * The input claims every editing key whenever it is reached (focused or
- * not); submit and Esc bubble up so the globals and the viewport can
- * claim them first. Tab completes a slash command when the line starts
- * with "/", otherwise bubbles to the focus-cycling global. Ctrl+C is
- * intentionally unbound (inert).
+ * Geometry: the textarea grows and shrinks to fit its content, from one row
+ * up to `MAX_LINES` rows; when content exceeds that, the widget scrolls
+ * vertically (its internal viewport) — the input row count the pipeline sees
+ * is capped at `MAX_LINES`.
  *
- * Every width here is measured in terminal CELLS. The cursor highlights
- * the character under it — which may be a wide rune (an emoji is one
- * character but two cells) — so the text after the cursor is capped by the
- * cursor's own cell width, not by one assumed cell.
+ * Submit boundary: plain Enter (CR/LF) is **not** claimed here — it bubbles
+ * to the router's global submit binding. Shift+Enter is claimed and maps to
+ * the textarea's `insertNewline`, so it inserts a line break without
+ * submitting. Bracketed paste is decoded by the composition root (main.ts)
+ * and delivered as one `paste(content)` call, so pasted newlines are inserted
+ * literally and never trigger submit.
+ *
+ * Key routing stays as before: the router offers the key to the focused
+ * component first, then the rest of the chain, then globals. The input
+ * claims every editing key whenever it is reached (focused or not); submit
+ * and Esc bubble, and Tab completes a slash command or bubbles to the
+ * focus-cycling global. Up/Down are claimed only while the input spans
+ * multiple lines — a single-line input leaves them for the log-scroll
+ * globals. Ctrl+C is intentionally unbound (inert).
  */
-import { joinHorizontal, Left } from "@oakoliver/lipgloss";
-import { BaseComponent, type RenderContext } from "./Component.ts";
+import { KeyCode, KeyMod, KeyPressMsg } from "@oakoliver/bubbletea";
+import {
+  newBinding,
+  newTextarea,
+  textareaDefaultDarkStyles,
+  withHelp,
+  withKeys,
+} from "@oakoliver/bubbles";
+import type { TextareaModel, TextareaStyles } from "@oakoliver/bubbles";
+import { joinHorizontal, Left, newStyle } from "@oakoliver/lipgloss";
+import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
-import { ST } from "../theme.ts";
+import { ST, CURSOR_COLOR } from "../theme.ts";
 import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
 import { SLASH_COMMANDS, completeSlash, slashTokenEnd } from "../../core/commands.ts";
 
-/** Input prompt marker (also sizes the input window). */
+/** Input prompt marker (also sizes the textarea's prompt gutter). */
 export const PROMPT = "you › ";
 
-/** Escape sequences the input claims (cursor + delete, wherever it sits in the chain). */
-const INPUT_KEYS: Record<string, () => void> = {
-  "\x1b[3~": del, // Delete
-  "\x1b[1~": () => setCursor(0), // Home (rxvt)
-  "\x1b[4~": () => setCursor(getState().input.length), // End (rxvt)
-  "\x1b[H": () => setCursor(0), // Home
-  "\x1b[F": () => setCursor(getState().input.length), // End
-  "\x1bOH": () => setCursor(0),
-  "\x1bOF": () => setCursor(getState().input.length),
-  "\x1bOC": () => moveCursor(1), // Right (application mode)
-  "\x1bOD": () => moveCursor(-1), // Left (application mode)
-  "\x1b[C": () => moveCursor(1), // Right
-  "\x1b[D": () => moveCursor(-1), // Left
+/** The input grows to this many rows before it scrolls vertically. */
+export const MAX_LINES = 10;
+
+/** Shift+Enter when the terminal reports modifiers via CSI-u. */
+const SHIFT_ENTER = "\x1b[13;2u";
+
+/** A key event fed to the textarea model (shape of bubbletea's `Key`). */
+interface SeqKey {
+  readonly text?: string;
+  readonly mod?: number;
+  readonly code: number;
+}
+
+/** Escape sequences the input claims (editing keys, generally cursor moves). */
+const SEQ_KEYS: Readonly<Record<string, SeqKey>> = {
+  "\x1b[A": { code: KeyCode.Up },
+  "\x1b[B": { code: KeyCode.Down },
+  "\x1b[C": { code: KeyCode.Right },
+  "\x1b[D": { code: KeyCode.Left },
+  "\x1b[H": { code: KeyCode.Home },
+  "\x1b[F": { code: KeyCode.End },
+  "\x1bOA": { code: KeyCode.Up }, // application mode
+  "\x1bOB": { code: KeyCode.Down },
+  "\x1bOC": { code: KeyCode.Right },
+  "\x1bOD": { code: KeyCode.Left },
+  "\x1bOH": { code: KeyCode.Home },
+  "\x1bOF": { code: KeyCode.End },
+  "\x1b[1~": { code: KeyCode.Home }, // rxvt
+  "\x1b[4~": { code: KeyCode.End }, // rxvt
+  "\x1b[3~": { code: KeyCode.Delete },
 };
 
-/** The code point at `index`, as a string (never splits a surrogate pair). */
-function codePointAt(text: string, index: number): string {
-  const cp = text.codePointAt(index);
-  return cp === undefined ? "" : String.fromCodePoint(cp);
-}
-
-/** The code point width in cells at `index` (2 for a wide rune, 0 for none). */
-function codePointWidth(text: string, index: number): number {
-  const cp = text.codePointAt(index);
-  if (cp === undefined) return 0;
-  return displayWidth(String.fromCodePoint(cp));
-}
-
-/** Insert text at the cursor (control characters stripped). */
-export function insert(text: string): void {
-  // eslint-disable-next-line no-control-regex
-  const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-  if (clean === "") return;
-  const state = getState();
-  setState({
-    input: state.input.slice(0, state.cursor) + clean + state.input.slice(state.cursor),
-    cursor: state.cursor + clean.length,
-    commandSel: 0,
-  });
-}
-
-/** Delete the character before the cursor. */
-export function backspace(): void {
-  const state = getState();
-  if (state.cursor === 0) return;
-  setState({
-    input: state.input.slice(0, state.cursor - 1) + state.input.slice(state.cursor),
-    cursor: state.cursor - 1,
-    commandSel: 0,
-  });
-}
-
-/** Delete the character at the cursor. */
-export function del(): void {
-  const state = getState();
-  if (state.cursor >= state.input.length) return;
-  setState({
-    input: state.input.slice(0, state.cursor) + state.input.slice(state.cursor + 1),
-    commandSel: 0,
-  });
-}
-
-/** Move the cursor by `delta` (clamped into the buffer). */
-export function moveCursor(delta: number): void {
-  const state = getState();
-  const cursor = Math.max(0, Math.min(state.input.length, state.cursor + delta));
-  if (cursor === state.cursor) return; // no-op keypress: no flush, no frame
-  setState({ cursor });
-}
-
-/** Place the cursor at `pos` (clamped into the buffer). */
-export function setCursor(pos: number): void {
-  const state = getState();
-  const cursor = Math.max(0, Math.min(state.input.length, pos));
-  if (cursor === state.cursor) return; // no-op keypress: no flush, no frame
-  setState({ cursor });
+/** Textarea styles mapped onto the theme (cursor block, prompt marker). */
+function inputStyles(): TextareaStyles {
+  const styles = textareaDefaultDarkStyles();
+  styles.focused.cursorLine = newStyle();
+  styles.focused.text = newStyle();
+  styles.focused.prompt = ST.promptMarker;
+  styles.blurred.cursorLine = newStyle();
+  styles.blurred.text = newStyle();
+  styles.blurred.prompt = ST.promptMarker;
+  styles.cursor.color = CURSOR_COLOR;
+  styles.cursor.blink = false; // static block cursor — no blink command loop
+  return styles;
 }
 
 export class InputComponent extends BaseComponent {
+  private readonly textarea: TextareaModel;
+  private lastCols = 0;
+
   constructor() {
     super(true);
+    const ta = newTextarea();
+    ta.prompt = PROMPT;
+    ta.showLineNumbers = false;
+    ta.dynamicHeight = true;
+    ta.minHeight = 1;
+    ta.maxHeight = MAX_LINES;
+    ta.keyMap.insertNewline = newBinding(
+      withKeys("shift+enter"),
+      withHelp("Shift+Enter", "insert newline"),
+    );
+    ta.setStyles(inputStyles());
+    // Prompt on the first visual row only; continuation rows keep the same
+    // left gutter so text stays aligned.
+    ta.setPromptFunc(displayWidth(PROMPT), ({ lineNumber }) => (lineNumber === 0 ? PROMPT : ""));
+    ta.focus();
+    this.textarea = ta;
   }
 
-  /** One styled input row: marker + text window with a highlighted cursor. */
+  /** Feed one key event to the textarea model (moves value/cursor/scroll). */
+  private feed(key: SeqKey): void {
+    this.textarea.update(
+      new KeyPressMsg({ text: key.text ?? "", mod: key.mod ?? KeyMod.None, code: key.code }),
+    );
+  }
+
+  /** Mirror the textarea value into the store (no completion reset). */
+  private syncInput(): void {
+    setState({ input: this.textarea.value() });
+  }
+
+  /** Mirror an edit into the store and reset the completion selection. */
+  private commitEdit(): void {
+    setState({ input: this.textarea.value(), commandSel: 0 });
+  }
+
+  /** Apply the current terminal width to the textarea (soft-wrap/dynamic height). */
+  private layout(cols: number): void {
+    if (cols === this.lastCols) return;
+    this.lastCols = cols;
+    this.textarea.setWidth(Math.max(1, cols));
+  }
+
+  /** One styled input block: textarea rows + optional slash-command menu row. */
   render(ctx: RenderContext): string {
-    const inputLine = this.renderInputLine(ctx.cols);
+    this.layout(ctx.cols);
+    const inputView = this.textarea.view();
     const menu = this.renderMenu(ctx.cols);
-    return menu === "" ? inputLine : `${inputLine}\n${menu}`;
-  }
-
-  /** The prompt + text window row (single line). */
-  private renderInputLine(cols: number): string {
-    const state = getState();
-    const markerW = displayWidth(PROMPT);
-    const avail = Math.max(1, cols - markerW);
-    const text = state.input;
-    const pos = Math.max(0, Math.min(state.cursor, text.length));
-
-    // Keep the cursor inside the visible window; the window lives in the
-    // store and is persisted back only when it actually changes.
-    // The window start advances by whole code points so a wide rune is
-    // never split across the window edge.
-    let scroll = Math.max(0, Math.min(state.inputScroll, Math.max(0, text.length)));
-    if (pos < scroll) scroll = pos;
-    while (scroll < pos && displayWidth(text.slice(scroll, pos)) > avail - 1) {
-      const next = scroll + codePointWidth(text, scroll);
-      scroll = next === scroll ? scroll + 1 : next;
-    }
-    if (scroll !== state.inputScroll) setState({ inputScroll: scroll });
-
-    const win = text.slice(scroll);
-    const before = win.slice(0, pos - scroll);
-    // The cursor covers the whole code point under it — a wide rune is
-    // highlighted as one unit, and its cell width is what the text after
-    // it is capped by.
-    const at = codePointAt(win, pos - scroll);
-    const after = win.slice(pos - scroll + at.length);
-    const atWidth = at === "" ? 1 : codePointWidth(win, pos - scroll);
-    const widthAfter = Math.max(0, avail - displayWidth(before) - atWidth);
-
-    const parts: string[] = [
-      ST.promptMarker.render(PROMPT),
-      ST.inputText.render(before),
-      at === "" ? ST.cursor.render(" ") : ST.cursor.render(at),
-      ST.inputText.render(truncateAnsi(after, widthAfter)),
-    ];
-    return truncateAnsi(joinHorizontal(Left, ...parts), cols);
+    return menu === "" ? inputView : `${inputView}\n${menu}`;
   }
 
   /**
-   * Slash-command autocomplete row: shown only when the input line starts
-   * with "/" (the trigger) and at least one command matches. The selected
+   * Slash-command autocomplete row: shown only when the input starts with
+   * "/" (the trigger) and at least one command matches. The selected
    * candidate is highlighted; Tab cycles through and applies the selection.
    */
   private renderMenu(cols: number): string {
@@ -178,17 +171,39 @@ export class InputComponent extends BaseComponent {
     return truncateAnsi(joinHorizontal(Left, ...parts), cols);
   }
 
-  override handleChar(ch: string): "handled" | "unhandled" {
+  /** Insert pasted text verbatim (newlines included) — never submits. */
+  paste(content: string): void {
+    const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    if (normalized === "") return;
+    this.textarea.update({ type: "textarea.paste", content: normalized });
+    this.commitEdit();
+  }
+
+  /** Clear the input (used after submit / slash commands). */
+  reset(): void {
+    this.textarea.reset();
+    setState({ input: "", commandSel: 0 });
+  }
+
+  override handleChar(ch: string): KeyResult {
     if (ch === "\r" || ch === "\n") return "unhandled"; // submit → globals
     if (ch === "\t") return this.completeTab() ? "handled" : "unhandled";
     if (ch === "\x1b") return "unhandled"; // Esc → viewport or globals
     if (ch === "\x03") return "unhandled"; // Ctrl+C is intentionally unbound
     if (ch === "\x7f" || ch === "\x08") {
-      backspace();
+      this.feed({ code: KeyCode.Backspace });
+      this.commitEdit();
       return "handled";
     }
     if (ch < " ") return "handled"; // other control chars stay swallowed
-    insert(ch);
+    this.textarea.update(
+      new KeyPressMsg({
+        text: ch,
+        mod: KeyMod.None,
+        code: ch.codePointAt(0) ?? 0,
+      }),
+    );
+    this.commitEdit();
     return "handled";
   }
 
@@ -206,18 +221,31 @@ export class InputComponent extends BaseComponent {
     const candidate = candidates[next];
     if (candidate === undefined) return false;
     const end = slashTokenEnd(state.input);
-    setState({
-      input: candidate + state.input.slice(end),
-      cursor: candidate.length,
-      commandSel: next,
-    });
+    const replaced = candidate + state.input.slice(end);
+    this.textarea.setValue(replaced);
+    this.textarea.setCursorColumn(candidate.length);
+    setState({ input: replaced, commandSel: next });
     return true;
   }
 
-  override handleKey(seq: string): "handled" | "unhandled" {
-    const run = INPUT_KEYS[seq];
-    if (run === undefined) return "unhandled";
-    run();
+  override handleKey(seq: string): KeyResult {
+    if (seq === SHIFT_ENTER) {
+      this.feed({ code: KeyCode.Enter, mod: KeyMod.Shift });
+      this.commitEdit();
+      return "handled";
+    }
+    const key = SEQ_KEYS[seq];
+    if (key === undefined) return "unhandled";
+    // Up/Down move the caret only when the input spans multiple lines; a
+    // single-line input leaves them to the log-scroll globals.
+    if (
+      (key.code === KeyCode.Up || key.code === KeyCode.Down) &&
+      !this.textarea.value().includes("\n")
+    ) {
+      return "unhandled";
+    }
+    this.feed(key);
+    this.syncInput(); // navigation only — keep the completion selection
     return "handled";
   }
 }

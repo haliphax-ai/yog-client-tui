@@ -25,17 +25,20 @@
  *
  * Key bindings (also documented in README):
  *   Enter            submit (ignored while a turn is in flight)
+ *   Shift+Enter     insert a newline in the input (does not submit)
+ *   Paste           multi-line text is inserted as-is (never submits)
  *   /quit           quit via the slash command (type "/" as the first
  *                    character, Tab completes, Enter runs it). Ctrl+C is
  *                    unbound (inert); the session stays on the server so
  *                    the next launch can resume it.
  *   Left/Right       move the input cursor
- *   Home/End         input cursor to start/end
+ *   Home/End         input cursor to line start/end
  *   Backspace/Delete delete before/at cursor
  *   PageUp/PageDown  scroll the log (stops auto-follow; PageDown at the
  *                    bottom resumes it)
  *   Ctrl+Home/Ctrl+End  jump to top/bottom of the log (End resumes follow)
- *   Up/Down          scroll the log by one row
+ *   Up/Down          scroll the log by one row (when the input is
+ *                    single-line; multi-line input moves the caret instead)
  *   Tab / Shift-Tab focus the next/previous expandable entry (tool chunk,
  *                    table-bearing message) — Enter expands/collapses it,
  *                    Esc leaves focus mode (focus wraps through "none")
@@ -66,7 +69,7 @@ let terminalActive = false;
 function restoreTerminal(): void {
   if (!terminalActive) return;
   terminalActive = false;
-  process.stdout.write("\x1b[?1049l\x1b[?25h");
+  process.stdout.write("\x1b[?1049l\x1b[?25h\x1b[?2004l");
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
 }
@@ -285,20 +288,20 @@ async function run(argv: readonly string[]): Promise<void> {
    */
   const submit = (): void => {
     const state = getState();
-    const input = state.input.trim();
-    if (input === "") return;
+    const prompt = state.input.trim();
+    if (prompt === "") return;
 
     // Slash command path (works even while a turn is in flight).
-    if (isSlash(input)) {
-      const command = resolveSlash(input);
+    if (isSlash(prompt)) {
+      const command = resolveSlash(prompt);
       if (command !== undefined && command.name === "quit") {
         void quit(0);
         return;
       }
-      const token = slashToken(input) ?? "";
+      const token = slashToken(prompt) ?? "";
       const available = SLASH_COMMANDS.map((c) => "/" + c.name).join(", ");
       pushLines("system", [`unknown command: /${token} — available: ${available}`]);
-      setState({ input: "", cursor: 0, inputScroll: 0, commandSel: 0 });
+      input.reset();
       return;
     }
 
@@ -310,20 +313,14 @@ async function run(argv: readonly string[]): Promise<void> {
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
     });
-    turn.begin(input);
-    setState({
-      input: "",
-      cursor: 0,
-      inputScroll: 0,
-      commandSel: 0,
-      statusNote: "",
-      follow: true,
-    });
+    turn.begin(prompt);
+    input.reset();
+    setState({ statusNote: "", follow: true });
     startSpinner();
 
     void (async () => {
       try {
-        const outcome = await turnWithRecovery(input, turn.events);
+        const outcome = await turnWithRecovery(prompt, turn.events);
         if (!outcome.ok) {
           const detail = outcome.failure ?? outcome.error;
           if (detail) turn.fail(detail);
@@ -399,12 +396,36 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   // ---- key handling ------------------------------------------------------
+  /** Bracketed-paste framing: content between `200~`/`201~` is buffered. */
+  let pasting = false;
+  let pasteBuffer = "";
+
   const handleData = (chunk: string): void => {
     let i = 0;
     while (i < chunk.length) {
       const rest = chunk.slice(i);
       const seq = matchSequence(rest);
       if (seq !== null) {
+        if (pasting) {
+          if (seq === "\x1b[201~") {
+            // End of bracketed paste — deliver the whole buffer to the input
+            // as one insertion (newlines included, never submitted).
+            pasting = false;
+            const content = pasteBuffer;
+            pasteBuffer = "";
+            input.paste(content);
+          } else {
+            pasteBuffer += seq;
+          }
+          i += seq.length;
+          continue;
+        }
+        if (seq === "\x1b[200~") {
+          pasting = true;
+          pasteBuffer = "";
+          i += seq.length;
+          continue;
+        }
         routeKey(chain, seq, globals); // unknown sequences are consumed
         i += seq.length;
         continue;
@@ -412,6 +433,11 @@ async function run(argv: readonly string[]): Promise<void> {
       const cp = rest.codePointAt(0);
       if (cp === undefined) break;
       const ch = String.fromCodePoint(cp);
+      if (pasting) {
+        pasteBuffer += ch;
+        i += ch.length;
+        continue;
+      }
       routeChar(chain, ch, globals);
       i += ch.length;
     }
@@ -420,7 +446,7 @@ async function run(argv: readonly string[]): Promise<void> {
   // ---- terminal lifecycle ------------------------------------------------
   const enterTerminal = (): void => {
     terminalActive = true;
-    process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[H");
+    process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[2J\x1b[H");
     process.stdin.setEncoding("utf8");
     process.stdin.setRawMode(true);
     process.stdin.resume();
