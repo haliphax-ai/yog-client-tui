@@ -30,23 +30,23 @@ describe("statusBody", () => {
 
   it("shows session and stats segments separated by a vertical bar", () => {
     const out = body({ model: "m-1", connection: "connected", entries: fixture(2, 27) });
-    expect(out).toBe("👤 m-1 · ℹ️ ok │ 🔄 2  🔧 27");
+    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 2  🔧 27");
   });
 
   it("prepends the spinner + generating as its own segment while busy", () => {
     const out = body({ busy: true, busyFrame: 0, model: "m-1", connection: "connected" });
-    expect(out).toMatch(/^⠋ generating │ 👤 m-1 · ℹ️ ok │ 🔄 0  🔧 0/);
+    expect(out).toMatch(/^⠋ generating │ 👤 m-1 · 🔌 ok │ 🔄 0  🔧 0/);
     expect(out).not.toMatch(/·.*⠋|⠋.*·.*generating/);
   });
 
   it("joins the transient note into the activity segment", () => {
     const out = body({ statusNote: "session saved — bye", model: "m-1", connection: "connected" });
-    expect(out).toMatch(/^session saved — bye │ 👤 m-1 · ℹ️ ok │/);
+    expect(out).toMatch(/^session saved — bye │ 👤 m-1 · 🔌 ok │/);
   });
 
   it("reflects a non-connected state in the session segment", () => {
     const out = body({ model: "m-1", connection: "error" });
-    expect(out).toMatch(/^👤 m-1 · ℹ️ error │/);
+    expect(out).toMatch(/^👤 m-1 · 🔌 error │/);
   });
 
   it("counts turns and tool calls from the log entries", () => {
@@ -92,7 +92,7 @@ describe("StatusComponent render", () => {
   });
 
   it("emoji labels are two cells wide", () => {
-    for (const label of ["👤", "ℹ️", "🔄", "🔧"]) {
+    for (const label of ["👤", "🔌", "🔄", "🔧"]) {
       expect(displayWidth(label)).toBe(2);
     }
   });
