@@ -59,6 +59,7 @@ describe("statusBody", () => {
         { kind: "assistant", lines: ["hi"] },
         { kind: "chunk", lines: ["x"], collapsed: true },
         { kind: "system", lines: ["y"] },
+        { kind: "toolResult", lines: ["🔚 noop"] },
       ]),
     ).toEqual({ turns: 0, toolCalls: 0 });
   });

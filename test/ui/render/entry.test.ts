@@ -203,3 +203,50 @@ describe("height summary", () => {
     expect(totalRows(a, 40)).toBe(totalRows(b, 40));
   });
 });
+describe("status entry", () => {
+  it("renders one dark-grey line on the normal background with 1-cell padding", () => {
+    const rows = cachedRows(
+      { kind: "status", lines: ["runtime 5m21s · 2 tool calls · 1.3M tokens"] },
+      60,
+    );
+    expect(rows.length).toBe(1);
+    const plain = stripAnsi(rows[0] as string);
+    expect(plain).toContain("runtime 5m21s · 2 tool calls · 1.3M tokens");
+    // Horizontal padding 1: one leading + one trailing space.
+    expect(plain.startsWith(" ")).toBe(true);
+    expect(plain.endsWith(" ")).toBe(true);
+    // Dark grey foreground, no background style.
+    expect(rows[0]).toContain("38;2;161;161;170"); // #a1a1aa
+    expect(rows[0]).not.toContain("48;2;");
+    // Never exceeds the terminal width.
+    expect(displayWidth(plain)).toBeLessThanOrEqual(60);
+  });
+
+  it("truncates long summary lines to the terminal width", () => {
+    const rows = cachedRows(
+      { kind: "status", lines: ["runtime 5m21s · 2 tool calls · 1.3M tokens · padded wide tail"] },
+      20,
+    );
+    expect(rows.length).toBe(1);
+    expect(displayWidth(stripAnsi(rows[0] as string))).toBeLessThanOrEqual(20);
+  });
+});
+describe("toolResult entry", () => {
+  it("renders like a tool call: collapsed 🔚 line, expandable to the full JSON result", () => {
+    const entry: LogEntry = {
+      kind: "toolResult",
+      lines: ['🔚 noop { "note": "did nothing" }'],
+      label: "🔚 noop",
+      argsCompact: '{ "note": "did nothing" }',
+      full: '{\n  "note": "did nothing"\n}',
+      expanded: false,
+    };
+    const collapsed = cachedRows(entry, 60);
+    expect(collapsed.length).toBe(1);
+    expect(stripAnsi(collapsed[0] as string)).toContain("🔚 noop");
+    entry.expanded = true;
+    const expanded = cachedRows(entry, 60);
+    expect(expanded.length).toBeGreaterThan(1);
+    expect(stripAnsi(expanded.join("\n"))).toContain('"note"');
+  });
+});
