@@ -223,3 +223,27 @@ describe("InputComponent — textarea keybindings (full keymap reachable)", () =
     expect(getTopLevel()).toBe("log");
   });
 });
+
+describe("InputComponent — blurred input styling", () => {
+  beforeEach(() => {
+    resetForTests();
+    setTopLevel("input");
+  });
+
+  it("renders dark grey text and a darker cursor when the log holds the ring", () => {
+    const component = new InputComponent();
+    typeText(component, "hi");
+    setTopLevel("log");
+    const out = component.render({ cols: 80 });
+    expect(out).toContain("38;2;82;82;91"); // #52525b text
+    expect(out).toContain("38;2;76;29;149"); // #4c1d95 cursor
+  });
+
+  it("renders the standard cursor color while the input holds the ring", () => {
+    const component = new InputComponent();
+    typeText(component, "hi");
+    setTopLevel("input");
+    const out = component.render({ cols: 80 });
+    expect(out).toContain("38;2;124;58;237"); // #7c3aed cursor
+  });
+});

@@ -152,6 +152,7 @@ export class ChatViewport extends ChatLogComponent {
     if (SHIFT_DOWN_SEQS.has(seq)) {
       // Shift+Down: hand the top-level ring back to the input.
       setTopLevel("input");
+      setState({}); // notify the scheduler so the input un-blurs
       return "handled";
     }
     const focused = this.focusedTable();
@@ -206,6 +207,7 @@ export class ChatViewport extends ChatLogComponent {
         return "handled";
       }
       setTopLevel("input");
+      setState({}); // notify the scheduler so the input un-blurs
       return "handled";
     }
     return "unhandled";

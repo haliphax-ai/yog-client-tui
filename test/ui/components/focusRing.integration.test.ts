@@ -108,3 +108,46 @@ describe("top-level focus ring — integration with real components", () => {
     expect(calls).toEqual(["submit"]);
   });
 });
+
+describe("top-level focus ring — input blur styling", () => {
+  beforeEach(() => {
+    resetForTests();
+    setTopLevel("input");
+    setState({ entries: [], focusTarget: FOCUS_NONE_TARGET });
+  });
+
+  function wire() {
+    const viewport = new ChatViewport();
+    const input = new InputComponent();
+    viewport.ring = "log";
+    input.ring = "input";
+    const chain: readonly Component[] = [viewport, input];
+    const globals: Globals = {
+      quit: () => {},
+      focusNext: () => viewport.cycleFocus(1),
+      focusPrev: () => viewport.cycleFocus(-1),
+      scrollBy: () => {},
+      jump: () => {},
+      submit: () => {},
+      abortTurn: () => {},
+      pageRows: () => 24,
+    };
+    return { chain, globals, input };
+  }
+
+  it("blurs the input visually while the log holds the ring, and restores it", () => {
+    const { chain, globals, input } = wire();
+    routeChar(chain, "h", globals);
+    expect(input.render({ cols: 80 })).toContain("38;2;124;58;237"); // normal cursor
+
+    expect(routeKey(chain, "\x1b[1;2A", globals)).toBe(true); // Shift+Up → log
+    expect(getTopLevel()).toBe("log");
+    const blurred = input.render({ cols: 80 });
+    expect(blurred).toContain("38;2;82;82;91"); // dark grey text
+    expect(blurred).toContain("38;2;76;29;149"); // darker cursor
+
+    expect(routeKey(chain, "\x1b[1;2B", globals)).toBe(true); // Shift+Down → input
+    expect(getTopLevel()).toBe("input");
+    expect(input.render({ cols: 80 })).toContain("38;2;124;58;237");
+  });
+});
