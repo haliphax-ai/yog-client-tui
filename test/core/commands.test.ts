@@ -64,6 +64,11 @@ describe("completeSlash", () => {
     expect(completeSlash("/x")).toEqual([]);
   });
 
+  it("fuzzy-matches subsequences of the command name", () => {
+    expect(completeSlash("/ui")).toEqual(["/quit"]); // u → i, in order
+    expect(completeSlash("/qt")).toEqual(["/quit"]); // q → t
+  });
+
   it("completes the token even when arguments follow", () => {
     expect(completeSlash("/q something")).toEqual(["/quit"]);
   });
