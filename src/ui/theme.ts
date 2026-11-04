@@ -31,6 +31,8 @@ export const ST = {
   toolFocus: newStyle().foreground("#ffffff").background("#1e3a8a").padding(0, 1),
   promptMarker: newStyle().foreground("#a78bfa").bold(true),
   inputText: newStyle(),
+  /** Input text when the input is blurred (log holds the top-level ring). */
+  inputTextBlur: newStyle().foreground("#52525b"),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
   status: newStyle().foreground("#64748b"),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
@@ -48,6 +50,8 @@ export const ST = {
 } as const;
 /** Input textarea: the virtual cursor block color (mirrors ST.cursor). */
 export const CURSOR_COLOR = "#7c3aed";
+/** Input textarea: the virtual cursor block color when the input is blurred. */
+export const CURSOR_COLOR_BLUR = "#4c1d95";
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */
 export const C = {
