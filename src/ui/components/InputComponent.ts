@@ -40,12 +40,9 @@ import { joinHorizontal, Left, newStyle } from "@oakoliver/lipgloss";
 import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
 import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
-import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
+import { truncateAnsi } from "../../util/ansi.ts";
 import { SLASH_COMMANDS, completeSlash, slashTokenEnd } from "../../core/commands.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
-
-/** Input prompt marker (also sizes the textarea's prompt gutter). */
-export const PROMPT = "you › ";
 
 /** The input grows to this many rows before it scrolls vertically. */
 export const MAX_LINES = 10;
@@ -214,13 +211,18 @@ function parseSeqKey(seq: string): SeqKey | undefined {
   return { code, mod };
 }
 
-/** Textarea styles mapped onto the theme (cursor block, prompt marker). When
- *  `blurred` is true the text renders dark grey and the cursor uses the darker
- *  purple — the visual cue that the log holds the top-level focus ring. */
+/** Textarea styles mapped onto the theme (black backing, purple left border).
+ *  When `blurred` is true the text renders dark grey and the cursor uses the
+ *  darker purple — the visual cue that the log holds the top-level focus ring.
+ *  The base style paints the whole widget black and adds a 1-cell horizontal
+ *  padding inside a purple right-half-block left border (same purple as the
+ *  input's prompt marker, mirroring the assistant prose gutter). */
 function inputStyles(blurred: boolean): TextareaStyles {
   const styles = textareaDefaultDarkStyles();
   const text = blurred ? ST.inputTextBlur : ST.inputText;
   const lineStyle = blurred ? ST.inputTextBlur : newStyle();
+  styles.focused.base = ST.inputBase;
+  styles.blurred.base = ST.inputBase;
   styles.focused.cursorLine = lineStyle;
   styles.focused.text = text;
   styles.focused.prompt = ST.promptMarker;
@@ -243,7 +245,7 @@ export class InputComponent extends BaseComponent {
   constructor() {
     super(true);
     const ta = newTextarea();
-    ta.prompt = PROMPT;
+    ta.prompt = "";
     ta.showLineNumbers = false;
     ta.dynamicHeight = true;
     ta.minHeight = 1;
@@ -258,9 +260,6 @@ export class InputComponent extends BaseComponent {
     this.stylesBlurred = stylesBlurred;
     this.activeStyles = stylesFocused;
     ta.setStyles(stylesFocused);
-    // Prompt on the first visual row only; continuation rows keep the same
-    // left gutter so text stays aligned.
-    ta.setPromptFunc(displayWidth(PROMPT), ({ lineNumber }) => (lineNumber === 0 ? PROMPT : ""));
     ta.focus();
     this.textarea = ta;
   }

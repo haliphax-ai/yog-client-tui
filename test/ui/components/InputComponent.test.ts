@@ -15,10 +15,21 @@ function typeText(component: InputComponent, text: string): void {
 describe("InputComponent — bubbletea TextArea input bar", () => {
   beforeEach(() => resetForTests());
 
-  it("renders a single row with the prompt when empty", () => {
+  it("renders a single row with the purple left border when empty", () => {
     const out = new InputComponent().render({ cols: 80 }).split("\n");
     expect(out).toHaveLength(1);
-    expect(stripAnsi(out[0] ?? "")).toContain("you ›");
+    const raw = out[0] ?? "";
+    expect(stripAnsi(raw).startsWith("▐")).toBe(true);
+    expect(stripAnsi(raw)).not.toContain("you ›");
+    expect(raw).toContain("48;2;0;0;0"); // black backing
+  });
+
+  it("pads the text 1 cell inside the purple left border on black", () => {
+    const component = new InputComponent();
+    typeText(component, "hi");
+    const raw = component.render({ cols: 80 }).split("\n")[0] ?? "";
+    expect(stripAnsi(raw).startsWith("▐ hi")).toBe(true);
+    expect(raw).toContain("48;2;0;0;0"); // black backing
   });
 
   it("typing inserts text and syncs the store (resetting completion)", () => {
