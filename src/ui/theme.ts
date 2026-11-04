@@ -4,7 +4,10 @@
  * Everything color-related lives here so the rest of the UI imports styles
  * and palettes instead of literals.
  */
-import { newStyle } from "@oakoliver/lipgloss";
+import { innerHalfBlockBorder, newStyle } from "@oakoliver/lipgloss";
+
+/** Purple accent for the input: the prompt marker and the input's left border. */
+export const INPUT_PURPLE = "#a78bfa";
 
 /** Styling map. Tool-output blocks: black bg, dark grey text, 1-cell padding. */
 export const ST = {
@@ -29,7 +32,16 @@ export const ST = {
   toolPlain: newStyle().foreground("#a78bfa").padding(0, 1),
   /** Focused tool call: dark blue bar, white text (same padding — no jitter). */
   toolFocus: newStyle().foreground("#ffffff").background("#1e3a8a").padding(0, 1),
-  promptMarker: newStyle().foreground("#a78bfa").bold(true),
+  promptMarker: newStyle().foreground(INPUT_PURPLE).bold(true),
+
+  /** Input textarea base: black backing with 1-cell horizontal padding and a
+   *  purple right-half-block left border (same purple as the prompt marker). */
+  inputBase: newStyle()
+    .background("#000000")
+    .padding(0, 1)
+    .borderLeft(true)
+    .borderStyle(innerHalfBlockBorder())
+    .borderLeftForeground(INPUT_PURPLE),
   inputText: newStyle(),
   /** Input text when the input is blurred (log holds the top-level ring). */
   inputTextBlur: newStyle().foreground("#52525b"),
