@@ -7,6 +7,8 @@
  * text). Commands are registry-driven — add a name + summary here and it
  * becomes completable overnight and executable via Enter.
  */
+
+import { fuzzyFind } from "../util/fuzzy.ts";
 export interface SlashCommand {
   readonly name: string;
   readonly summary: string;
@@ -43,17 +45,18 @@ export function isSlash(input: string): boolean {
 }
 
 /**
- * Completion candidates for the current slash line, in registry order.
- * Matches case-insensitively against the typed prefix; the empty prefix
- * (a lone "/") matches every command.
+ * Completion candidates for the current slash line, ranked by fuzzy match
+ * score (see `src/util/fuzzy.ts`): the typed token matches any command
+ * whose name contains its characters in order, with better matches first.
+ * An empty token (a lone "/") lists every command in registry order.
  */
 export function completeSlash(input: string): readonly string[] {
   const token = slashToken(input);
   if (token === null) return [];
-  const needle = token.toLowerCase();
-  return SLASH_COMMANDS.filter((command) => command.name.toLowerCase().startsWith(needle)).map(
-    (command) => "/" + command.name,
-  );
+  return fuzzyFind(
+    token,
+    SLASH_COMMANDS.map((command) => command.name),
+  ).map((match) => "/" + match.item);
 }
 
 /**
