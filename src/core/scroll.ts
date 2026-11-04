@@ -44,11 +44,17 @@ export function clampScroll(state: ScrollState, maxOffset: number): void {
   state.lastMaxOffset = maxOffset;
 }
 
-/** Scroll by `delta` rows (positive = toward the bottom). */
+/** Scroll by `delta` rows (positive = toward the bottom). A scroll that
+ *  changes neither the offset nor follow (Down/Up already at that edge with
+ *  follow already in the landing state) leaves the state untouched, so the
+ *  caller can skip the flush. An upward scroll at the top still breaks
+ *  follow: it cannot move, but it does detach from auto-follow. */
 export function scrollBy(state: ScrollState, delta: number, maxOffset: number): void {
-  state.follow = false;
-  state.scrollOffset = Math.max(0, Math.min(maxOffset, state.scrollOffset + delta));
-  if (state.scrollOffset >= maxOffset) state.follow = true;
+  const target = Math.max(0, Math.min(maxOffset, state.scrollOffset + delta));
+  const following = target >= maxOffset;
+  if (target === state.scrollOffset && following === state.follow) return;
+  state.follow = following;
+  state.scrollOffset = target;
 }
 
 /** Jump to the top of the log (stops follow) or the bottom (resumes it). */
