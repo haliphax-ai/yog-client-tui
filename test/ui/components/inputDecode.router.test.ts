@@ -4,7 +4,12 @@ import { getState, resetForTests } from "../../../src/core/store.ts";
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
 import { InputComponent } from "../../../src/ui/components/InputComponent.ts";
 import { createInputDecoder } from "../../../src/ui/components/inputDecode.ts";
-import { routeChar, routeKey, type Globals } from "../../../src/ui/components/keyRouter.ts";
+import {
+  routeChar,
+  routeKey,
+  setTopLevel,
+  type Globals,
+} from "../../../src/ui/components/keyRouter.ts";
 
 /**
  * End-to-end input path test: raw bytes as a terminal would send them →
@@ -13,8 +18,12 @@ import { routeChar, routeKey, type Globals } from "../../../src/ui/components/ke
  */
 function wire() {
   resetForTests();
+  const viewport = new ChatViewport();
   const input = new InputComponent();
-  const chain = [new ChatViewport(), input];
+  viewport.ring = "log";
+  input.ring = "input";
+  const chain = [viewport, input];
+  setTopLevel("input");
   const calls: string[] = [];
   const globals: Globals = {
     quit: () => calls.push("quit"),

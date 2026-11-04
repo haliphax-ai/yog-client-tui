@@ -16,6 +16,7 @@
 import { ChatLogComponent } from "./ChatLogComponent.ts";
 import { type FocusTarget } from "../../core/focus.ts";
 import { tableState, tableStateOf, type LogEntry } from "../../core/entries.ts";
+import { setTopLevel } from "./keyRouter.ts";
 import { getState, setState } from "../../core/store.ts";
 import {
   isTableScrollSeq,
@@ -26,6 +27,11 @@ import {
   tableScrollKey,
 } from "../render/table/index.ts";
 
+/** Shift+Down encodings — move top-level focus from the log to the input. */
+const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[1;2B", // xterm-style
+  "\x1b[66;2u", // CSI-u / Kitty
+]);
 /**
  * Scroll geometry of the focused table at the log's width: the viewport-body
  * width and the table's total rendered width. Same `resolveTableLayout` the
@@ -143,6 +149,11 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   override handleKey(seq: string): "handled" | "unhandled" {
+    if (SHIFT_DOWN_SEQS.has(seq)) {
+      // Shift+Down: hand the top-level ring back to the input.
+      setTopLevel("input");
+      return "handled";
+    }
     const focused = this.focusedTable();
     if (focused === null) return "unhandled";
     // Fast path: skip the expensive parse for keys that can't scroll
@@ -187,14 +198,15 @@ export class ChatViewport extends ChatLogComponent {
       return "handled";
     }
     if (ch === "\x1b") {
-      // Esc: leave entry focus mode; nothing focused → bubble to the global
-      // abort binding (the turn-abort Esc path).
+      // Esc: leave entry focus mode. With the ring empty, return to the
+      // input (the abort path lives on the input side of the ring).
       this.syncFromStore();
       if (this.focusTarget.entry >= 0) {
         this.clearFocus();
         return "handled";
       }
-      return "unhandled";
+      setTopLevel("input");
+      return "handled";
     }
     return "unhandled";
   }
