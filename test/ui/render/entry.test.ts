@@ -204,7 +204,7 @@ describe("height summary", () => {
   });
 });
 describe("status entry", () => {
-  it("renders one dark-grey line on the normal background with 1-cell padding", () => {
+  it("renders one very dark-grey (but not black) line on the normal background with 1-cell padding", () => {
     const rows = cachedRows(
       { kind: "status", lines: ["runtime 5m21s · 2 tool calls · 1.3M tokens"] },
       60,
@@ -215,8 +215,9 @@ describe("status entry", () => {
     // Horizontal padding 1: one leading + one trailing space.
     expect(plain.startsWith(" ")).toBe(true);
     expect(plain.endsWith(" ")).toBe(true);
-    // Dark grey foreground, no background style.
-    expect(rows[0]).toContain("38;2;161;161;170"); // #a1a1aa
+    // Very dark grey foreground (not black), no background style.
+    expect(rows[0]).toContain("38;2;63;63;70"); // #3f3f46
+    expect(rows[0]).not.toContain("38;2;0;0;0"); // not black
     expect(rows[0]).not.toContain("48;2;");
     // Never exceeds the terminal width.
     expect(displayWidth(plain)).toBeLessThanOrEqual(60);

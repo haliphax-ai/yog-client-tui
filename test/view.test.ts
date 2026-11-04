@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   colorizeToolLine,
@@ -476,6 +476,9 @@ describe("displayWidth / stripAnsi", () => {
   });
 });
 describe("turn usage reaches the session status bar", () => {
+  afterEach(() => {
+    resetForTests();
+  });
   it("updates the 🪙 stat when a finished turn reports usage", () => {
     resetForTests();
 
