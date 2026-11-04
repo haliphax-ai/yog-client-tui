@@ -17,11 +17,10 @@ export function spinnerFrame(): string {
   return SPINNER[getState().busyFrame % SPINNER.length] as string;
 }
 
-/** Emoji labels. Variation selectors are only needed where the width is
- *  ambiguous: ℹ️ is U+2139 + U+FE0F (without the selector it measures one
- *  cell); 👤 🔄 🔧 are already full-width emoji. */
+/** Emoji labels — all already full-width, so no variation selectors are
+ *  needed (ℹ️ would have required one; 🔌 does not). */
 const USER_EMOJI = "\u{1F464}"; // 👤 bust in silhouette
-const SESSION_EMOJI = "\u2139\uFE0F"; // ℹ️ info
+const SESSION_EMOJI = "\u{1F50C}"; // 🔌 electric plug
 const TURNS_EMOJI = "\u{1F504}"; // 🔄 refresh
 const TOOLS_EMOJI = "\u{1F527}"; // 🔧 wrench
 
