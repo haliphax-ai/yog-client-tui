@@ -132,18 +132,10 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.append("system", ["stream interrupted — recovered from turn status"]);
     },
     onFinish: (durationMs, stopReason, usage) => {
-      // A stopReason means the server stopped the turn early; surface it with
-      // the same notice shape as the abort — label · detail, rendered as one
-      // dot-separated line (amber label, dim detail) — instead of ending the
-      // turn silently. Token usage rides on the detail (a separate notice for
-      // natural finishes) so the label stays canonical and testable.
-      const lines: string[] = [];
-      if (stopReason === "max_rounds") {
-        lines.push(
-          "⏹️ turn stopped",
-          `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`,
-        );
-      }
+      // The dark-grey per-turn summary below is the happy-path signal that the
+      // turn finished; notices are reserved for terminations outside that path
+      // (capped rounds), where the label is genuinely informative. A capped
+      // turn keeps the rich token breakdown on the notice's detail line.
       const tokenParts: string[] = [];
       if (usage !== undefined) {
         if (typeof usage.prompt_tokens === "number")
@@ -153,15 +145,14 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         if (typeof usage.total_tokens === "number")
           tokenParts.push(`${formatTokens(usage.total_tokens)} total`);
       }
-      if (tokenParts.length > 0) {
-        const tokensDetail = `tokens: ${tokenParts.join(" · ")}`;
-        if (lines.length >= 2) {
-          lines[1] = `${lines[1]} · ${tokensDetail}`;
-        } else {
-          lines.push("⏹️ turn finished", tokensDetail);
-        }
+      if (stopReason === "max_rounds") {
+        const detail =
+          `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`;
+        host.append("notice", [
+          "⏹️ turn stopped",
+          tokenParts.length > 0 ? `${detail} · tokens: ${tokenParts.join(" · ")}` : detail,
+        ]);
       }
-      if (lines.length > 0) host.append("notice", lines);
       // Per-turn summary line: runtime · tool calls · tokens (abbreviated).
       // The tool-call total is for THIS turn only — each presenter is created
       // fresh per submit(), so the counter never leaks across turns; session

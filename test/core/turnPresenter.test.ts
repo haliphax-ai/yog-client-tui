@@ -241,7 +241,7 @@ describe("createTurnPresenter", () => {
     expect(entries.filter((e) => e.kind === "notice")).toHaveLength(0);
   });
 
-  it("logs a per-turn token notice when usage arrives on a natural finish", () => {
+  it("stays quiet on the happy path — no notice, just the dark grey summary line", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onFinish?.(1200, undefined, {
@@ -249,10 +249,7 @@ describe("createTurnPresenter", () => {
       completion_tokens: 567,
       total_tokens: 1801,
     });
-    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
-      kind: "notice",
-      lines: ["⏹️ turn finished", "tokens: 1,234 prompt · 567 completion · 1,801 total"],
-    });
+    expect(entries.filter((e) => e.kind === "notice")).toHaveLength(0);
     expect(entries.at(-1)).toEqual({
       kind: "status",
       lines: ["runtime 1s · 0 tool calls · 1.8K tokens"],
