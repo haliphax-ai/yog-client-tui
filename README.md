@@ -98,6 +98,9 @@ exits with an error.
 The UI has a top-level focus ring with two targets: the chat log and the text
 input. Keys go to whichever side holds the ring; while the log holds it,
 unhandled keys are dropped (they never reach the input).
+While the log holds the ring, the input is visually blurred (dark grey text,
+the cursor is a darker shade of purple) so it is obvious where keypresses
+will land.
 
 | Key | Action |
 | --- | --- |

@@ -39,10 +39,10 @@ import type { TextareaModel, TextareaStyles } from "@oakoliver/bubbles";
 import { joinHorizontal, Left, newStyle } from "@oakoliver/lipgloss";
 import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
-import { ST, CURSOR_COLOR } from "../theme.ts";
+import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
 import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
 import { SLASH_COMMANDS, completeSlash, slashTokenEnd } from "../../core/commands.ts";
-import { setTopLevel } from "./keyRouter.ts";
+import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 
 /** Input prompt marker (also sizes the textarea's prompt gutter). */
 export const PROMPT = "you › ";
@@ -214,16 +214,20 @@ function parseSeqKey(seq: string): SeqKey | undefined {
   return { code, mod };
 }
 
-/** Textarea styles mapped onto the theme (cursor block, prompt marker). */
-function inputStyles(): TextareaStyles {
+/** Textarea styles mapped onto the theme (cursor block, prompt marker). When
+ *  `blurred` is true the text renders dark grey and the cursor uses the darker
+ *  purple — the visual cue that the log holds the top-level focus ring. */
+function inputStyles(blurred: boolean): TextareaStyles {
   const styles = textareaDefaultDarkStyles();
-  styles.focused.cursorLine = newStyle();
-  styles.focused.text = newStyle();
+  const text = blurred ? ST.inputTextBlur : ST.inputText;
+  const lineStyle = blurred ? ST.inputTextBlur : newStyle();
+  styles.focused.cursorLine = lineStyle;
+  styles.focused.text = text;
   styles.focused.prompt = ST.promptMarker;
-  styles.blurred.cursorLine = newStyle();
-  styles.blurred.text = newStyle();
+  styles.blurred.cursorLine = lineStyle;
+  styles.blurred.text = text;
   styles.blurred.prompt = ST.promptMarker;
-  styles.cursor.color = CURSOR_COLOR;
+  styles.cursor.color = blurred ? CURSOR_COLOR_BLUR : CURSOR_COLOR;
   styles.cursor.blink = false; // static block cursor — no blink command loop
   return styles;
 }
@@ -231,6 +235,10 @@ function inputStyles(): TextareaStyles {
 export class InputComponent extends BaseComponent {
   private readonly textarea: TextareaModel;
   private lastCols = 0;
+  /** Style sets for the two ring states (focused vs blurred). */
+  private readonly stylesFocused: TextareaStyles;
+  private readonly stylesBlurred: TextareaStyles;
+  private activeStyles: TextareaStyles;
 
   constructor() {
     super(true);
@@ -244,12 +252,25 @@ export class InputComponent extends BaseComponent {
       withKeys("shift+enter"),
       withHelp("Shift+Enter", "insert newline"),
     );
-    ta.setStyles(inputStyles());
+    const stylesFocused = inputStyles(false);
+    const stylesBlurred = inputStyles(true);
+    this.stylesFocused = stylesFocused;
+    this.stylesBlurred = stylesBlurred;
+    this.activeStyles = stylesFocused;
+    ta.setStyles(stylesFocused);
     // Prompt on the first visual row only; continuation rows keep the same
     // left gutter so text stays aligned.
     ta.setPromptFunc(displayWidth(PROMPT), ({ lineNumber }) => (lineNumber === 0 ? PROMPT : ""));
     ta.focus();
     this.textarea = ta;
+  }
+
+  /** Swap the textarea styles to match the current ring target. */
+  private syncFocusStyle(): void {
+    const target = getTopLevel() === "input" ? this.stylesFocused : this.stylesBlurred;
+    if (this.activeStyles === target) return;
+    this.activeStyles = target;
+    this.textarea.setStyles(target);
   }
 
   /** Feed one key event to the textarea model (moves value/cursor/scroll). */
@@ -278,6 +299,7 @@ export class InputComponent extends BaseComponent {
 
   /** One styled input block: textarea rows + optional slash-command menu row. */
   render(ctx: RenderContext): string {
+    this.syncFocusStyle();
     this.layout(ctx.cols);
     const inputView = this.textarea.view();
     const menu = this.renderMenu(ctx.cols);
@@ -385,6 +407,7 @@ export class InputComponent extends BaseComponent {
     }
     if (SHIFT_UP_SEQS.has(seq)) {
       setTopLevel("log");
+      setState({}); // notify the scheduler so the blur style repaints
       return "handled";
     }
     const key = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
