@@ -13,16 +13,15 @@ describe("composeMainPane — guaranteed single blank line between log and input
     ]);
   });
 
-  it("inserts a gap when the viewport bottom is content (scrolled away)", () => {
+  it("consumes the bottom row as the gap when the viewport ends in content", () => {
     expect(composeMainPane(["line1", "line2"], "▐ ", "status")).toEqual([
       "line1",
-      "line2",
       "",
       "▐ ",
       "status",
     ]);
-    expect(composeMainPane(["\x1b[31mline\x1b[m"], "▐ ", "status")).toEqual([
-      "\x1b[31mline\x1b[m",
+    expect(composeMainPane(["\x1b[31mline1\x1b[m", "line2"], "▐ ", "status")).toEqual([
+      "\x1b[31mline1\x1b[m",
       "",
       "▐ ",
       "status",
