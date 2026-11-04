@@ -34,7 +34,7 @@ let running = false;
  *   layout   → `setMetrics` (terminal geometry), then layout hooks
  *   paint    → `paint()` component rows, joined into the frame, then paint hooks
  *   compose  → pass the joined frame through (viewport + input + status are
- *              already one frame), then compose hooks
+ *            already one frame), then compose hooks
  *   post     → pad/truncate every line to `width`, then post hooks
  *   emit     → emit hooks, then the single `emit` write (nothing after)
  */
