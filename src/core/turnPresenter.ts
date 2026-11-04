@@ -126,9 +126,10 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
     },
     onFinish: (durationMs, stopReason) => {
       // A stopReason means the server stopped the turn early; surface it
-      // with the same notice shape as the abort (event label + detail line)
-      // instead of ending the turn silently. The duration rides on the
-      // detail so the label stays canonical and testable.
+      // with the same notice shape as the abort — label · detail, rendered
+      // as one dot-separated line (amber label, dim detail) — instead of
+      // ending the turn silently. The duration rides on the detail so the
+      // label stays canonical and testable.
       if (stopReason === "max_rounds") {
         host.append("notice", [
           "⏹️ turn stopped",
