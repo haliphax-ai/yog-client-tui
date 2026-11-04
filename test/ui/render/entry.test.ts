@@ -2,13 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { cachedHeights, cachedRows, totalRows } from "../../../src/ui/render/entry.ts";
 import { C, ST } from "../../../src/ui/theme.ts";
-import { displayWidth, lineHeight, stripAnsi } from "../../../src/util/ansi.ts";
+import { lineHeight, stripAnsi } from "../../../src/util/ansi.ts";
 import type { LogEntry } from "../../../src/core/entries.ts";
 
 const ESC = "\x1b";
 
-describe("assistant prose — full-width, no border", () => {
-  it("renders prose without the half-block border rune", () => {
+/** The border cell: themed half-block rune + the single separator space. */
+const BORDER = `${ST.assistantBorder.render("▐")} `;
+
+describe("assistant prose left border", () => {
+  it("prefixes every row of the prose with the themed border", () => {
+    // Long enough to wrap (markdown soft-breaks merge short lines).
     const rows = cachedRows(
       {
         kind: "assistant",
@@ -16,84 +20,88 @@ describe("assistant prose — full-width, no border", () => {
       },
       40,
     );
-    expect(rows.length).toBe(1);
-    expect(stripAnsi(rows[0] ?? "").indexOf("▐")).toBe(-1);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row.startsWith(BORDER)).toBe(true);
+      // The rune appears exactly once per row — at the border.
+      expect(stripAnsi(row).indexOf("▐")).toBe(0);
+      expect(stripAnsi(row).lastIndexOf("▐")).toBe(0);
+    }
   });
 
-  it("keeps an overlong paragraph as one logical line (soft wrap)", () => {
-    const cols = 30;
+  it("leaves the two-cell gutter intact when the prose wraps", () => {
+    const cols = 20;
     const rows = cachedRows(
       { kind: "assistant", lines: ["this is a long reply that wraps across rows"] },
       cols,
     );
-    // Soft-wrapped prose stays a single logical row; the terminal wraps it.
-    expect(rows.length).toBe(1);
-    expect(displayWidth(rows[0] ?? "")).toBeGreaterThan(cols);
-    expect(stripAnsi(rows[0] ?? "").indexOf("▐")).toBe(-1);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row.startsWith(BORDER)).toBe(true);
+      // Border (1 cell) + space (1 cell) + prose never exceeds the width.
+      expect(stripAnsi(row).length).toBeLessThanOrEqual(cols);
+    }
+    // Round-trip: the prose survives wrapping with one border per row.
     const plain = stripAnsi(rows.join("\n"));
     for (const word of ["this", "is", "a", "long", "reply", "that", "wraps"]) {
       expect(plain).toContain(word);
     }
   });
 
-  it("preserves markdown styling across paragraph breaks", () => {
-    const rows = cachedRows({ kind: "assistant", lines: ["a **bold** start", "", "finish"] }, 24);
-    expect(rows.length).toBe(3);
-    expect(rows[1]).toBe("");
-    expect(stripAnsi(rows[0] ?? "")).toContain("bold");
-    expect(rows[0]).toContain(ESC); // styled with ANSI escape sequences
-    expect(rows[0]).toContain(";1m"); // bold attribute retained
-    for (const row of rows) expect(stripAnsi(row).indexOf("▐")).toBe(-1);
+  it("keeps prose markdown styling on continuation rows with the border", () => {
+    const rows = cachedRows(
+      { kind: "assistant", lines: ["a **bold** continuation of the paragraph"] },
+      24,
+    );
+    for (const row of rows) expect(row.startsWith(BORDER)).toBe(true);
+    // No row carries a second border rune: prose never inherits or
+    // duplicates the border, and the border never wraps into the prose.
+    for (const row of rows) {
+      const plain = stripAnsi(row);
+      expect(plain.indexOf("▐")).toBe(0);
+      expect(plain.lastIndexOf("▐")).toBe(0);
+    }
   });
 
   it("does not colorize the prose like a tool line (no arg-palette leaks)", () => {
     const rows = cachedRows({ kind: "assistant", lines: ['{"not": "a tool"}'] }, 40);
+    // Glamour right-pads rows to the wrap width; compare without padding.
+    expect(stripAnsi(rows[0] ?? "").trimEnd()).toBe('▐ {"not": "a tool"}');
     expect((rows[0] ?? "").includes(C.punct)).toBe(false);
   });
-
-  it("styles assistant prose with the assistant style (white text)", () => {
-    const rows = cachedRows({ kind: "assistant", lines: ["hello world"] }, 40);
-    // The row carries the assistant fg (white) — glamour splits the styled
-    // text into segments, so check for the fg code rather than the whole
-    // styled string.
-    expect(rows[0]).toContain(`${ESC}[38;2;255;255;255m`);
-  });
-
-  it("keeps wide runes intact across soft wrap (emoji regression)", () => {
-    const text =
-      "✅ Done — " +
-      "this line is intentionally long enough to exceed the terminal width ".repeat(2) +
-      "end";
-    const rows = cachedRows({ kind: "assistant", lines: [text] }, 24);
-    expect(rows.length).toBe(1);
-    expect(displayWidth(rows[0] ?? "")).toBeGreaterThan(24);
-    expect(stripAnsi(rows[0] ?? "")).toContain("✅");
-    expect(stripAnsi(rows[0] ?? "")).toContain("end");
-  });
 });
-describe("user prompt — full-width, no horizontal padding", () => {
-  it("renders prompt rows without leading/trailing padding", () => {
+
+describe("user prompt — padded bubble", () => {
+  it("renders prompt rows with 1-cell horizontal padding", () => {
     const rows = cachedRows({ kind: "user", lines: ["hello world"] }, 40);
-    // The user bubble has vertical padding (1 row top/bottom); the content
-    // is in rows[1]. Horizontal padding is gone — text starts at column 0.
+    // Vertical padding: 1 blank row above and below the content.
+    expect(rows.length).toBe(3);
+    expect(stripAnsi(rows[0] ?? "").trim()).toBe("");
+    expect(stripAnsi(rows[2] ?? "").trim()).toBe("");
+    // Horizontal padding: content starts one cell in from the left edge.
     const content = stripAnsi(rows[1] ?? "");
+    expect(content.indexOf("hello")).toBe(1);
     expect(content).toContain("hello world");
-    // No leading space from horizontal padding — text starts at col 0.
-    expect(content.indexOf("hello")).toBe(0);
   });
 
-  it("keeps an overlong prompt as one soft-wrapped line", () => {
+  it("hard-wraps overlong prompts at cols-2", () => {
     const cols = 20;
     const rows = cachedRows(
       { kind: "user", lines: ["this is a long prompt that wraps across rows"] },
       cols,
     );
-    // bubble: blank fill row + content row + blank fill row
-    expect(rows.length).toBe(3);
-    const content = stripAnsi(rows[1] ?? "").trim();
-    expect(content).toBe("this is a long prompt that wraps across rows");
+    expect(rows.length).toBeGreaterThan(3);
+    for (const row of rows) {
+      expect(stripAnsi(row).length).toBeLessThanOrEqual(cols);
+    }
+    // Round-trip: the whole prompt survives wrapping intact.
+    const plain = stripAnsi(rows.join("\n"));
+    for (const word of ["this", "is", "a", "long", "prompt", "that", "wraps", "across"]) {
+      expect(plain).toContain(word);
+    }
   });
 });
+
 describe("terminal-state notice", () => {
   it("renders one line: padded label, default-fg dot, dimmed detail", () => {
     const rows = cachedRows({ kind: "notice", lines: ["⏹ turn aborted", "by operator"] }, 40);
@@ -131,6 +139,7 @@ describe("terminal-state notice", () => {
     expect(stripAnsi(rows[0] ?? "").endsWith("a very long")).toBe(true);
   });
 });
+
 describe("cachedHeights / height summary", () => {
   it("stores heights matching the line-height of the cached rows", () => {
     const row: LogEntry = { kind: "system", lines: ["hello world"] };

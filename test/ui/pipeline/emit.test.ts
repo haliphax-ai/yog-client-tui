@@ -12,9 +12,10 @@ describe("padFrame", () => {
     expect(padFrame("ab\ncd", 4)).toBe("ab  \ncd  ");
   });
 
-  it("leaves overlong lines intact for terminal soft wrap", () => {
-    expect(padFrame("abcdef", 3)).toBe("abcdef");
+  it("truncates overlong lines", () => {
+    expect(padFrame("abcdef", 3)).toBe("abc");
   });
+
   it("leaves exact-width lines untouched", () => {
     const line = "\x1b[31mab\x1b[0m"; // width 2
     expect(padLine(line, 2)).toBe(line);

@@ -41,15 +41,12 @@ function kindStyle(kind: EntryKind): Style {
       return ST.chunkBlock;
   }
 }
-/** Render one row with `style`, filling to `cols` when it fits and leaving
- *  overlong rows whole (the terminal soft-wraps them). `hPad` is the
- *  style's total horizontal padding in cells (left + right). */
-function fitStyle(style: Style, row: string, cols: number, hPad: number): string {
-  return displayWidth(row) + hPad <= cols ? style.width(cols).render(row) : style.render(row);
-}
 
 /** Rows a tool-output block body shows before truncation (label excluded). */
 const COLLAPSE_LINES = 5;
+
+/** Left-border rune marking assistant prose (themed via ST.assistantBorder). */
+const BORDER_RUNE = "▐";
 
 /** A fully styled entry: its rendered rows, their count, and the row offset
  *  of every table section within the rendered block (0-based, relative to the
@@ -105,7 +102,7 @@ interface SectionCache {
 interface RowCache {
   key: string;
   rows: string[];
-  /** Terminal-row height of each row (soft-wrap aware), same length as rows. */
+  /** Terminal-row height of each row, same length as rows. */
   heights: number[];
   tableOffsets: number[];
 }
@@ -190,6 +187,11 @@ export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
  * height (header with exit status + output, black bg, dark-grey text);
  * headers show `↓` when expanded (bodies <= COLLAPSE_LINES are always
  * expanded), `→` when collapsed. Other rows wrap plain.
+ *
+ * Every chunk is HARD-wrapped: prose, tool bodies, and tool-arg rows are
+ * programmatically word-wrapped to the block's body width (cols-2 for
+ * padded/bordered blocks, cols otherwise), so no row exceeds the terminal
+ * width and the terminal never soft-wraps a chunk.
  */
 function renderEntry(
   entry: LogEntry,
@@ -199,10 +201,11 @@ function renderEntry(
 ): EntryRender {
   if (entry.kind === "user" || entry.kind === "assistant") {
     const isUser = entry.kind === "user";
-    // Prompts and assistant prose now wrap at the full terminal width:
-    // the user bubble's vertical padding (1 row top/bottom) and the assistant's
-    // former border gutter are gone; only the background delineates blocks.
-    const bodyW = Math.max(1, cols);
+    // Prompt: 1-cell padding each side sits INSIDE the style width, so the
+    // content wraps at cols-2 while the block spans the full terminal.
+    // Assistant: rows are prefixed with the border cell + one space, so the
+    // prose wraps at cols-2 too and the border gutter survives wrapping.
+    const bodyW = Math.max(1, cols - 2);
     const sections = sectionsOf(entry);
     // Render each section: prose through glamour, tables through the table
     // renderer. The FIRST and LAST sections of the sequence render WITHOUT
@@ -216,9 +219,10 @@ function renderEntry(
     let tableIndex = 0;
     for (const section of sections) {
       if (section.kind === "prose") {
-        const md = renderMarkdown(section.text);
-        const prose = md.length > 0 ? md : section.text.split("\n");
-        parts.push(...(isUser ? flattenMarkdown(prose) : prose));
+        const md = renderMarkdown(section.text, bodyW);
+        parts.push(
+          ...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)),
+        );
         continue;
       }
       // A table section. The column layout comes from the layout engine:
@@ -253,14 +257,15 @@ function renderEntry(
     }
     if (parts.length === 0) parts.push("");
     if (isUser) {
-      const rowStyle = ST.user.copy().paddingTop(0).paddingBottom(0);
-      const fill = rowStyle.width(cols).render("");
-      const rendered = [fill, ...parts.map((p) => fitStyle(rowStyle, p, cols, 0)), fill].join("\n");
+      const rendered = ST.user.width(cols).render(parts.join("\n"));
       return { rendered, rows: rendered.split("\n").length, tableOffsets };
     }
-    // Assistant: style each prose row with the assistant style (white text,
-    // no border, no padding — full-width rows for easy selection).
-    const rows = parts.map((row) => ST.assistant.render(row));
+    // Style each prose row by itself, then glue the border in front — the
+    // border never crosses the prose styling and vice versa, and pre-wrapped
+    // rows (md or wrapText, both <= bodyW = cols-2 cells) leave room for the
+    // two-cell gutter on every row.
+    const border = ST.assistantBorder.render(BORDER_RUNE);
+    const rows = parts.map((row) => `${border} ${row}`);
     const rendered = rows.join("\n");
     return { rendered, rows: rows.length, tableOffsets };
   }
@@ -269,7 +274,8 @@ function renderEntry(
     // The body comes from the raw result when the entry carries one (the
     // presenter stores the data; the renderer formats it), else from the
     // pre-rendered body lines.
-    const body = entry.result !== undefined ? resultPreview(entry.result) : entry.lines.slice(1);
+    const body =
+      entry.result !== undefined ? resultPreview(entry.result, cols) : entry.lines.slice(1);
     const expandable = body.length > COLLAPSE_LINES;
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
@@ -282,22 +288,18 @@ function renderEntry(
         ? CHUNK_HEADER.ok
         : CHUNK_HEADER.fail;
     const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
-    const base = focusedTable ? ST.chunkBlockFocus : ST.chunkBlock;
-    const rowStyle = base.copy().paddingTop(0).paddingBottom(0);
-    const fill = rowStyle.width(cols).render("");
-    const block = (rows: string[]): string =>
-      [fill, ...rows.map((r) => fitStyle(rowStyle, r, cols, 2)), fill].join("\n");
+    const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
     if (open) {
-      const rendered = block([styledHeader, ...body]);
+      const rendered = style.render([styledHeader, ...body].join("\n"));
       return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
     }
     const shown = body.slice(0, COLLAPSE_LINES);
     const hidden = body.length - shown.length;
-    const rendered = block([
-      styledHeader,
-      ...shown,
-      `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
-    ]);
+    const rendered = style.render(
+      [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`].join(
+        "\n",
+      ),
+    );
     return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
   }
 
@@ -308,18 +310,18 @@ function renderEntry(
     // line must never wrap (a wrapped JSON blob reads as several entries). When
     // truncated, drop one more cell and append a UTF-8 ellipsis so the marker
     // fits within the same budget.
-    // Expanded: emit logical lines; the terminal soft-wraps overlong ones.
-    const base = focusedTable ? ST.toolFocus : ST.toolPlain;
+    // Expanded: wrap the full body at the body width (hard wrap).
     const rows =
       entry.expanded && entry.full !== undefined
-        ? [entry.label ?? entry.lines[0] ?? "", ...entry.full.split("\n")]
+        ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
         : (() => {
             const line = entry.lines[0] ?? "";
             const cap = Math.max(1, cols - 2);
             if (displayWidth(line) <= cap) return [line];
             return cap > 1 ? [truncateAnsi(line, cap - 1) + "…"] : ["…"];
           })();
-    const rendered = rows.map((r) => fitStyle(base, r, cols, 2)).join("\n");
+    const style = (focusedTable ? ST.toolFocus : ST.toolPlain).width(cols);
+    const rendered = style.render(rows.join("\n"));
     return {
       rendered: colorizeToolLine(rendered),
       rows: rendered.split("\n").length,
@@ -440,8 +442,9 @@ export function tableOffsetsOf(entry: LogEntry): number[] | undefined {
 
 /**
  * Number of TERMINAL rows the given entries occupy at `cols` (incl.
- * separators). Soft-wrapped logical lines count their visual height:
- * ceil(displayWidth / cols), min 1.
+ * separators). Rows are hard-wrapped to the terminal width, so each row
+ * occupies exactly one terminal row; the serializer still accounts for the
+ * theoretical soft-wrap height of a row for safety.
  *
  * Backed by a cached summary per (entries array identity, cols): the total
  * is reused verbatim while the row-cache revision is unchanged — steady-state
