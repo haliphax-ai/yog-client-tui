@@ -36,6 +36,8 @@ export interface TranscriptMessage {
   name?: string;
   toolCallId?: string;
   toolCalls?: unknown;
+  /** Per-call completion-token attribution (optional; tool rows only). */
+  tokens?: number;
 }
 
 /** Result of the transcript rehydration dump: the session plus its ordered
@@ -44,6 +46,8 @@ export interface TranscriptResult {
   sessionId: string;
   status: string;
   messages: TranscriptMessage[];
+  /** Per-turn metrics (usage/duration) when the server captured them. */
+  turns?: Array<{ turnId: number; usage?: TokenUsage; durationMs?: number }>;
 }
 
 /** Well-known event types on the turn stream. */
@@ -74,7 +78,14 @@ export interface TurnEvents {
   /** `tool.call` — the model invoked a tool. */
   onToolCall?(id: string, name: string, args: unknown): void;
   /** `tool.result` — a tool outcome. */
-  onToolResult?(id: string, name: string, ok: boolean, result: unknown, error?: string): void;
+  onToolResult?(
+    id: string,
+    name: string,
+    ok: boolean,
+    result: unknown,
+    error?: string,
+    tokens?: number,
+  ): void;
   /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
   onFinish?(durationMs: number, stopReason?: string, usage?: TokenUsage): void;
   /** `turn.aborted` — the operator aborted the turn (terminal). */
@@ -407,11 +418,40 @@ export class YogClient {
     const body = (await res.json()) as {
       session?: { id?: unknown; status?: unknown };
       messages?: unknown;
+      turns?: unknown;
     };
     const id = typeof body.session?.id === "string" ? body.session.id : sessionId;
     const status = typeof body.session?.status === "string" ? body.session.status : "open";
     const rows = Array.isArray(body.messages) ? body.messages : [];
-    return { sessionId: id, status, messages: rows as TranscriptMessage[] };
+    // Per-turn metrics are additive and optional; tolerate absent/malformed
+    // entries so old servers and odd payloads degrade gracefully.
+    const turns = (Array.isArray(body.turns) ? body.turns : [])
+      .map((t): { turnId: number; usage?: TokenUsage; durationMs?: number } | undefined => {
+        if (t === null || typeof t !== "object" || Array.isArray(t)) return undefined;
+        const rec = t as Record<string, unknown>;
+        const turnId = typeof rec["turnId"] === "number" ? rec["turnId"] : undefined;
+        if (turnId === undefined) return undefined;
+        const usage = parseUsage(rec["usage"]);
+        const durationMs =
+          typeof rec["durationMs"] === "number" && Number.isFinite(rec["durationMs"])
+            ? (rec["durationMs"] as number)
+            : undefined;
+        return {
+          turnId,
+          ...(usage !== undefined ? { usage } : {}),
+          ...(durationMs !== undefined ? { durationMs } : {}),
+        };
+      })
+      .filter(
+        (t): t is { turnId: number; usage?: TokenUsage; durationMs?: number } =>
+          t !== undefined && (t.usage !== undefined || t.durationMs !== undefined),
+      );
+    return {
+      sessionId: id,
+      status,
+      messages: rows as TranscriptMessage[],
+      ...(turns.length > 0 ? { turns } : {}),
+    };
   }
 
   /**
@@ -457,6 +497,7 @@ export class YogClient {
             data["ok"] === true,
             data["result"],
             str(data["error"]) || undefined,
+            parseTokens(data["tokens"]),
           );
           return;
         }
@@ -690,4 +731,9 @@ function parseUsage(value: unknown): TokenUsage | undefined {
     }
   }
   return hasNumber ? out : undefined;
+}
+
+/** Read a per-call token count from a payload field (finite, non-negative). */
+function parseTokens(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }

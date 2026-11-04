@@ -8,7 +8,7 @@
  * (`toolCallEntry` / `annotateToolCall` / `toolResultChunk`) also serve
  * transcript rehydration, so restored rows render exactly like live ones.
  */
-import { parseToolArgs, type TurnEvents } from "../yogClient.ts";
+import { parseToolArgs, type TurnEvents, type TokenUsage } from "../yogClient.ts";
 import {
   formatRuntime,
   formatTokenTotal,
@@ -20,6 +20,41 @@ import {
 import { displayWidth } from "../util/ansi.ts";
 import type { LogEntry } from "./entries.ts";
 import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
+
+/** Per-turn metrics for a rehydrated turn (usage/duration as captured). */
+export interface TranscriptTurnMetrics {
+  usage?: TokenUsage;
+  durationMs?: number;
+}
+
+/** Options for transcript rehydration entries. */
+export interface TranscriptRehydrateOpts {
+  /** Per-turn metrics, keyed by the transcript row's `turnId` (row id). */
+  turns?: Map<number, TranscriptTurnMetrics>;
+}
+
+/**
+ * Fold a per-call token count into a result payload the way the shared
+ * builders expect it (they read `result.tokens`). Returns the original
+ * value when there are no tokens so nothing is cloned/flagged.
+ */
+function withTokens(result: unknown, tokens: number | undefined): unknown {
+  if (tokens === undefined) return result;
+  if (result !== null && typeof result === "object" && !Array.isArray(result)) {
+    return { ...(result as Record<string, unknown>), tokens };
+  }
+  return { tokens };
+}
+
+/** Turn-level total for a usage object (total field, else prompt+completion). */
+function usageTotal(usage: TokenUsage | undefined): number {
+  if (usage === undefined) return 0;
+  if (typeof usage.total_tokens === "number") return usage.total_tokens;
+  return (
+    (typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0) +
+    (typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0)
+  );
+}
 
 /** Anything that can be pushed to the log and schedules a redraw. */
 export type AppendEntry = (kind: LogEntry["kind"], lines: string[]) => void;
@@ -95,7 +130,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       pendingToolCalls.set(id, entry);
       host.requestRender();
     },
-    onToolResult: (id, name, ok, result, error) => {
+    onToolResult: (id, name, ok, result, error, tokens) => {
       // Annotate the matching call line in place (no extra chat lines).
       const call = pendingToolCalls.get(id);
       if (call) {
@@ -107,14 +142,18 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
-          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width()));
+          host.entries.splice(
+            insertAt,
+            0,
+            ...toolResultEntries(name, withTokens(result, tokens), host.width()),
+          );
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(...toolResultEntries(name, result, host.width()));
+          host.entries.push(...toolResultEntries(name, withTokens(result, tokens), host.width()));
         }
       }
       host.requestRender();
@@ -146,8 +185,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
           tokenParts.push(`${formatTokens(usage.total_tokens)} total`);
       }
       if (stopReason === "max_rounds") {
-        const detail =
-          `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`;
+        const detail = `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`;
         host.append("notice", [
           "⏹️ turn stopped",
           tokenParts.length > 0 ? `${detail} · tokens: ${tokenParts.join(" · ")}` : detail,
@@ -304,13 +342,54 @@ export function toolResultEntries(name: string, result: unknown, cols: number): 
  * already shown on its line. Width-aware like the live path; never throws
  * on odd rows.
  */
-export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): LogEntry[] {
+export function transcriptLogEntries(
+  entries: TranscriptEntry[],
+  cols: number,
+  opts: TranscriptRehydrateOpts = {},
+): LogEntry[] {
   const out: LogEntry[] = [];
   let i = 0;
+  let activeTurnId: number | null = null;
+  let turnCallCount = 0;
+
+  /** Flush the previous turn's summary when its row group ends. */
+  const maybeFlushTurn = (nextTurnId: number | null): void => {
+    if (activeTurnId !== null && nextTurnId !== activeTurnId) {
+      const metrics = opts.turns?.get(activeTurnId);
+      if (
+        metrics !== undefined &&
+        (metrics.durationMs !== undefined || usageTotal(metrics.usage) > 0)
+      ) {
+        const parts: string[] = [];
+        if (metrics.durationMs !== undefined) {
+          parts.push(`runtime ${formatRuntime(metrics.durationMs)}`);
+        }
+        parts.push(`${turnCallCount} tool call${turnCallCount === 1 ? "" : "s"}`);
+        const total = usageTotal(metrics.usage);
+        if (total > 0) parts.push(`${formatTokenTotal(total)} tokens`);
+        out.push({ kind: "status", lines: [parts.join(" · ")] });
+      }
+      turnCallCount = 0;
+    }
+    activeTurnId = nextTurnId;
+  };
+
   while (i < entries.length) {
     const e = entries[i]!;
+    // Transcript turn ids are the server's turn-row ids (numbers); tolerate
+    // numeric strings and odd payloads defensively.
+    const rawTurnId = e.raw.turnId;
+    let turnId: number | null = null;
+    if (typeof rawTurnId === "number") {
+      turnId = rawTurnId;
+    } else if (typeof rawTurnId === "string" && rawTurnId.trim() !== "") {
+      const n = Number(rawTurnId);
+      if (Number.isFinite(n)) turnId = n;
+    }
+    maybeFlushTurn(turnId);
     const calls = e.role === "assistant" ? decodeToolCalls(e.raw.toolCalls) : [];
     if (calls.length > 0) {
+      turnCallCount += calls.length;
       const open = new Map<string, { entry: LogEntry; name: string }>();
       for (const c of calls) {
         const entry = toolCallEntry(c.id, c.name, parseToolArgs(c.arguments), cols);
@@ -332,7 +411,11 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           const idx = out.indexOf(call.entry);
           const insertAt = idx !== -1 ? idx + 1 : out.length;
-          out.splice(insertAt, 0, ...toolResultEntries(call.name, decoded.value, cols));
+          out.splice(
+            insertAt,
+            0,
+            ...toolResultEntries(call.name, withTokens(decoded.value, next.raw.tokens), cols),
+          );
         }
         i += 1;
       }
@@ -354,13 +437,14 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(...toolResultEntries(label, decoded.value, cols));
+        out.push(...toolResultEntries(label, withTokens(decoded.value, e.raw.tokens), cols));
       }
     } else {
       out.push({ kind: "system", lines: [e.text] });
     }
     i += 1;
   }
+  maybeFlushTurn(null);
   return out;
 }
 
