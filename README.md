@@ -155,7 +155,13 @@ Commands run even while a turn is in flight.
 | Command    | Action |
 | ---------- | ------ |
 | `/quit`    | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it. `Ctrl+C` itself is now unbound / inert. |
+| `/new`     | Start a fresh session with an empty chat log (current turn must be idle). |
 
+**Fuzzy shortcut:** pressing Enter on a slash line that is not an exact command
+name but *does* have at least one fuzzy-finder match runs the best match with no
+arguments — so `/q` is equivalent to `/quit`. The fuzzy list is the same one the
+autocomplete menu uses; when there are no matches the old "unknown command"
+message is shown.
 ### Tables
 
 A message containing a GFM pipe table is focusable, and every table in the
