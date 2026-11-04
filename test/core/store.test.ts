@@ -58,4 +58,19 @@ describe("store", () => {
     expect(calls).toBe(1); // listener was dropped by the reset
     expect(getState().input).toBe("after reset");
   });
+
+  it("defaults tokenTotals to zero", () => {
+    expect(getState().tokenTotals).toEqual({ prompt: 0, completion: 0, total: 0 });
+  });
+
+  it("merges tokenTotals patches like any other key", () => {
+    setState({ tokenTotals: { prompt: 10, completion: 5, total: 15 } });
+    expect(getState().tokenTotals).toEqual({ prompt: 10, completion: 5, total: 15 });
+  });
+
+  it("resets tokenTotals to zero on resetForTests (fresh session)", () => {
+    setState({ tokenTotals: { prompt: 10, completion: 5, total: 15 } });
+    resetForTests();
+    expect(getState().tokenTotals).toEqual({ prompt: 0, completion: 0, total: 0 });
+  });
 });

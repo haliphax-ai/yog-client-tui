@@ -704,6 +704,104 @@ describe("YogClient.runTurn payload", () => {
   });
 });
 
+describe("YogClient token usage", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("parses usage from turn.finished on the direct path into onFinish and the outcome", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: turn.finished\ndata: {"durationMs":9,"usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: Array<{ durationMs: number; stopReason?: string; usage?: unknown }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onFinish: (durationMs, stopReason, usage) => finished.push({ durationMs, stopReason, usage }),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.usage).toEqual({ prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 });
+    expect(finished).toEqual([
+      {
+        durationMs: 9,
+        stopReason: undefined,
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      },
+    ]);
+  });
+
+  it("tolerates absent or malformed usage (drops it, never throws)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: turn.finished\ndata: {"durationMs":9,"usage":{"prompt_tokens":"NaN","total_tokens":[1]}}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const outcome = await client.runTurn("hello", "model-x", {});
+    expect(outcome.ok).toBe(true);
+    expect(outcome.usage).toBeUndefined();
+  });
+
+  it("carries usage through turn-status recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/turns")) {
+          return failingResponse(
+            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            new Error("reset"),
+          );
+        }
+        return jsonResponse(
+          {
+            turn: {
+              events: [
+                { type: "turn.started", data: { turnId: "t1", model: "m" } },
+                {
+                  type: "turn.finished",
+                  data: {
+                    durationMs: 9,
+                    stopReason: "max_rounds",
+                    usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+                  },
+                },
+              ],
+            },
+          },
+          200,
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: Array<{ durationMs: number; stopReason?: string; usage?: unknown }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onFinish: (durationMs, stopReason, usage) => finished.push({ durationMs, stopReason, usage }),
+    });
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.usage).toEqual({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
+    expect(finished).toEqual([
+      {
+        durationMs: 9,
+        stopReason: "max_rounds",
+        usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      },
+    ]);
+  });
+});
+
 describe("YogClient.abortTurn", () => {
   afterEach(() => {
     vi.unstubAllGlobals();

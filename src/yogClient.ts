@@ -76,13 +76,24 @@ export interface TurnEvents {
   /** `tool.result` — a tool outcome. */
   onToolResult?(id: string, name: string, ok: boolean, result: unknown, error?: string): void;
   /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
-  onFinish?(durationMs: number, stopReason?: string): void;
+  onFinish?(durationMs: number, stopReason?: string, usage?: TokenUsage): void;
   /** `turn.aborted` — the operator aborted the turn (terminal). */
   onAborted?(reason: string): void;
   /** `error` — terminal failure reported by the server. */
   onError?(code: string, message: string): void;
   /** The SSE stream died and the turn was replayed from turn-status. */
   onRecovered?(): void;
+}
+
+/**
+ * Token usage reported by the model for a finished turn — mirrors the server's
+ * `usage` shape (OpenAI-compatible). All fields optional: providers may omit
+ * some, and the client drops malformed/non-numeric values while parsing.
+ */
+export interface TokenUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
 }
 
 /** Outcome of one `runTurn` call. */
@@ -101,6 +112,8 @@ export interface TurnOutcome {
    * recovered path.
    */
   stopReason?: string;
+  /** Token usage reported for the turn, when the server sent any. */
+  usage?: TokenUsage;
   /** Human-readable failure when the transport itself broke. */
   failure?: string;
 }
@@ -410,6 +423,7 @@ export class YogClient {
   async runTurn(prompt: string, model: string, events: TurnEvents): Promise<TurnOutcome> {
     if (!this.sessionId) throw new Error("runTurn called before open()");
     const sessionId = this.sessionId;
+    let usage: TokenUsage | undefined;
     let turnId: string | undefined;
     let sawFinished = false;
     let sawAborted = false;
@@ -453,9 +467,12 @@ export class YogClient {
           if (typeof data["stopReason"] === "string" && data["stopReason"] !== "") {
             stopReason = data["stopReason"];
           }
+          const parsedUsage = parseUsage(data["usage"]);
+          if (parsedUsage !== undefined) usage = parsedUsage;
           events.onFinish?.(
             typeof data["durationMs"] === "number" ? data["durationMs"] : 0,
             stopReason,
+            usage,
           );
           return;
         }
@@ -507,6 +524,7 @@ export class YogClient {
         aborted: sawAborted,
         ...(serverError !== undefined ? { error: serverError } : {}),
         ...(recovered && sawFinished && stopReason !== undefined ? { stopReason } : {}),
+        ...(recovered && sawFinished && usage !== undefined ? { usage } : {}),
         ...(recovered ? {} : { failure: "turn-status recovery failed" }),
       };
     }
@@ -537,6 +555,7 @@ export class YogClient {
             aborted: sawAborted,
             ...(serverError !== undefined ? { error: serverError } : {}),
             ...(sawFinished && stopReason !== undefined ? { stopReason } : {}),
+            ...(sawFinished && usage !== undefined ? { usage } : {}),
           };
         }
       }
@@ -552,6 +571,7 @@ export class YogClient {
       recovered: false,
       aborted: false,
       ...(stopReason !== undefined ? { stopReason } : {}),
+      ...(usage !== undefined ? { usage } : {}),
     };
   }
 
@@ -649,4 +669,25 @@ export function parseToolArgs(raw: unknown): unknown {
 /** Read a string field from an event payload ("" when absent/not a string). */
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+/**
+ * Extract a `TokenUsage` from a `turn.finished` payload field, tolerating
+ * absent/malformed values: only numeric (finite) fields are copied, and the
+ * result is `undefined` when none of them are present — callers then treat
+ * the turn as having no usage (never throw).
+ */
+function parseUsage(value: unknown): TokenUsage | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: TokenUsage = {};
+  let hasNumber = false;
+  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"] as const) {
+    const n = rec[key];
+    if (typeof n === "number" && Number.isFinite(n)) {
+      out[key] = n;
+      hasNumber = true;
+    }
+  }
+  return hasNumber ? out : undefined;
 }
