@@ -37,6 +37,20 @@ export abstract class ViewportComponent extends BaseComponent {
 
   /** Produce all content rows at `cols` (before viewport slicing). */
   abstract produceRows(cols: number): string[];
+  /**
+   * Optional faster window producer. When implemented, `renderViewport` calls
+   * this instead of `produceRows` plus a whole-content height scan; it must
+   * return the complete lines of every entry intersecting [top, bottom),
+   * including each intersected entry's first and last line, with their
+   * terminal-row heights. `top` is the absolute terminal row where
+   * `lines[0]` begins, so slicing can cut partial edges exactly as it does
+   * for full-content output.
+   */
+  protected produceVisible?(
+    top: number,
+    bottom: number,
+    cols: number,
+  ): { lines: string[]; heights: number[]; top: number };
 
   /** First visible row (clamped into range before render). */
   getScrollOffset(): number {
@@ -108,9 +122,15 @@ export abstract class ViewportComponent extends BaseComponent {
   /** Slice the visible terminal rows from `produceRows`, cutting partial
    *  lines at the top/bottom edges, and pad to the assigned height. */
   protected renderViewport(cols: number, rows: number): string[] {
-    const allRows = this.produceRows(cols);
-    const heights = allRows.map((line) => lineHeight(line, cols));
-    let offset = Math.max(0, this.scrollOffset);
+    const scrollOffset = Math.max(0, this.scrollOffset);
+    const produced =
+      this.produceVisible === undefined
+        ? null
+        : this.produceVisible(scrollOffset, scrollOffset + rows, cols);
+    const allRows = produced !== null ? produced.lines : this.produceRows(cols);
+    const heights =
+      produced !== null ? produced.heights : allRows.map((line) => lineHeight(line, cols));
+    let offset = scrollOffset - (produced !== null ? produced.top : 0);
 
     // Walk to the logical line containing the scroll offset.
     let i = 0;
