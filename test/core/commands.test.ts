@@ -51,8 +51,8 @@ describe("completeSlash", () => {
     expect(completeSlash("say /quit")).toEqual([]);
   });
 
-  it("lists every command for a bare slash", () => {
-    expect(completeSlash("/")).toEqual(["/quit"]);
+  it("lists every command for a bare slash, in registry order", () => {
+    expect(completeSlash("/")).toEqual(["/new", "/quit"]);
   });
 
   it("matches case-insensitive prefixes", () => {
@@ -62,6 +62,11 @@ describe("completeSlash", () => {
 
   it("has no candidates for an unknown prefix", () => {
     expect(completeSlash("/x")).toEqual([]);
+  });
+
+  it("fuzzy-matches the new command", () => {
+    expect(completeSlash("/n")).toEqual(["/new"]);
+    expect(completeSlash("/ne")).toEqual(["/new"]);
   });
 
   it("fuzzy-matches subsequences of the command name", () => {
@@ -79,6 +84,7 @@ describe("resolveSlash", () => {
     expect(resolveSlash("/quit")?.name).toBe("quit");
     expect(resolveSlash("/Quit")?.name).toBe("quit");
     expect(resolveSlash("/quit now")?.name).toBe("quit");
+    expect(resolveSlash("/new")?.name).toBe("new");
   });
 
   it("returns undefined for non-commands, bare slashes, and unknown names", () => {
@@ -88,7 +94,7 @@ describe("resolveSlash", () => {
     expect(resolveSlash("/nope")).toBeUndefined();
   });
 
-  it("registers the quit command", () => {
-    expect(SLASH_COMMANDS[0]?.name).toBe("quit");
+  it("registers the new and quit commands", () => {
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "quit"]);
   });
 });
