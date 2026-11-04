@@ -39,6 +39,8 @@ function kindStyle(kind: EntryKind): Style {
       return ST.notice; // marker+label only; the detail row styles itself
     case "chunk":
       return ST.chunkBlock;
+    case "debug":
+      return ST.chunkBlock;
   }
 }
 
@@ -161,7 +163,7 @@ export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
   const units: FocusTarget[] = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i] as LogEntry;
-    if (entry.kind === "chunk" || entry.kind === "tool") {
+    if (entry.kind === "chunk" || entry.kind === "tool" || entry.kind === "debug") {
       units.push({ entry: i, table: -1 });
       continue;
     }
@@ -174,6 +176,41 @@ export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
     }
   }
   return units;
+}
+
+/** Render a collapsible block (tool-output chunks, debug chunks). The body
+ *  comes from the raw result when the entry carries one (the presenter stores
+ *  the data; the renderer formats it), else from the pre-rendered body lines.
+ *  Headers show `↓` when expanded (bodies <= COLLAPSE_LINES are always
+ *  expanded), `→` when collapsed. */
+function renderChunkLike(entry: LogEntry, cols: number, focusedTable: boolean): EntryRender {
+  const body =
+    entry.result !== undefined ? resultPreview(entry.result, cols) : entry.lines.slice(1);
+  const expandable = body.length > COLLAPSE_LINES;
+  const open = !entry.collapsed || !expandable; // short blocks are full
+  const header = entry.lines[0] ?? "";
+  const arrowed = open ? header.replace("→", "↓") : header; // ↓ when expanded
+  // Header: bold + underlined; bright green on exit 0, bright red otherwise.
+  const exitCode = header.match(/exit (-?\d+)/);
+  const headerColor = !exitCode
+    ? CHUNK_HEADER.plain
+    : Number(exitCode[1]) === 0
+      ? CHUNK_HEADER.ok
+      : CHUNK_HEADER.fail;
+  const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
+  const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
+  if (open) {
+    const rendered = style.render([styledHeader, ...body].join("\n"));
+    return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
+  }
+  const shown = body.slice(0, COLLAPSE_LINES);
+  const hidden = body.length - shown.length;
+  const rendered = style.render(
+    [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`].join(
+      "\n",
+    ),
+  );
+  return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
 }
 
 /**
@@ -268,37 +305,8 @@ function renderEntry(
     return { rendered, rows: rows.length, tableOffsets };
   }
 
-  if (entry.kind === "chunk") {
-    // The body comes from the raw result when the entry carries one (the
-    // presenter stores the data; the renderer formats it), else from the
-    // pre-rendered body lines.
-    const body =
-      entry.result !== undefined ? resultPreview(entry.result, cols) : entry.lines.slice(1);
-    const expandable = body.length > COLLAPSE_LINES;
-    const open = !entry.collapsed || !expandable; // short blocks are full
-    const header = entry.lines[0] ?? "";
-    const arrowed = open ? header.replace("→", "↓") : header; // ↓ when expanded
-    // Header: bold + underlined; bright green on exit 0, bright red otherwise.
-    const exitCode = header.match(/exit (-?\d+)/);
-    const headerColor = !exitCode
-      ? CHUNK_HEADER.plain
-      : Number(exitCode[1]) === 0
-        ? CHUNK_HEADER.ok
-        : CHUNK_HEADER.fail;
-    const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
-    const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
-    if (open) {
-      const rendered = style.render([styledHeader, ...body].join("\n"));
-      return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
-    }
-    const shown = body.slice(0, COLLAPSE_LINES);
-    const hidden = body.length - shown.length;
-    const rendered = style.render(
-      [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`].join(
-        "\n",
-      ),
-    );
-    return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
+  if (entry.kind === "chunk" || entry.kind === "debug") {
+    return renderChunkLike(entry, cols, focusedTable);
   }
 
   if (entry.kind === "tool") {

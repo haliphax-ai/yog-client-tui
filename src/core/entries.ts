@@ -7,7 +7,15 @@
  */
 
 /** Kinds of log entry the client can display. */
-export type EntryKind = "user" | "assistant" | "tool" | "system" | "error" | "chunk" | "notice";
+export type EntryKind =
+  | "user"
+  | "assistant"
+  | "tool"
+  | "system"
+  | "error"
+  | "chunk"
+  | "notice"
+  | "debug";
 
 /**
  * Per-table interaction state: whether the table is expanded and how far
