@@ -89,7 +89,7 @@ export interface TurnEvents {
   /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
   onFinish?(durationMs: number, stopReason?: string, usage?: TokenUsage): void;
   /** `turn.aborted` — the operator aborted the turn (terminal). */
-  onAborted?(reason: string): void;
+  onAborted?(reason: string, usage?: TokenUsage): void;
   /** `error` — terminal failure reported by the server. */
   onError?(code: string, message: string): void;
   /** The SSE stream died and the turn was replayed from turn-status. */
@@ -519,7 +519,7 @@ export class YogClient {
         }
         case "turn.aborted": {
           sawAborted = true;
-          events.onAborted?.(str(data["reason"]) || "turn aborted");
+          events.onAborted?.(str(data["reason"]) || "turn aborted", parseUsage(data["usage"]));
           return;
         }
         case "error": {

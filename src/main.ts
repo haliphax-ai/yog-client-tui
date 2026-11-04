@@ -53,7 +53,13 @@ import { getState, setState } from "./core/store.ts";
 import { finalContextTotal, perTurnDeltas, toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
 import { formatTokenTotal } from "./core/toolFormat.ts";
-import { YogClient, YogError, type TurnEvents, type TurnOutcome } from "./yogClient.ts";
+import {
+  YogClient,
+  YogError,
+  type TokenUsage,
+  type TurnEvents,
+  type TurnOutcome,
+} from "./yogClient.ts";
 import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
@@ -348,15 +354,12 @@ async function run(argv: readonly string[]): Promise<void> {
       requestRender: scheduler.request,
       prevTokenTotal: () => getState().tokenTotals.total,
     });
-    // Surface transcript token totals in the status-bar 🪙 stat: each finished
-    // turn reports usage for the entire transcript (the server hydrates the
-    // full context into every completion), so the latest value replaces the
-    // stored totals rather than being added on top. Missing fields keep the
-    // previous value so a partial report never zeroes a known running total.
-    const baseOnFinish = turn.events.onFinish;
-    turn.events.onFinish = (durationMs, stopReason, usage) => {
-      baseOnFinish?.(durationMs, stopReason, usage);
-      if (usage === undefined) return;
+    // Surface transcript token totals in the status-bar 🪙 stat: each
+    // terminal usage report (finished or aborted at a cut point) carries the
+    // latest full-context total, which replaces the stored totals rather than
+    // being added on top. Missing fields keep the previous value so a
+    // partial report never zeroes a known running total.
+    const applyUsageTotal = (usage: TokenUsage): void => {
       const prev = getState().tokenTotals;
       setState({
         tokenTotals: {
@@ -366,6 +369,16 @@ async function run(argv: readonly string[]): Promise<void> {
           total: typeof usage.total_tokens === "number" ? usage.total_tokens : prev.total,
         },
       });
+    };
+    const baseOnFinish = turn.events.onFinish;
+    turn.events.onFinish = (durationMs, stopReason, usage) => {
+      baseOnFinish?.(durationMs, stopReason, usage);
+      if (usage !== undefined) applyUsageTotal(usage);
+    };
+    const baseOnAborted = turn.events.onAborted;
+    turn.events.onAborted = (reason, usage) => {
+      baseOnAborted?.(reason, usage);
+      if (usage !== undefined) applyUsageTotal(usage);
     };
     turn.begin(prompt);
     input.reset();
