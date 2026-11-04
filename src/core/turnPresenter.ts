@@ -164,11 +164,32 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       }
       host.requestRender();
     },
-    onAborted: (reason) => {
+    onAborted: (reason, usage) => {
       // The server's canonical reason restates the event ("turn aborted by
       // operator"); keep only the suffix that isn't already on the label.
       const trimmed = reason.replace(/^turn aborted\s*—?\s*/, "");
-      host.append("notice", [`⏹️ turn aborted`, trimmed]);
+      // End-of-turn counts for an aborted turn (cut-point usage from the
+      // server), mirroring the max_rounds notice's rich token breakdown.
+      const tokenParts = usageTokenParts(usage);
+      const detail =
+        tokenParts.length > 0 ? `${trimmed} · tokens: ${tokenParts.join(" · ")}` : trimmed;
+      host.append("notice", [`⏹️ turn aborted`, detail]);
+      // Per-turn summary line for parity with the normal/max_rounds finish
+      // paths (no runtime: the abort envelope carries none).
+      const summary: string[] = [
+        `${toolCallsThisTurn} tool call${toolCallsThisTurn === 1 ? "" : "s"}`,
+      ];
+      if (usage !== undefined) {
+        const absolute =
+          typeof usage.total_tokens === "number"
+            ? usage.total_tokens
+            : (typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0) +
+              (typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0);
+        const prev = host.prevTokenTotal?.() ?? 0;
+        const delta = Math.max(0, absolute - prev);
+        if (delta > 0) summary.push(`${formatTokenTotal(delta)} tokens`);
+      }
+      host.append("status", [summary.join(" · ")]);
     },
     onError: (code, message) => {
       host.append("error", [`${code}: ${message}`]);
@@ -181,15 +202,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       // turn finished; notices are reserved for terminations outside that path
       // (capped rounds), where the label is genuinely informative. A capped
       // turn keeps the rich token breakdown on the notice's detail line.
-      const tokenParts: string[] = [];
-      if (usage !== undefined) {
-        if (typeof usage.prompt_tokens === "number")
-          tokenParts.push(`${formatTokens(usage.prompt_tokens)} prompt`);
-        if (typeof usage.completion_tokens === "number")
-          tokenParts.push(`${formatTokens(usage.completion_tokens)} completion`);
-        if (typeof usage.total_tokens === "number")
-          tokenParts.push(`${formatTokens(usage.total_tokens)} total`);
-      }
+      const tokenParts = usageTokenParts(usage);
       if (stopReason === "max_rounds") {
         const detail = `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`;
         host.append("notice", [
@@ -457,6 +470,20 @@ export function transcriptLogEntries(
   }
   maybeFlushTurn(null);
   return out;
+}
+
+/** Human-readable "N prompt · N completion · N total" segments for a terminal
+ * notice (max_rounds stop / abort). Empty when the turn has no usage. */
+function usageTokenParts(usage: TokenUsage | undefined): string[] {
+  const parts: string[] = [];
+  if (usage === undefined) return parts;
+  if (typeof usage.prompt_tokens === "number")
+    parts.push(`${formatTokens(usage.prompt_tokens)} prompt`);
+  if (typeof usage.completion_tokens === "number")
+    parts.push(`${formatTokens(usage.completion_tokens)} completion`);
+  if (typeof usage.total_tokens === "number")
+    parts.push(`${formatTokens(usage.total_tokens)} total`);
+  return parts;
 }
 
 /** Format a token count with thousands separators for the per-turn notice. */
