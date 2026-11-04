@@ -124,6 +124,16 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
     onRecovered: () => {
       host.append("system", ["stream interrupted — recovered from turn status"]);
     },
+    onFinish: (durationMs, stopReason) => {
+      // A stopReason means the server stopped the turn early (e.g. the
+      // tool-round cap); surface it instead of ending the turn silently.
+      if (stopReason === "max_rounds") {
+        host.append("notice", [
+          `⏹️ turn stopped: reached the server's tool-round cap ` +
+            `(${Math.max(1, Math.round(durationMs / 1000))}s)`,
+        ]);
+      }
+    },
   };
 
   return {
