@@ -122,6 +122,12 @@ content up to ten lines and scrolls vertically beyond that. `Enter` submits;
 `Shift+Enter` inserts a line break. Pasted text (bracketed paste) is inserted
 verbatim — including newlines — and never submits.
 
+`Shift+Enter` is recognized from the CSI-u / Kitty (`ESC[13;2u`), xterm
+modifyOtherKeys (`ESC[27;2;13~`), and `ESC[13;2~` encodings. If a terminal is
+configured to not report modified keys, Shift+Enter is indistinguishable from
+Enter. Set `YOG_DEBUG_KEYS=1` to hex-dump every input chunk to stderr while
+debugging key handling.
+
 ### Debug mode
 
 Set `YOG_DEBUG=1` to enable client-side debug chunks. Diagnostics emitted by
