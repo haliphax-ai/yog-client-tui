@@ -58,6 +58,21 @@ export function setState(patch: Partial<UiState>): void {
   for (const listener of Array.from(listeners)) listener();
 }
 
+/**
+ * Fold per-call completion tokens into the running session total as they
+ * arrive live (tool results), so the status-bar 🪙 stat climbs while tools
+ * run. The terminal usage report (`applyUsageTotal` in main.ts) later
+ * replaces these provisional totals with the authoritative full-context
+ * numbers, so nothing double-counts.
+ */
+export function addLiveCompletionTokens(count: number): void {
+  if (!Number.isFinite(count) || count <= 0) return;
+  const t = state.tokenTotals;
+  setState({
+    tokenTotals: { prompt: t.prompt, completion: t.completion + count, total: t.total + count },
+  });
+}
+
 /** Subscribe to state changes; returns an unsubscribe function. */
 export function subscribe(listener: () => void): () => void {
   listeners.add(listener);

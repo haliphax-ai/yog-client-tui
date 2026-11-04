@@ -9,7 +9,7 @@ import {
 } from "../src/ui/render/index.ts";
 import { formatRuntime, prettyArgs, resultStatus, resultTokens } from "../src/core/toolFormat.ts";
 import { createTurnPresenter } from "../src/core/turnPresenter.ts";
-import { getState, resetForTests, setState } from "../src/core/store.ts";
+import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/store.ts";
 import { statusBody } from "../src/ui/components/StatusComponent.ts";
 import { parseToolArgs } from "../src/yogClient.ts";
 import type { LogEntry } from "../src/core/entries.ts";
@@ -563,5 +563,39 @@ describe("turn usage reaches the session status bar", () => {
     });
     setState({ entries, model: "m-1", connection: "connected" });
     expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K");
+  });
+
+  it("updates the 🪙 stat live as tool results arrive, before any finish", () => {
+    resetForTests();
+
+    const entries: LogEntry[] = [];
+    const host = {
+      entries,
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        entries.push({ kind, lines });
+      },
+      width: () => 80,
+      requestRender: () => {},
+    };
+    const turn = createTurnPresenter(host);
+    // The exact main.ts wiring: the presenter's onToolResult first, then the
+    // live store bridge that feeds the status-bar token totals.
+    const base = turn.events.onToolResult;
+    turn.events.onToolResult = (id, name, ok, result, error, tokens) => {
+      base?.(id, name, ok, result, error, tokens);
+      addLiveCompletionTokens(tokens ?? 0);
+    };
+    turn.begin("hello");
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
+    setState({ entries, model: "m-1", connection: "connected" });
+    // Still streaming — no finish yet — but the coin stat already climbs with
+    // each completed tool call's attributed completion tokens.
+    // Both call lines exist before any result lands, so the tool-call counter
+    // is already 2; what moves live is the 🪙 token stat.
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, 40);
+    expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 2  🪙 40");
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, 60);
+    expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 2  🪙 100");
   });
 });

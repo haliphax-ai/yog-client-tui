@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { getState, resetForTests, setState, subscribe } from "../../src/core/store.ts";
+import {
+  addLiveCompletionTokens,
+  getState,
+  resetForTests,
+  setState,
+  subscribe,
+} from "../../src/core/store.ts";
 
 describe("store", () => {
   beforeEach(() => {
@@ -66,6 +72,18 @@ describe("store", () => {
   it("merges tokenTotals patches like any other key", () => {
     setState({ tokenTotals: { prompt: 10, completion: 5, total: 15 } });
     expect(getState().tokenTotals).toEqual({ prompt: 10, completion: 5, total: 15 });
+  });
+
+  it("folds live per-call completion tokens into the running session total", () => {
+    setState({ tokenTotals: { prompt: 10, completion: 5, total: 15 } });
+    addLiveCompletionTokens(50);
+    expect(getState().tokenTotals).toEqual({ prompt: 10, completion: 55, total: 65 });
+    // Malformed / non-positive counts are ignored.
+    addLiveCompletionTokens(0);
+    addLiveCompletionTokens(-3);
+    addLiveCompletionTokens("7" as unknown as number);
+    addLiveCompletionTokens(Number.NaN);
+    expect(getState().tokenTotals).toEqual({ prompt: 10, completion: 55, total: 65 });
   });
 
   it("resets tokenTotals to zero on resetForTests (fresh session)", () => {

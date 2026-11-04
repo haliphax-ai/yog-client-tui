@@ -197,27 +197,55 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onAborted?.("turn aborted by operator");
-    expect(entries.at(-1)).toEqual({
+    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
       lines: ["⏹️ turn aborted", "by operator"],
     });
+    // The per-turn summary line follows the notice (no usage → no token seg).
+    expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
   });
 
   it("keeps an unrecognized abort reason as the notice detail", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onAborted?.("worker pool exploded");
-    expect(entries.at(-1)).toEqual({
+    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
       lines: ["⏹️ turn aborted", "worker pool exploded"],
     });
+    expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
   });
 
   it("tolerates an empty abort reason", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onAborted?.("");
-    expect(entries.at(-1)?.lines).toEqual(["⏹️ turn aborted", ""]);
+    expect(entries.find((e) => e.kind === "notice")?.lines).toEqual(["⏹️ turn aborted", ""]);
+    expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
+  });
+
+  it("surfaces cut-point usage in the abort notice and the per-turn summary", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    turn.events.onAborted?.("turn aborted by operator", {
+      prompt_tokens: 1000,
+      completion_tokens: 500,
+      total_tokens: 1500,
+    });
+    const notices = entries.filter((e) => e.kind === "notice");
+    expect(notices.at(-1)).toEqual({
+      kind: "notice",
+      lines: [
+        "⏹️ turn aborted",
+        "by operator · tokens: 1,000 prompt · 500 completion · 1,500 total",
+      ],
+    });
+    expect(entries.at(-1)).toEqual({
+      kind: "status",
+      lines: ["1 tool call · 1.5K tokens"],
+    });
   });
 
   it("logs a max_rounds stop as a notice entry with a cap summary", () => {
