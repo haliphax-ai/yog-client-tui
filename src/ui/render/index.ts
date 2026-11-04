@@ -4,7 +4,6 @@
  */
 export {
   cachedRowData,
-  cachedHeights,
   cachedRows,
   focusUnits,
   heightSummaryOf,
