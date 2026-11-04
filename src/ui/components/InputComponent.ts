@@ -50,8 +50,17 @@ export const PROMPT = "you › ";
 /** The input grows to this many rows before it scrolls vertically. */
 export const MAX_LINES = 10;
 
-/** Shift+Enter when the terminal reports modifiers via CSI-u. */
-const SHIFT_ENTER = "\x1b[13;2u";
+/**
+ * Shift+Enter sequences across modifier-reporting schemes:
+ * - `ESC[13;2u` — CSI-u / Kitty keyboard protocol (Ghostty, kitty, WezTerm, …)
+ * - `ESC[27;2;13~` — xterm-style modifyOtherKeys
+ * - `ESC[13;2~` — lenient fallback for terminals that final with `~`
+ */
+const SHIFT_ENTER_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[13;2u",
+  "\x1b[27;2;13~",
+  "\x1b[13;2~",
+]);
 
 /** A key event fed to the textarea model (shape of bubbletea's `Key`). */
 interface SeqKey {
@@ -229,7 +238,7 @@ export class InputComponent extends BaseComponent {
   }
 
   override handleKey(seq: string): KeyResult {
-    if (seq === SHIFT_ENTER) {
+    if (SHIFT_ENTER_SEQS.has(seq)) {
       this.feed({ code: KeyCode.Enter, mod: KeyMod.Shift });
       this.commitEdit();
       return "handled";

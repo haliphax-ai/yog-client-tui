@@ -60,6 +60,8 @@ import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
 import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
+import { createInputDecoder } from "./ui/components/inputDecode.ts";
+import { appendFileSync } from "node:fs";
 import { createScheduler, resetFrameCache, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
 import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS } from "./core/commands.ts";
 
@@ -73,24 +75,6 @@ function restoreTerminal(): void {
   process.stdout.write("\x1b[?1049l\x1b[?25h\x1b[?2004l");
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
-}
-
-/**
- * Longest well-formed escape sequence at the start of `rest` (CSI `ESC [`
- * or SS3 `ESC O`, parameter bytes up to a final byte); null when the rest
- * starts with plain input or a lone/incomplete escape.
- */
-function matchSequence(rest: string): string | null {
-  if (!rest.startsWith("\x1b") || rest.length < 2) return null;
-  const kind = rest[1];
-  if (kind !== "[" && kind !== "O") return null;
-  for (let j = 2; j < rest.length; j += 1) {
-    const c = rest.charCodeAt(j);
-    if (c >= 0x30 && c <= 0x3f) continue; // parameter bytes
-    if (c >= 0x40 && c <= 0x7e) return rest.slice(0, j + 1); // final byte
-    return null;
-  }
-  return null; // incomplete at the end of this chunk
 }
 
 /** Parsed command-line flags: `--session <id>` resume id, `--new` fresh start. */
@@ -397,56 +381,35 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   // ---- key handling ------------------------------------------------------
-  /** Bracketed-paste framing: content between `200~`/`201~` is buffered. */
-  let pasting = false;
-  let pasteBuffer = "";
-  /** Client-side debug log: hex of a raw input chunk/char. */
-  const toHex = (s: string): string => Buffer.from(s, "utf8").toString("hex");
+  /** Optional key-debug log file (`YOG_DEBUG_KEYS=<file>`, default /tmp). */
+  const keyEnv = process.env.YOG_DEBUG_KEYS;
+  const keyDebugPath =
+    keyEnv === undefined || keyEnv === ""
+      ? undefined
+      : keyEnv === "1"
+        ? "/tmp/yog-client-keys.log"
+        : keyEnv;
+  /** Raw-input decoder (sequences, chars, bracketed paste framing). */
+  const decodeInput = createInputDecoder({
+    onSequence: (seq) => {
+      emitDebug([`key ${Buffer.from(seq, "utf8").toString("hex")}`]);
+      routeKey(chain, seq, globals);
+    },
+    onChar: (ch) => {
+      emitDebug([`char ${Buffer.from(ch, "utf8").toString("hex")}`]);
+      routeChar(chain, ch, globals);
+    },
+    onPasteEnd: (content) => {
+      emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`]);
+      input.paste(content);
+    },
+  });
 
   const handleData = (chunk: string): void => {
-    let i = 0;
-    while (i < chunk.length) {
-      const rest = chunk.slice(i);
-      const seq = matchSequence(rest);
-      if (seq !== null) {
-        if (pasting) {
-          if (seq === "\x1b[201~") {
-            // End of bracketed paste — deliver the whole buffer to the input
-            // as one insertion (newlines included, never submitted).
-            pasting = false;
-            const content = pasteBuffer;
-            pasteBuffer = "";
-            input.paste(content);
-            emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`]);
-          } else {
-            pasteBuffer += seq;
-          }
-          i += seq.length;
-          continue;
-        }
-        if (seq === "\x1b[200~") {
-          pasting = true;
-          pasteBuffer = "";
-          i += seq.length;
-          continue;
-        }
-        emitDebug([`key ${toHex(seq)}`]);
-        routeKey(chain, seq, globals); // unknown sequences are consumed
-        i += seq.length;
-        continue;
-      }
-      const cp = rest.codePointAt(0);
-      if (cp === undefined) break;
-      const ch = String.fromCodePoint(cp);
-      if (pasting) {
-        pasteBuffer += ch;
-        i += ch.length;
-        continue;
-      }
-      emitDebug([`char ${toHex(ch)}`]);
-      routeChar(chain, ch, globals);
-      i += ch.length;
+    if (keyDebugPath !== undefined) {
+      appendFileSync(keyDebugPath, `${Buffer.from(chunk, "utf8").toString("hex")}\n`);
     }
+    decodeInput(chunk);
   };
 
   // ---- terminal lifecycle ------------------------------------------------
