@@ -59,7 +59,13 @@ import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts"
 import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
 import { createInputDecoder } from "./ui/components/inputDecode.ts";
 import { appendFileSync } from "node:fs";
-import { createScheduler, resetFrameCache, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
+import {
+  composeMainPane,
+  createScheduler,
+  resetFrameCache,
+  runPipeline,
+  writeFrame,
+} from "./ui/pipeline/index.ts";
 import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS } from "./core/commands.ts";
 
 /** Terminal state shared with error paths (module scope, always in sync). */
@@ -204,11 +210,10 @@ async function run(argv: readonly string[]): Promise<void> {
   /** Run one frame through the staged render pipeline. */
   const draw = (): void => {
     const cols = process.stdout.columns ?? 80;
+    const rows = process.stdout.rows ?? 24;
     runPipeline({
       width: cols,
       setMetrics: () => {
-        const rows = process.stdout.rows ?? 24;
-        const cols = process.stdout.columns ?? 80;
         // The log gets the remainder after the input bar (which grows by
         // one row when the slash-command autocomplete menu is open), the
         // status line, and one reserved row for the always-present blank
@@ -217,12 +222,17 @@ async function run(argv: readonly string[]): Promise<void> {
           Math.max(1, rows - input.measure(cols) - status.measure(cols) - 1),
         );
       },
-      paint: () => [
-        ...viewport.render({ cols }),
-        "", // guaranteed blank line between the log and the input
-        input.render({ cols }), // single string; may contain internal newlines
-        status.render({ cols }),
-      ],
+      paint: () => {
+        const frame = composeMainPane(
+          viewport.render({ cols }),
+          input.render({ cols }),
+          status.render({ cols }),
+        );
+        // Keep every frame exactly terminal height (the gap row is skipped
+        // when the viewport itself already ends blank).
+        while (frame.length < rows) frame.push("");
+        return frame;
+      },
       emit: writeFrame,
     });
   };
