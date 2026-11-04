@@ -7,11 +7,11 @@ describe("store", () => {
   });
 
   it("merges partial patches and preserves other keys", () => {
-    setState({ input: "hello", cursor: 5 });
+    setState({ input: "hello", statusNote: "note" });
     setState({ input: "hi" });
 
     expect(getState().input).toBe("hi");
-    expect(getState().cursor).toBe(5);
+    expect(getState().statusNote).toBe("note");
     // untouched keys keep their defaults
     expect(getState().follow).toBe(true);
     expect(getState().entries).toEqual([]);
@@ -35,11 +35,11 @@ describe("store", () => {
     const unsubscribe = subscribe(() => {
       calls += 1;
     });
-    setState({ cursor: 1 });
+    setState({ statusNote: "one" });
     unsubscribe();
-    setState({ cursor: 2 });
+    setState({ statusNote: "two" });
     expect(calls).toBe(1);
-    expect(getState().cursor).toBe(2);
+    expect(getState().statusNote).toBe("two");
   });
 
   it("clears state and listeners on resetForTests", () => {
@@ -47,11 +47,11 @@ describe("store", () => {
     subscribe(() => {
       calls += 1;
     });
-    setState({ input: "dirty", cursor: 9 });
+    setState({ input: "dirty", statusNote: "note" });
     resetForTests();
 
     expect(getState().input).toBe("");
-    expect(getState().cursor).toBe(0);
+    expect(getState().statusNote).toBe("");
     expect(getState().follow).toBe(true);
 
     setState({ input: "after reset" });

@@ -11,8 +11,6 @@ import { FOCUS_NONE_TARGET, type FocusTarget } from "./focus.ts";
 export interface UiState {
   entries: LogEntry[];
   input: string;
-  cursor: number;
-  inputScroll: number;
   /** Selected slash-command completion index (resets on any text edit). */
   commandSel: number;
   scrollOffset: number;
@@ -34,8 +32,6 @@ function initialState(): UiState {
   return {
     entries: [],
     input: "",
-    cursor: 0,
-    inputScroll: 0,
     commandSel: 0,
     scrollOffset: 0,
     follow: true,

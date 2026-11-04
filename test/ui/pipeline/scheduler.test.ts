@@ -33,8 +33,8 @@ describe("frame coalescing", () => {
 
     // A stream of store changes (e.g. SSE deltas) inside one window.
     setState({ statusNote: "a" });
-    setState({ cursor: 1 });
-    setState({ cursor: 2 });
+    setState({ busyFrame: 1 });
+    setState({ busyFrame: 2 });
     setState({ statusNote: "b" });
     setState({ busyFrame: 1 });
     expect(run).not.toHaveBeenCalled();
@@ -51,11 +51,11 @@ describe("frame coalescing", () => {
     const run = vi.fn();
     createScheduler(run);
 
-    setState({ cursor: 1 });
+    setState({ busyFrame: 1 });
     vi.advanceTimersByTime(FRAME_MS);
     expect(run).toHaveBeenCalledTimes(1);
 
-    setState({ cursor: 2 });
+    setState({ busyFrame: 2 });
     vi.advanceTimersByTime(FRAME_MS - 1);
     expect(run).toHaveBeenCalledTimes(1); // not yet — window still pending
     vi.advanceTimersByTime(1);
@@ -73,7 +73,7 @@ describe("frame coalescing", () => {
   it("cancel() drops a pending flush without running it", () => {
     const run = vi.fn();
     const scheduler = createScheduler(run);
-    setState({ cursor: 3 });
+    setState({ busyFrame: 3 });
     scheduler.cancel();
     vi.advanceTimersByTime(FRAME_MS * 3);
     expect(run).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("frame coalescing", () => {
     const scheduler = createScheduler(run);
     scheduler.dispose();
 
-    setState({ cursor: 4 }); // no subscriber left — nothing armed
+    setState({ busyFrame: 4 }); // no subscriber left — nothing armed
     vi.advanceTimersByTime(FRAME_MS * 3);
     expect(run).not.toHaveBeenCalled();
   });
@@ -92,7 +92,7 @@ describe("frame coalescing", () => {
   it("flush() runs immediately and clears the pending timer", () => {
     const run = vi.fn();
     const scheduler = createScheduler(run);
-    setState({ cursor: 5 });
+    setState({ busyFrame: 5 });
     scheduler.flush();
     expect(run).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(FRAME_MS * 3);
@@ -102,7 +102,7 @@ describe("frame coalescing", () => {
   it("honours a custom window for tests", () => {
     const run = vi.fn();
     createScheduler(run, 5);
-    setState({ cursor: 6 });
+    setState({ busyFrame: 6 });
     vi.advanceTimersByTime(5);
     expect(run).toHaveBeenCalledTimes(1);
   });

@@ -46,6 +46,8 @@ export const ST = {
   /** Slash-command menu: selected candidate. */
   suggestionSel: newStyle().foreground("#ffffff").background("#7c3aed").bold(true),
 } as const;
+/** Input textarea: the virtual cursor block color (mirrors ST.cursor). */
+export const CURSOR_COLOR = "#7c3aed";
 
 /** ANSI palette for tool-call line colorization (foreground-only codes). */
 export const C = {
