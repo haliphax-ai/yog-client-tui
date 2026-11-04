@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { writeFrame } from "../../../src/ui/pipeline/emit.ts";
+import { resetFrameCache, writeFrame } from "../../../src/ui/pipeline/emit.ts";
 import { padFrame, padLine } from "../../../src/ui/pipeline/lines.ts";
 
 afterEach(() => {
@@ -22,11 +22,51 @@ describe("padFrame", () => {
   });
 });
 
-describe("emit — single frame writer", () => {
-  it("writes full clear + cursor-home + \r\n-joined lines + erase-below to stdout", () => {
+describe("emit — diff frame writer", () => {
+  beforeEach(() => {
+    resetFrameCache();
+  });
+
+  it("writes every row on the first frame (no baseline yet)", () => {
     const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     writeFrame("one\ntwo\nthree");
     expect(write).toHaveBeenCalledTimes(1);
-    expect(write).toHaveBeenCalledWith("\x1b[2J\x1b[Hone\r\ntwo\r\nthree\x1b[J");
+    expect(write).toHaveBeenCalledWith("\x1b[Hone\r\ntwo\r\nthree");
+  });
+
+  it("paints only the changed rows on the next frame", () => {
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    writeFrame("one\ntwo\nthree");
+    write.mockClear();
+    writeFrame("one\nTWO\nthree");
+    // Cursor home + transit to row 2, then the changed row only.
+    expect(write).toHaveBeenCalledWith("\x1b[H\r\nTWO");
+  });
+
+  it("writes nothing when the frame is identical", () => {
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    writeFrame("one\ntwo");
+    write.mockClear();
+    writeFrame("one\ntwo");
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("erases below when the frame shrinks", () => {
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    writeFrame("one\ntwo\nthree");
+    write.mockClear();
+    writeFrame("one\ntwo");
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith("\x1b[J");
+  });
+
+  it("repaints everything after a reset (resize path)", () => {
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    writeFrame("one\ntwo");
+    resetFrameCache();
+    write.mockClear();
+    writeFrame("one\ntwo");
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith("\x1b[Hone\r\ntwo");
   });
 });
