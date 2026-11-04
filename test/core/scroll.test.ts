@@ -36,6 +36,21 @@ describe("scrollBy", () => {
     scrollBy(s, 5, 0);
     expect(s).toEqual({ scrollOffset: 0, follow: true });
   });
+
+  it("leaves state untouched on a no-op scroll (nothing changed)", () => {
+    // Down at the bottom with follow already on: a true no-op — no offset
+    // change, no follow change, caller can skip the flush entirely.
+    const m = view(100, true);
+    m.lastMaxOffset = 100;
+    scrollBy(m, 1, 100);
+    expect(m).toEqual({ scrollOffset: 100, follow: true, lastMaxOffset: 100 });
+  });
+
+  it("treats Up at the very top with no scrollable content as a no-op", () => {
+    const s = view(0, true);
+    scrollBy(s, -1, 0);
+    expect(s).toEqual({ scrollOffset: 0, follow: true, lastMaxOffset: undefined });
+  });
 });
 
 describe("clampScroll (draw-time clamp)", () => {

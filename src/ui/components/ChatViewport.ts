@@ -113,8 +113,12 @@ export class ChatViewport extends ChatLogComponent {
 
   override scrollBy(delta: number, viewportRows: number): void {
     this.syncFromStore();
+    const before = this.scrollOffset;
+    const followBefore = this.follow;
     super.scrollBy(delta, viewportRows);
-    this.commit();
+    // A no-op scroll (already at the edge) must not schedule a frame — skip
+    // the commit when the scroll changed nothing.
+    if (this.scrollOffset !== before || this.follow !== followBefore) this.commit();
   }
 
   override jump(top: boolean, viewportRows: number): void {

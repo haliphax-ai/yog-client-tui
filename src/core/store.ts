@@ -53,22 +53,9 @@ export function getState(): Readonly<UiState> {
   return state;
 }
 
-/** Shallow-merge `patch` into the state and notify subscribers. Keys whose
- *  value is identical (===) to the current state are dropped first, so a
- *  patch that changes nothing (cursor at a boundary, scroll clamped in
- *  place, a no-op keystroke's echo) never triggers a render flush. */
+/** Shallow-merge `patch` into the state and notify subscribers. */
 export function setState(patch: Partial<UiState>): void {
-  let changed = false;
-  const next: Partial<UiState> = {};
-  for (const key of Object.keys(patch) as (keyof UiState)[]) {
-    const value = patch[key];
-    if (value !== undefined && value !== state[key]) {
-      (next as Record<string, unknown>)[key] = value;
-      changed = true;
-    }
-  }
-  if (!changed) return;
-  state = { ...state, ...next };
+  state = { ...state, ...patch };
   for (const listener of Array.from(listeners)) listener();
 }
 
