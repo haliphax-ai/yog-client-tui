@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   BaseComponent,
@@ -8,19 +8,22 @@ import {
 } from "../../../src/ui/components/Component.ts";
 import {
   cycleFocus,
+  getTopLevel,
   routeChar,
   routeKey,
+  setTopLevel,
   type Globals,
 } from "../../../src/ui/components/keyRouter.ts";
 
-/** Stub component: claims only the keys/chars given, records every call. */
+/** Stub component: declares a ring side, claims only keys/chars given. */
 class Stub extends BaseComponent {
   readonly log: string[];
   id = "stub";
   private readonly claims: Set<string>;
 
-  constructor(options: { focusable?: boolean; claims?: string[]; log?: string[] } = {}) {
-    super(options.focusable ?? false);
+  constructor(options: { ring: "log" | "input"; claims?: string[]; log?: string[] }) {
+    super(true);
+    this.ring = options.ring;
     this.log = options.log ?? [];
     this.claims = new Set(options.claims ?? []);
   }
@@ -60,118 +63,156 @@ function globalsSpy(rows = 24): { globals: Globals; calls: string[] } {
   return { globals, calls };
 }
 
-describe("routeKey — focused first, then bubble, then globals", () => {
-  it("offers the key to the focused component first even when a later one claims it", () => {
-    const log: string[] = [];
-    const first = new Stub({ log, claims: ["k"] });
-    first.id = "first";
-    const second = new Stub({ log, claims: ["k"] });
-    second.id = "second";
-    second.onFocus(true);
-    log.length = 0; // drop the focus-transition entry
-    const { globals, calls } = globalsSpy();
+describe("routeKey — ring target only, then globals", () => {
+  beforeEach(() => setTopLevel("input"));
 
-    expect(routeKey([first, second], "k", globals)).toBe(true);
-    // Focused (second) answered first; first never saw the key.
-    expect(log).toEqual(["key:second:k"]);
-    expect(calls).toEqual([]);
+  it("only the ring target's side sees keys", () => {
+    const log: string[] = [];
+    const inputSide = new Stub({ ring: "input", claims: ["k"], log });
+    inputSide.id = "input";
+    const logSide = new Stub({ ring: "log", claims: ["k"], log });
+    logSide.id = "log";
+
+    expect(routeKey([logSide, inputSide], "k", globalsSpy().globals)).toBe(true);
+    expect(log).toEqual(["key:input:k"]); // log never saw the key
+
+    log.length = 0;
+    setTopLevel("log");
+    expect(routeKey([logSide, inputSide], "k", globalsSpy().globals)).toBe(true);
+    expect(log).toEqual(["key:log:k"]); // input never saw the key
   });
 
-  it("bubbles an unhandled key to the next component, then stops", () => {
+  it("components without a ring never receive keys", () => {
     const log: string[] = [];
-    const focused = new Stub({ log });
-    focused.id = "focused";
-    focused.onFocus(true);
-    const next = new Stub({ log, claims: ["\x1b[5~"] });
-    next.id = "next";
-    log.length = 0;
+    const orphan = new Stub({ ring: "log", claims: ["k"], log });
+    orphan.id = "orphan";
+    orphan.ring = undefined;
+    const inputSide = new Stub({ ring: "input", claims: ["k"], log });
+    inputSide.id = "input";
+    expect(routeKey([orphan, inputSide], "k", globalsSpy().globals)).toBe(true);
+    expect(log).toEqual(["key:input:k"]);
+  });
+
+  it("bubbles unhandled keys between same-side components, then stops", () => {
+    const log: string[] = [];
+    const first = new Stub({ ring: "log", log });
+    first.id = "first";
+    const second = new Stub({ ring: "log", claims: ["\x1b[5~"], log });
+    second.id = "second";
+    setTopLevel("log");
     const { globals, calls } = globalsSpy();
 
-    expect(routeKey([focused, next], "\x1b[5~", globals)).toBe(true);
-    expect(log).toEqual(["key:focused:\x1b[5~", "key:next:\x1b[5~"]);
+    expect(routeKey([first, second], "\x1b[5~", globals)).toBe(true);
+    expect(log).toEqual(["key:first:\x1b[5~", "key:second:\x1b[5~"]);
     expect(calls).toEqual([]); // handled downstream: globals never ran
   });
 
-  it("falls through to the globals when no component claims the key", () => {
+  it("falls through to the log-side globals when no component claims", () => {
     const log: string[] = [];
-    const a = new Stub({ log });
+    const a = new Stub({ ring: "log", log });
     a.id = "a";
-    a.onFocus(true);
-    const b = new Stub({ log });
-    b.id = "b";
-    log.length = 0;
+    setTopLevel("log");
     const { globals, calls } = globalsSpy();
 
-    expect(routeKey([a, b], "\x1b[Z", globals)).toBe(true); // Shift+Tab
+    expect(routeKey([a], "\x1b[Z", globals)).toBe(true); // Shift+Tab
     expect(calls).toEqual(["focusPrev"]);
-    expect(routeKey([a, b], "\x1b[6~", globals)).toBe(true); // PageDown
+    expect(routeKey([a], "\x1b[6~", globals)).toBe(true); // PageDown
     expect(calls).toEqual(["focusPrev", "scrollBy:24"]);
+    expect(routeKey([a], "\x1b[H", globals)).toBe(true); // Home → top
+    expect(calls).toEqual(["focusPrev", "scrollBy:24", "jump:true"]);
   });
 
   it("the page size comes from the injected terminal height", () => {
-    const log: string[] = [];
-    const a = new Stub({ log });
+    const a = new Stub({ ring: "log" });
+    setTopLevel("log");
     const { globals, calls } = globalsSpy(10);
     expect(routeKey([a], "\x1b[5~", globals)).toBe(true); // PageUp
     expect(calls).toEqual(["scrollBy:-10"]);
   });
 });
 
-describe("routeChar — same ordering as routeKey", () => {
-  it("bubbles unclaimed chars through the chain and into the globals", () => {
+describe("routeChar — ring target only, then gated globals", () => {
+  beforeEach(() => setTopLevel("input"));
+
+  it("a component claim on the ring side stops the walk", () => {
     const log: string[] = [];
-    const focused = new Stub({ log, claims: ["e"] });
-    focused.id = "focused";
-    focused.onFocus(true);
-    const next = new Stub({ log });
-    next.id = "next";
-    log.length = 0;
+    const focused = new Stub({ ring: "input", claims: ["e"], log });
+    focused.id = "input";
+    setTopLevel("input");
     const { globals, calls } = globalsSpy();
 
-    // Component claim stops the walk.
-    expect(routeChar([focused, next], "e", globals)).toBe(true);
-    expect(log).toEqual(["char:focused:e"]);
-
-    // Enter bubbles past both components → global submit.
-    log.length = 0;
-    expect(routeChar([focused, next], "\r", globals)).toBe(true);
-    expect(log).toEqual(["char:focused:\r", "char:next:\r"]);
-    expect(calls).toEqual(["submit"]);
-  });
-
-  it("routes Esc with no focused entry to the global abort binding", () => {
-    const a = new Stub();
-    const b = new Stub();
-    const { globals, calls } = globalsSpy();
-
-    expect(routeChar([a, b], "\x1b", globals)).toBe(true);
-    expect(calls).toEqual(["abortTurn"]);
-  });
-
-  it("does not reach the global abort when a component claims Esc", () => {
-    const log: string[] = [];
-    const claimer = new Stub({ log, claims: ["\x1b"] });
-    claimer.id = "claimer";
-    const { globals, calls } = globalsSpy();
-    expect(routeChar([claimer], "\x1b", globals)).toBe(true);
-    expect(log).toEqual(["char:claimer:\x1b"]);
+    expect(routeChar([focused], "e", globals)).toBe(true);
+    expect(log).toEqual(["char:input:e"]);
     expect(calls).toEqual([]);
   });
-  it("Ctrl+C is unbound: bubbles through without running any global binding", () => {
-    const a = new Stub();
-    const b = new Stub();
+
+  it("Enter submits only while the input holds the ring", () => {
+    const inputSide = new Stub({ ring: "input" });
+    const logSide = new Stub({ ring: "log" });
+    const { globals, calls } = globalsSpy();
+
+    setTopLevel("input");
+    expect(routeChar([logSide, inputSide], "\r", globals)).toBe(true);
+    expect(calls).toEqual(["submit"]);
+
+    setTopLevel("log");
+    calls.length = 0;
+    expect(routeChar([logSide, inputSide], "\r", globals)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it("Tab cycles entries only while the log holds the ring", () => {
+    const inputSide = new Stub({ ring: "input" });
+    const logSide = new Stub({ ring: "log" });
+    const { globals, calls } = globalsSpy();
+
+    setTopLevel("log");
+    expect(routeChar([logSide, inputSide], "\t", globals)).toBe(true);
+    expect(calls).toEqual(["focusNext"]);
+
+    setTopLevel("input");
+    calls.length = 0;
+    expect(routeChar([logSide, inputSide], "\t", globals)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it("Esc aborts only while the input holds the ring", () => {
+    const inputSide = new Stub({ ring: "input" });
+    const logSide = new Stub({ ring: "log" });
+    const { globals, calls } = globalsSpy();
+
+    setTopLevel("input");
+    expect(routeChar([logSide, inputSide], "\x1b", globals)).toBe(true);
+    expect(calls).toEqual(["abortTurn"]);
+
+    setTopLevel("log");
+    calls.length = 0;
+    expect(routeChar([logSide, inputSide], "\x1b", globals)).toBe(false);
+    expect(calls).toEqual([]);
+  });
+
+  it("Ctrl+C is unbound: dropped without running any global binding", () => {
+    const a = new Stub({ ring: "input" });
+    const b = new Stub({ ring: "log" });
     const { globals, calls } = globalsSpy();
     expect(routeChar([a, b], "\x03", globals)).toBe(false);
     expect(calls).toEqual([]);
+  });
+
+  it("getTopLevel reflects the current ring target", () => {
+    setTopLevel("log");
+    expect(getTopLevel()).toBe("log");
+    setTopLevel("input");
+    expect(getTopLevel()).toBe("input");
   });
 });
 
 describe("cycleFocus — loss before gain, with wrap", () => {
   it("fires the loss of the outgoing component before the gain of the incoming one", () => {
     const log: string[] = [];
-    const a = new Stub({ focusable: true, log });
+    const a = new Stub({ ring: "input", log });
     a.id = "a";
-    const b = new Stub({ focusable: true, log });
+    const b = new Stub({ ring: "input", log });
     b.id = "b";
     a.onFocus(true);
     log.length = 0;
@@ -183,9 +224,9 @@ describe("cycleFocus — loss before gain, with wrap", () => {
   });
 
   it("wraps forward from the last entry to the first and backward again", () => {
-    const a = new Stub({ focusable: true });
+    const a = new Stub({ ring: "input" });
     a.id = "a";
-    const b = new Stub({ focusable: true });
+    const b = new Stub({ ring: "input" });
     b.id = "b";
 
     cycleFocus([a, b], 1); // nothing focused → first

@@ -26,9 +26,8 @@ export interface Component {
   readonly focusable: boolean;
   /** True while this component holds focus in the ring. */
   readonly isFocused: boolean;
-  /** Top-level focus ring membership (`"log"` or `"input"`). When set on a
-   *  component, the router restricts this walk to the ring side; unset
-   *  falls back to the legacy focused-first ordering. */
+  /** Top-level focus ring membership: `"log"` or `"input"`. The router
+   *  delivers keys only to the ring side's components. */
   readonly ring?: "log" | "input";
   /** Produce this component's rows (or a single frame string) at `ctx.cols`. */
   render(ctx: RenderContext): RenderResult;

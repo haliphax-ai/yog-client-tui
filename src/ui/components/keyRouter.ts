@@ -3,17 +3,16 @@
  * the text input are the two ring targets, and the ring decides which
  * component receives keys at all.
  *
- * - While the input is the ring target, the browser receives ALL keys:
+ * - While the input is the ring target, the input receives ALL keys:
  *   editing keys are translated to the textarea model, and the few
  *   app-level keys (Enter submit, Esc abort, Shift+Up → log) are carved out.
  * - While the log is the ring target, the log receives the keys (Tab /
  *   Shift-Tab cycle its focusable units; Home/End/PageUp/PageDown/arrows
  *   operate the viewport; Shift+Down or Esc-on-empty returns to the input).
  *   Unhandled keys are dropped — they are never passed to the input.
- * - While the input is the ring target, the input receives ALL keys:
- * Components opt into the ring with the optional `ring` property ("log" or
- * "input"). When no component declares a ring (legacy setups/tests), the
- * router falls back to the previous focused-first ordering.
+ *
+ * Every component must declare its ring side via the `ring` property
+ * ("log" or "input"); components without a ring never receive keys.
  *
  * Terminal geometry comes from the composition root through the `Globals`
  * surface — the router never reads `process.stdout` itself.
@@ -117,54 +116,42 @@ const GLOBAL_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
  * Char-level global bindings: single control characters. Tab cycles the
  * log's entry focus ring only while the log is the ring target; Enter/Esc
  * stay input-side (the log consumes its own Enter/Esc semantics first).
+ * Each run returns whether it consumed the key (so a gated-off binding is
+ * dropped instead of claimed).
  */
-const CHAR_BINDINGS: { binding: Binding; run: (g: Globals, legacy: boolean) => boolean }[] = [
+const CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => boolean }[] = [
   {
     binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
-    run: (g, legacy) => {
-      if (legacy || topLevel === "log") {
-        g.focusNext();
-        return true;
-      }
-      return false;
+    run: (g) => {
+      if (topLevel !== "log") return false;
+      g.focusNext();
+      return true;
     },
   },
   {
     binding: newBinding(withKeys("\r", "\n"), withHelp("Enter", "send input")),
-    run: (g, legacy) => {
-      if (legacy || topLevel === "input") {
-        g.submit();
-        return true;
-      }
-      return false;
+    run: (g) => {
+      if (topLevel !== "input") return false;
+      g.submit();
+      return true;
     },
   },
   {
     binding: newBinding(withKeys("\x1b"), withHelp("Esc", "abort turn")),
-    run: (g, legacy) => {
-      if (legacy || topLevel === "input") {
-        g.abortTurn();
-        return true;
-      }
-      return false;
+    run: (g) => {
+      if (topLevel !== "input") return false;
+      g.abortTurn();
+      return true;
     },
   },
 ];
 
 /**
- * The components that may receive keys for the current ring target. When the
- * ring is wired (components declare `ring`), only that side is consulted —
- * the other side never sees a key. Unset ring falls back to legacy ordering.
+ * The components that may receive keys for the current ring target: only
+ * the side that holds the ring. The other side never sees a key.
  */
-function ringWired(chain: readonly Component[]): boolean {
-  return chain.some((c) => c.ring !== undefined);
-}
-
 function ringWalk(chain: readonly Component[]): readonly Component[] {
-  const side = chain.filter((c) => c.ring === topLevel);
-  if (side.length > 0) return side;
-  const focused = chain.find((c) => c.isFocused);
-  return focused === undefined ? chain : [focused, ...chain.filter((c) => c !== focused)];
+  return chain.filter((c) => c.ring === topLevel);
 }
 
 /**
@@ -194,7 +181,7 @@ export function routeChar(chain: readonly Component[], ch: string, globals: Glob
   }
   for (const { binding, run } of CHAR_BINDINGS) {
     if (matches({ toString: () => ch }, binding)) {
-      if (run(globals, !ringWired(chain))) return true;
+      if (run(globals)) return true;
     }
   }
   return false;

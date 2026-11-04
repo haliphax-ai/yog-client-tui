@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
 import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
-import { routeChar, routeKey, type Globals } from "../../../src/ui/components/keyRouter.ts";
+import {
+  routeChar,
+  routeKey,
+  setTopLevel,
+  type Globals,
+} from "../../../src/ui/components/keyRouter.ts";
 import type { Component } from "../../../src/ui/components/Component.ts";
 import type { LogEntry } from "../../../src/core/entries.ts";
 
@@ -44,11 +49,13 @@ function entryFocusGlobals(viewport: ChatViewport): Globals {
 describe("Tab / Shift-Tab → entry focus ring wiring", () => {
   beforeEach(() => {
     resetForTests();
+    setTopLevel("log");
     setState({ entries: fixture(), focusTarget: FOCUS_NONE_TARGET });
   });
 
   it("Tab (routeChar) walks focusTarget forward through the store with wrap-through-none", () => {
     const viewport = new ChatViewport();
+    viewport.ring = "log";
     const chain: readonly Component[] = [viewport];
     const globals = entryFocusGlobals(viewport);
 
@@ -67,6 +74,7 @@ describe("Tab / Shift-Tab → entry focus ring wiring", () => {
 
   it("Shift-Tab (routeKey) walks focusTarget backward through the store", () => {
     const viewport = new ChatViewport();
+    viewport.ring = "log";
     const chain: readonly Component[] = [viewport];
     const globals = entryFocusGlobals(viewport);
 
