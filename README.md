@@ -122,6 +122,16 @@ content up to ten lines and scrolls vertically beyond that. `Enter` submits;
 `Shift+Enter` inserts a line break. Pasted text (bracketed paste) is inserted
 verbatim — including newlines — and never submits.
 
+### Debug mode
+
+Set `YOG_DEBUG=1` to enable client-side debug chunks. Diagnostics emitted by
+the client (currently: every input key/char/paste event) are appended to the
+chat log as `🐞 debug` chunks — consecutive messages merge into one chunk until
+a non-debug entry lands in the log. Debug chunks mirror tool-result chunks:
+they are focusable, collapsed to five body lines by default, and expandable
+with focus + Enter. They never leave the client (not sent to the server, not
+part of the transcript).
+
 ### Slash commands
 
 Type `/` as the **very first character** of the input line to open the

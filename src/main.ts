@@ -59,6 +59,7 @@ import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
+import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
 import { createScheduler, resetFrameCache, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
 import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS } from "./core/commands.ts";
 
@@ -399,6 +400,8 @@ async function run(argv: readonly string[]): Promise<void> {
   /** Bracketed-paste framing: content between `200~`/`201~` is buffered. */
   let pasting = false;
   let pasteBuffer = "";
+  /** Client-side debug log: hex of a raw input chunk/char. */
+  const toHex = (s: string): string => Buffer.from(s, "utf8").toString("hex");
 
   const handleData = (chunk: string): void => {
     let i = 0;
@@ -414,6 +417,7 @@ async function run(argv: readonly string[]): Promise<void> {
             const content = pasteBuffer;
             pasteBuffer = "";
             input.paste(content);
+            emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`]);
           } else {
             pasteBuffer += seq;
           }
@@ -426,6 +430,7 @@ async function run(argv: readonly string[]): Promise<void> {
           i += seq.length;
           continue;
         }
+        emitDebug([`key ${toHex(seq)}`]);
         routeKey(chain, seq, globals); // unknown sequences are consumed
         i += seq.length;
         continue;
@@ -438,6 +443,7 @@ async function run(argv: readonly string[]): Promise<void> {
         i += ch.length;
         continue;
       }
+      emitDebug([`char ${toHex(ch)}`]);
       routeChar(chain, ch, globals);
       i += ch.length;
     }
@@ -481,6 +487,9 @@ async function run(argv: readonly string[]): Promise<void> {
     model: config.model,
     focusTarget: FOCUS_NONE_TARGET,
   });
+
+  // Client-side debug chunks are seeded when enabled so the mode is visible.
+  if (isDebugEnabled()) emitDebug(["client-side debug log enabled"]);
 
   // 4. Take over the terminal and draw the first frame.
   enterTerminal();
