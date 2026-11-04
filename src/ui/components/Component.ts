@@ -26,6 +26,9 @@ export interface Component {
   readonly focusable: boolean;
   /** True while this component holds focus in the ring. */
   readonly isFocused: boolean;
+  /** Top-level focus ring membership: `"log"` or `"input"`. The router
+   *  delivers keys only to the ring side's components. */
+  readonly ring?: "log" | "input";
   /** Produce this component's rows (or a single frame string) at `ctx.cols`. */
   render(ctx: RenderContext): RenderResult;
   /** Handle a key sequence (an escape sequence such as `\x1b[A`). */
@@ -47,6 +50,8 @@ export abstract class BaseComponent implements Component {
   /** True when this component takes part in the focus cycle. */
   readonly focusable: boolean;
   private focused = false;
+  /** Top-level focus ring membership; set by the composition root. */
+  ring?: "log" | "input";
 
   constructor(focusable = false) {
     this.focusable = focusable;
