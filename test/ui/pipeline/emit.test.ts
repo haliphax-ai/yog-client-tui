@@ -22,10 +22,10 @@ describe("padFrame", () => {
 });
 
 describe("emit — single frame writer", () => {
-  it("writes cursor-home + \\r\\n-joined lines + erase-below to stdout", () => {
+  it("writes full clear + cursor-home + \r\n-joined lines + erase-below to stdout", () => {
     const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     writeFrame("one\ntwo\nthree");
     expect(write).toHaveBeenCalledTimes(1);
-    expect(write).toHaveBeenCalledWith("\x1b[Hone\r\ntwo\r\nthree\x1b[J");
+    expect(write).toHaveBeenCalledWith("\x1b[2J\x1b[Hone\r\ntwo\r\nthree\x1b[J");
   });
 });
