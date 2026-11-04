@@ -5,6 +5,8 @@ import {
   createTurnPresenter,
   toolCallEntry,
   toolResultChunk,
+  toolResultEntry,
+  toolResultEntries,
   transcriptLogEntries,
 } from "../../src/core/turnPresenter.ts";
 import { toTranscriptEntries } from "../../src/core/transcript.ts";
@@ -101,6 +103,33 @@ describe("toolResultChunk", () => {
     expect(chunk.lines[0]).toBe("bash →");
   });
 });
+describe("toolResultEntry / toolResultEntries", () => {
+  it("builds a 🔚 call-style block with the result payload collapsed, expandable to full", () => {
+    const entry = toolResultEntry("noop", { note: "did nothing", ok: true }, COLS);
+    expect(entry.kind).toBe("toolResult");
+    expect(entry.expanded).toBe(false);
+    expect(entry.label).toBe("🔚 noop");
+    expect(entry.argsCompact).toContain("did nothing");
+    expect(entry.full).toContain('"note"');
+    expect(entry.lines[0]).toBe(`${entry.label} ${entry.argsCompact}`);
+  });
+
+  it("keeps the bash output chunk for bash-shaped results", () => {
+    const entries = toolResultEntries("bash", { exitCode: 0, stdout: "hi", runtimeMs: 3 }, COLS);
+    expect(entries.map((e) => e.kind)).toEqual(["chunk"]);
+  });
+
+  it("attaches the call's own status line for non-bash results with stats", () => {
+    const entries = toolResultEntries("noop", { note: "ok", runtimeMs: 321, tokens: 1234 }, COLS);
+    expect(entries.map((e) => e.kind)).toEqual(["toolResult", "status"]);
+    expect(entries[1]?.lines[0]).toBe("runtime 321ms · 1.2K tokens");
+  });
+
+  it("attaches no status line when the non-bash result has no runtime/tokens", () => {
+    const entries = toolResultEntries("noop", { note: "ok" }, COLS);
+    expect(entries.map((e) => e.kind)).toEqual(["toolResult"]);
+  });
+});
 
 /** Host that records appended log entries. */
 function makeHost() {
@@ -141,6 +170,20 @@ describe("createTurnPresenter", () => {
     expect(call?.label).toBe("⚙️ bash ✅");
     const chunk = entries.find((e) => e.kind === "chunk");
     expect(chunk?.lines[0]).toBe("bash → exit 0");
+  });
+  it("splices the generic 🔚 result component + status line after a non-bash tool result", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "noop", parseToolArgs("{}"));
+    turn.events.onToolResult?.("c1", "noop", true, {
+      note: "did nothing",
+      runtimeMs: 42,
+      tokens: 77,
+    });
+    const callIdx = entries.findIndex((e) => e.kind === "tool");
+    expect(entries[callIdx + 1]?.kind).toBe("toolResult");
+    expect((entries[callIdx + 1] as LogEntry & { label?: string }).label).toBe("🔚 noop");
+    expect(entries[callIdx + 2]).toEqual({ kind: "status", lines: ["runtime 42ms · 77 tokens"] });
   });
 
   it("logs an error event as an error entry", () => {
@@ -439,15 +482,40 @@ describe("transcriptLogEntries", () => {
     expect((out[0] as LogEntry & { label?: string }).label).toBe("⚙️ bash ❌ boom");
   });
 
-  it("renders an orphan SUCCESS result row as a standalone line + chunk", () => {
+  it("renders an orphan SUCCESS result row with the generic 🔚 component for non-bash tools", () => {
     const out = transcriptLogEntries(
       toTranscriptEntries([
-        row({ seq: 1, role: "tool", toolCallId: "cx", name: "bash", content: '{"exitCode":0}' }),
+        row({
+          seq: 1,
+          role: "tool",
+          toolCallId: "cx",
+          name: "noop",
+          content: '{"note":"did nothing"}',
+        }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["tool", "toolResult"]);
+    expect(out[0]?.lines[0]).toBe("✅ noop");
+    expect((out[1] as LogEntry & { label?: string }).label).toBe("🔚 noop");
+  });
+
+  it("renders an orphan SUCCESS result row as a standalone line + chunk for bash-shaped results", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({
+          seq: 1,
+          role: "tool",
+          toolCallId: "cx",
+          name: "bash",
+          content: '{"exitCode":0,"stdout":"hi"}',
+        }),
       ]),
       COLS,
     );
     expect(out.map((e) => e.kind)).toEqual(["tool", "chunk"]);
     expect(out[0]?.lines[0]).toBe("✅ bash");
+    expect(out[1]?.lines[0]).toBe("bash → exit 0");
   });
 
   it("renders an orphan FAILED result row as a bare error line (no chunk)", () => {

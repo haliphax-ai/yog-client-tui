@@ -58,6 +58,16 @@ export function resultTokens(result: unknown): number | undefined {
   const tokens = (result as Record<string, unknown>)["tokens"];
   return typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0 ? tokens : undefined;
 }
+/**
+ * Whether a tool result uses the bash-style output component (stdout/stderr
+ * text fields). Tools without that shape get the generic tool-result
+ * component instead — a 🔚 call-style block showing the result payload.
+ */
+export function isBashShaped(result: unknown): boolean {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) return false;
+  const obj = result as Record<string, unknown>;
+  return typeof obj["stdout"] === "string" || typeof obj["stderr"] === "string";
+}
 
 /**
  * Human-readable runtime abbreviation for a duration in milliseconds:

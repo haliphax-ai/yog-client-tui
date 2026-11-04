@@ -30,6 +30,7 @@ function kindStyle(kind: EntryKind): Style {
     case "assistant":
       return ST.assistant;
     case "tool":
+    case "toolResult":
       return ST.tool;
     case "system":
       return ST.system;
@@ -165,7 +166,12 @@ export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
   const units: FocusTarget[] = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i] as LogEntry;
-    if (entry.kind === "chunk" || entry.kind === "tool" || entry.kind === "debug") {
+    if (
+      entry.kind === "chunk" ||
+      entry.kind === "tool" ||
+      entry.kind === "toolResult" ||
+      entry.kind === "debug"
+    ) {
       units.push({ entry: i, table: -1 });
       continue;
     }
@@ -311,7 +317,7 @@ function renderEntry(
     return renderChunkLike(entry, cols, focusedTable);
   }
 
-  if (entry.kind === "tool") {
+  if (entry.kind === "tool" || entry.kind === "toolResult") {
     // Identical geometry in both states (1-cell side padding, full width):
     // focusing only recolors, and expansion persists regardless of focus.
     // Collapsed: cell-cap the summary line to the body width — a long tool-error

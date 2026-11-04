@@ -15,6 +15,7 @@ import {
   prettyArgs,
   resultStatus,
   resultTokens,
+  isBashShaped,
 } from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
 import type { LogEntry } from "./entries.ts";
@@ -100,23 +101,20 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
-        // Splice the result chunk right after its call entry so the
-        // output stays visually paired with the call that produced it,
-        // even when events arrive batched (call1, call2, result1, result2).
+        // Splice the result output right after its call entry so it stays
+        // visually paired with the call that produced it, even when events
+        // arrive batched (call1, call2, result1, result2).
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
-          if (idx !== -1) {
-            host.entries.splice(idx + 1, 0, toolResultChunk(name, result));
-          } else {
-            host.entries.push(toolResultChunk(name, result));
-          }
+          const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
+          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width()));
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(toolResultChunk(name, result));
+          host.entries.push(...toolResultEntries(name, result, host.width()));
         }
       }
       host.requestRender();
@@ -254,6 +252,54 @@ export function toolResultChunk(name: string, result: unknown): LogEntry {
     result,
   };
 }
+/**
+ * Generic tool-result component for tools without the bash-style output
+ * component: a 🔚 block that looks like a tool call (purple, expandable)
+ * and shows the result payload as JSON — collapsed/truncated by default,
+ * focus + Enter expands the full result. Shared by the live path and
+ * rehydration.
+ */
+export function toolResultEntry(name: string, result: unknown, cols: number): LogEntry {
+  const label = `🔚 ${name || "tool"}`;
+  const full =
+    result === undefined || result === null
+      ? undefined
+      : prettyArgs(result, Number.MAX_SAFE_INTEGER, "pretty");
+  const argsCompact =
+    full === undefined
+      ? undefined
+      : prettyArgs(result, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
+  const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
+  return { kind: "toolResult", lines: [shown], label, argsCompact, full, expanded: false, result };
+}
+
+/** This call's own status line (same format as the turn summary), or undefined. */
+function toolResultSummary(result: unknown): string | undefined {
+  const obj =
+    result !== null && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : {};
+  const parts: string[] = [];
+  if (typeof obj["runtimeMs"] === "number") {
+    parts.push(`runtime ${formatRuntime(obj["runtimeMs"] as number)}`);
+  }
+  const tokens = resultTokens(result);
+  if (tokens !== undefined) parts.push(`${formatTokenTotal(tokens)} tokens`);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/**
+ * The log entries produced for a successful tool result: bash-shaped results
+ * keep the collapsible output chunk; any other tool renders as the generic
+ * 🔚 result component with its own attached per-call status line.
+ */
+export function toolResultEntries(name: string, result: unknown, cols: number): LogEntry[] {
+  if (isBashShaped(result)) return [toolResultChunk(name, result)];
+  const entries: LogEntry[] = [toolResultEntry(name, result, cols)];
+  const summary = toolResultSummary(result);
+  if (summary !== undefined) entries.push({ kind: "status", lines: [summary] });
+  return entries;
+}
 
 /**
  * Convert rehydrated transcript entries into chat-log entries, reusing the
@@ -294,11 +340,8 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         annotateToolCall(call.entry, decoded.ok, decoded.error);
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           const idx = out.indexOf(call.entry);
-          if (idx !== -1) {
-            out.splice(idx + 1, 0, toolResultChunk(call.name, decoded.value));
-          } else {
-            out.push(toolResultChunk(call.name, decoded.value));
-          }
+          const insertAt = idx !== -1 ? idx + 1 : out.length;
+          out.splice(insertAt, 0, ...toolResultEntries(call.name, decoded.value, cols));
         }
         i += 1;
       }
@@ -320,7 +363,7 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(toolResultChunk(label, decoded.value));
+        out.push(...toolResultEntries(label, decoded.value, cols));
       }
     } else {
       out.push({ kind: "system", lines: [e.text] });

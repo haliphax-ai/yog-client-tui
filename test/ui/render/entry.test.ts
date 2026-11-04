@@ -231,3 +231,22 @@ describe("status entry", () => {
     expect(displayWidth(stripAnsi(rows[0] as string))).toBeLessThanOrEqual(20);
   });
 });
+describe("toolResult entry", () => {
+  it("renders like a tool call: collapsed 🔚 line, expandable to the full JSON result", () => {
+    const entry: LogEntry = {
+      kind: "toolResult",
+      lines: ['🔚 noop { "note": "did nothing" }'],
+      label: "🔚 noop",
+      argsCompact: '{ "note": "did nothing" }',
+      full: '{\n  "note": "did nothing"\n}',
+      expanded: false,
+    };
+    const collapsed = cachedRows(entry, 60);
+    expect(collapsed.length).toBe(1);
+    expect(stripAnsi(collapsed[0] as string)).toContain("🔚 noop");
+    entry.expanded = true;
+    const expanded = cachedRows(entry, 60);
+    expect(expanded.length).toBeGreaterThan(1);
+    expect(stripAnsi(expanded.join("\n"))).toContain('"note"');
+  });
+});
