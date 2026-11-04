@@ -2,7 +2,18 @@
  * The render layer's public surface: entry rendering, the memoized row
  * cache, row accounting, and the table engine.
  */
-export { cachedRows, focusUnits, sectionsOf, tableOffsetsOf, totalRows } from "./entry.ts";
+export {
+  cachedRowData,
+  cachedHeights,
+  cachedRows,
+  focusUnits,
+  heightSummaryOf,
+  noteMutation,
+  sectionsOf,
+  tableOffsetsOf,
+  totalRows,
+  type HeightSummary,
+} from "./entry.ts";
 export { colorizeToolLine } from "./colorize.ts";
 export { resultPreview } from "./formatting.ts";
 export { highlightBlock, renderMarkdown } from "./markdown.ts";

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { cachedRows } from "../../../src/ui/render/entry.ts";
+import { cachedHeights, cachedRows, totalRows } from "../../../src/ui/render/entry.ts";
 import { C, ST } from "../../../src/ui/theme.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
+import { displayWidth, lineHeight, stripAnsi } from "../../../src/util/ansi.ts";
+import type { LogEntry } from "../../../src/core/entries.ts";
 
 const ESC = "\x1b";
 
@@ -36,10 +37,7 @@ describe("assistant prose — full-width, no border", () => {
   });
 
   it("preserves markdown styling across paragraph breaks", () => {
-    const rows = cachedRows(
-      { kind: "assistant", lines: ["a **bold** start", "", "finish"] },
-      24,
-    );
+    const rows = cachedRows({ kind: "assistant", lines: ["a **bold** start", "", "finish"] }, 24);
     expect(rows.length).toBe(3);
     expect(rows[1]).toBe("");
     expect(stripAnsi(rows[0] ?? "")).toContain("bold");
@@ -62,7 +60,10 @@ describe("assistant prose — full-width, no border", () => {
   });
 
   it("keeps wide runes intact across soft wrap (emoji regression)", () => {
-    const text = "✅ Done — " + "this line is intentionally long enough to exceed the terminal width ".repeat(2) + "end";
+    const text =
+      "✅ Done — " +
+      "this line is intentionally long enough to exceed the terminal width ".repeat(2) +
+      "end";
     const rows = cachedRows({ kind: "assistant", lines: [text] }, 24);
     expect(rows.length).toBe(1);
     expect(displayWidth(rows[0] ?? "")).toBeGreaterThan(24);
@@ -128,5 +129,69 @@ describe("terminal-state notice", () => {
     expect(rows[0]).toContain(`${ESC}[39m· `);
     // Detail is capped but starts correctly.
     expect(stripAnsi(rows[0] ?? "").endsWith("a very long")).toBe(true);
+  });
+});
+describe("cachedHeights / height summary", () => {
+  it("stores heights matching the line-height of the cached rows", () => {
+    const row: LogEntry = { kind: "system", lines: ["hello world"] };
+    const rows = cachedRows(row, 40);
+    const heights = cachedHeights(row, 40);
+    expect(heights).toHaveLength(rows.length);
+    expect(heights[0] as number).toBe(1);
+
+    const long: LogEntry = {
+      kind: "assistant",
+      lines: ["this is a long reply that wraps across several rows for sure"],
+    };
+    const longRows = cachedRows(long, 20);
+    const longHeights = cachedHeights(long, 20);
+    expect(longHeights).toHaveLength(longRows.length);
+    for (let i = 0; i < longRows.length; i++) {
+      expect(longHeights[i] as number).toBe(lineHeight(longRows[i] as string, 20));
+    }
+  });
+
+  it("reuses the cached total while nothing changes and rebuilds on mutation", () => {
+    const entries: LogEntry[] = [
+      { kind: "system", lines: ["a"] },
+      { kind: "system", lines: ["b"] },
+    ];
+    const first = totalRows(entries, 40);
+    expect(totalRows(entries, 40)).toBe(first); // short-circuit hit
+    (entries[1] as LogEntry).lines.push("more content");
+    cachedRows(entries[1] as LogEntry, 40); // render records the mutation → revision bump
+    const second = totalRows(entries, 40);
+    expect(second).toBeGreaterThan(first);
+  });
+
+  it("rebuilds after collapse/expand changes an entry's height", () => {
+    const body: string[] = [];
+    for (let i = 1; i <= 8; i++) body.push(`line ${i}`);
+    const chunk: LogEntry = { kind: "chunk", lines: ["run exit 0", ...body] };
+    const entries = [chunk];
+    const open = totalRows(entries, 40);
+    chunk.collapsed = true;
+    cachedRows(chunk, 40);
+    const closed = totalRows(entries, 40);
+    expect(closed).toBeLessThan(open);
+    chunk.collapsed = false;
+    cachedRows(chunk, 40);
+    expect(totalRows(entries, 40)).toBe(open);
+  });
+
+  it("rebuilds when the width changes", () => {
+    const entries: LogEntry[] = [
+      { kind: "assistant", lines: ["long line that wraps at narrow widths but not at wide ones"] },
+    ];
+    const wide = totalRows(entries, 80);
+    const narrow = totalRows(entries, 10);
+    expect(narrow).toBeGreaterThanOrEqual(wide);
+    expect(totalRows(entries, 80)).toBe(wide); // back to the cached wide total
+  });
+
+  it("does not share state across different entries arrays", () => {
+    const a: LogEntry[] = [{ kind: "system", lines: ["x"] }];
+    const b: LogEntry[] = [{ kind: "system", lines: ["x"] }];
+    expect(totalRows(a, 40)).toBe(totalRows(b, 40));
   });
 });
