@@ -10,7 +10,7 @@
  * `raw.content`), nothing is truncated, summarized, or skipped. Malformed
  * rows are tolerated defensively — conversion never throws.
  */
-import type { TranscriptMessage } from "../yogClient.ts";
+import type { TranscriptMessage, TokenUsage } from "../yogClient.ts";
 
 /** Roles a transcript row can carry. */
 export type TranscriptRole = "user" | "assistant" | "system" | "tool";
@@ -72,6 +72,39 @@ export function decodeToolResult(m: TranscriptMessage): {
     if (typeof obj["error"] === "string") return { ok: false, value, error: obj["error"] };
   }
   return { ok: true, value };
+}
+
+/**
+ * Normalize a per-turn usage payload into a `TokenUsage` (numeric, finite
+ * fields only). Returns `undefined` when nothing usable is present so
+ * callers can treat the turn as having no usage (never throw).
+ */
+export function decodeTurnUsage(value: unknown): TokenUsage | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const rec = value as Record<string, unknown>;
+  const out: TokenUsage = {};
+  let has = false;
+  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"] as const) {
+    const n = rec[key];
+    if (typeof n === "number" && Number.isFinite(n)) {
+      out[key] = n;
+      has = true;
+    }
+  }
+  return has ? out : undefined;
+}
+
+/** Sum the total token weight across per-turn metrics (0 when none known). */
+export function contextTokenTotal(
+  turns: ReadonlyArray<{ usage?: TokenUsage } | undefined> | undefined,
+): number {
+  if (turns === undefined) return 0;
+  let total = 0;
+  for (const t of turns) {
+    const n = t?.usage?.total_tokens;
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) total += n;
+  }
+  return total;
 }
 
 /** Pretty text for a tool result row: `name → <result>`. */

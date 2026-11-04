@@ -9,8 +9,8 @@ import {
   toolResultEntries,
   transcriptLogEntries,
 } from "../../src/core/turnPresenter.ts";
+import type { TranscriptMessage, TokenUsage } from "../../src/yogClient.ts";
 import { toTranscriptEntries } from "../../src/core/transcript.ts";
-import type { TranscriptMessage } from "../../src/yogClient.ts";
 import type { LogEntry } from "../../src/core/entries.ts";
 import { parseToolArgs } from "../../src/yogClient.ts";
 
@@ -535,5 +535,127 @@ describe("transcriptLogEntries", () => {
       COLS,
     );
     expect(out.map((e) => e.lines[0])).toEqual(["?", "still works"]);
+  });
+});
+
+describe("transcriptLogEntries per-turn summaries and tokens", () => {
+  it("appends a status entry per finished turn when metrics are known", () => {
+    const turns = new Map<number, { usage?: TokenUsage; durationMs?: number }>();
+    turns.set(1, {
+      usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      durationMs: 2200,
+    });
+    turns.set(2, {
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      durationMs: 900,
+    });
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, role: "user", content: "q1", turnId: "1" }),
+        row({ seq: 2, role: "assistant", content: "a1", turnId: "1" }),
+        row({ seq: 3, role: "user", content: "q2", turnId: "2" }),
+        row({ seq: 4, role: "assistant", content: "a2", turnId: "2" }),
+      ]),
+      COLS,
+      { turns },
+    );
+    expect(out.map((e) => e.kind)).toEqual([
+      "user",
+      "assistant",
+      "status",
+      "user",
+      "assistant",
+      "status",
+    ]);
+    expect(out[2]?.lines[0]).toBe("runtime 2s · 0 tool calls · 150 tokens");
+    expect(out[5]?.lines[0]).toBe("runtime 900ms · 0 tool calls · 15 tokens");
+  });
+
+  it("counts tool calls per hydrated turn in its summary", () => {
+    const turns = new Map<number, { usage?: TokenUsage; durationMs?: number }>();
+    turns.set(1, { durationMs: 500, usage: { total_tokens: 42 } });
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, role: "user", content: "run", turnId: "1" }),
+        row({
+          seq: 2,
+          role: "assistant",
+          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: "{}" } }],
+          turnId: "1",
+        }),
+        row({
+          seq: 3,
+          role: "tool",
+          toolCallId: "c1",
+          name: "bash",
+          content: '{"exitCode":0}',
+          turnId: "1",
+        }),
+        row({ seq: 4, role: "user", content: "next", turnId: "2" }),
+      ]),
+      COLS,
+      { turns },
+    );
+    const status = out.find((e) => e.kind === "status");
+    expect(status?.lines[0]).toBe("runtime 500ms · 1 tool call · 42 tokens");
+  });
+
+  it("injects stored per-call tokens into bash-shaped result chunk headers", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({
+          seq: 1,
+          role: "assistant",
+          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: "{}" } }],
+        }),
+        row({
+          seq: 2,
+          role: "tool",
+          toolCallId: "c1",
+          name: "bash",
+          content: '{"exitCode":0,"stdout":"hi"}',
+          tokens: 7,
+        }),
+      ]),
+      COLS,
+    );
+    const chunk = out.find((e) => e.kind === "chunk");
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
+  });
+
+  it("omits per-turn status entries when no metrics are provided", () => {
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, role: "user", content: "q", turnId: "1" }),
+        row({ seq: 2, role: "assistant", content: "a", turnId: "1" }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["user", "assistant"]);
+  });
+});
+
+describe("createTurnPresenter per-call tokens (live)", () => {
+  it("rides envelope tokens into the tool-result chunk header", () => {
+    const host = {
+      entries: [] as LogEntry[],
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        host.entries.push({ kind, lines });
+      },
+      width: () => COLS,
+      requestRender: () => {},
+    };
+    const presenter = createTurnPresenter(host);
+    presenter.events.onToolCall?.("c1", "bash", "{}");
+    presenter.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "hi" },
+      undefined,
+      7,
+    );
+    const chunk = host.entries.find((e) => e.kind === "chunk");
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
   });
 });

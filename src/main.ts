@@ -50,8 +50,9 @@ import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from 
 import { type LogEntry } from "./core/entries.ts";
 import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { getState, setState } from "./core/store.ts";
-import { toTranscriptEntries } from "./core/transcript.ts";
+import { contextTokenTotal, toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
+import { formatTokenTotal } from "./core/toolFormat.ts";
 import { YogClient, YogError, type TurnEvents, type TurnOutcome } from "./yogClient.ts";
 import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
@@ -183,8 +184,10 @@ async function run(argv: readonly string[]): Promise<void> {
         throw new YogError("unknown_session", `session ${requested} not found`, 404);
       }
       const dump = await client.getTranscript();
+      const tokenWeight = contextTokenTotal(dump.turns);
       startupNote(
-        `resumed session ${requested} · ${dump.messages.length} messages from server transcript`,
+        `resumed session ${requested} · ${dump.messages.length} messages from server transcript` +
+          (tokenWeight > 0 ? ` · ~${formatTokenTotal(tokenWeight)} tokens in context` : ""),
       );
       const cols = process.stdout.columns ?? 80;
       for (const entry of transcriptLogEntries(toTranscriptEntries(dump.messages), cols)) {
