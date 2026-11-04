@@ -17,39 +17,17 @@ describe("store", () => {
     expect(getState().entries).toEqual([]);
   });
 
-  it("notifies subscribers on setState", () => {
+  it("notifies on identical-value patches (in-place mutations rely on it)", () => {
+    // Regression: toggles and table scroll mutate entries in place, then
+    // commit a patch whose VALUES are reference-identical to current state.
+    // The notification — not value comparison — is what makes them render.
+    setState({ entries: [] });
     let calls = 0;
     subscribe(() => {
       calls += 1;
     });
-    setState({ statusNote: "ok" });
-    setState({ cursor: 1 });
-    expect(calls).toBe(2);
-    expect(getState().statusNote).toBe("ok");
-  });
-
-  it("does not notify when a patch changes nothing", () => {
-    setState({ cursor: 3 });
-    let calls = 0;
-    subscribe(() => {
-      calls += 1;
-    });
-    setState({ cursor: 3 }); // identical value — no-op
-    setState({ statusNote: "" }); // equals the default — no-op
-    setState({}); // empty patch — no-op
-    expect(calls).toBe(0);
-    expect(getState().cursor).toBe(3);
-  });
-
-  it("notifies once per patch and drops only identical keys", () => {
-    let calls = 0;
-    subscribe(() => {
-      calls += 1;
-    });
-    setState({ cursor: 3, input: "x" });
-    setState({ cursor: 3, input: "xy" }); // input changed → one flush
-    expect(calls).toBe(2);
-    expect(getState().input).toBe("xy");
+    setState({ entries: getState().entries }); // same array ref, must flush
+    expect(calls).toBe(1);
   });
 
   it("stops notifying after unsubscribe", () => {

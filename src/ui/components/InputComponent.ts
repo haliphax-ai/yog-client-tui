@@ -57,7 +57,7 @@ function codePointWidth(text: string, index: number): number {
 
 /** Insert text at the cursor (control characters stripped). */
 export function insert(text: string): void {
-// eslint-disable-next-line no-control-regex
+  // eslint-disable-next-line no-control-regex
   const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
   if (clean === "") return;
   const state = getState();
@@ -92,13 +92,17 @@ export function del(): void {
 /** Move the cursor by `delta` (clamped into the buffer). */
 export function moveCursor(delta: number): void {
   const state = getState();
-  setState({ cursor: Math.max(0, Math.min(state.input.length, state.cursor + delta)) });
+  const cursor = Math.max(0, Math.min(state.input.length, state.cursor + delta));
+  if (cursor === state.cursor) return; // no-op keypress: no flush, no frame
+  setState({ cursor });
 }
 
 /** Place the cursor at `pos` (clamped into the buffer). */
 export function setCursor(pos: number): void {
   const state = getState();
-  setState({ cursor: Math.max(0, Math.min(state.input.length, pos)) });
+  const cursor = Math.max(0, Math.min(state.input.length, pos));
+  if (cursor === state.cursor) return; // no-op keypress: no flush, no frame
+  setState({ cursor });
 }
 
 export class InputComponent extends BaseComponent {
