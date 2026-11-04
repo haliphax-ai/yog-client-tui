@@ -229,12 +229,17 @@ On each turn the client then:
 6. Consumes the SSE stream, rendering deltas into the assistant entry, tool
    call lines with an inline ✅/❌ indicator and syntax-highlighted args,
    collapsible (Tab + Enter) result chunks for tool output, and error events
-   as they arrive.
+   as they arrive. As each tool result lands, its attributed completion tokens
+   are folded into the status bar's 🪙 session total live — it climbs while
+   tools run, and the terminal usage report later replaces those provisional
+   totals with the authoritative full-context numbers.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
    (a "stream interrupted — recovered from turn status" note is logged).
 8. Esc (with nothing focused) aborts the active turn via
    `POST /v1/sessions/{id}/abort` — a `⏹ turn aborted` note is logged from
-   the stream's terminal `turn.aborted` event.
+   the stream's terminal `turn.aborted` event, carrying the cut-point token
+   counts and the per-turn summary line when the provider reported usage
+   before the cut.
 9. On quit, keeps the session: the server's DELETE is a detach (status
    `open` → `dormant`) and the transcript is kept, so the next launch resumes
    where this one left off. Only a server-side purge (`DELETE ?purge=true`)

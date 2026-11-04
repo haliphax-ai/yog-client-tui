@@ -49,7 +49,7 @@
 import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from "./config.ts";
 import { type LogEntry } from "./core/entries.ts";
 import { FOCUS_NONE_TARGET } from "./core/focus.ts";
-import { getState, setState } from "./core/store.ts";
+import { addLiveCompletionTokens, getState, setState } from "./core/store.ts";
 import { finalContextTotal, perTurnDeltas, toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
 import { formatTokenTotal } from "./core/toolFormat.ts";
@@ -358,12 +358,16 @@ async function run(argv: readonly string[]): Promise<void> {
 
     if (state.busy) return; // one turn at a time (documented)
 
+    // Baseline the session total BEFORE any live tool-result token accrual:
+    // the per-turn delta must stay this turn's own contribution, not the
+    // live-updated running total.
+    const turnStartTotal = getState().tokenTotals.total;
     const turn = createTurnPresenter({
       entries: state.entries,
       append: pushLines,
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
-      prevTokenTotal: () => getState().tokenTotals.total,
+      prevTokenTotal: () => turnStartTotal,
     });
     // Surface transcript token totals in the status-bar 🪙 stat: each
     // terminal usage report (finished or aborted at a cut point) carries the
@@ -390,6 +394,15 @@ async function run(argv: readonly string[]): Promise<void> {
     turn.events.onAborted = (reason, usage) => {
       baseOnAborted?.(reason, usage);
       if (usage !== undefined) applyUsageTotal(usage);
+    };
+    const baseOnToolResult = turn.events.onToolResult;
+    turn.events.onToolResult = (id, name, ok, result, error, tokens) => {
+      baseOnToolResult?.(id, name, ok, result, error, tokens);
+      // Live status-bar update: fold each tool call's attributed completion
+      // tokens into the session total immediately, so the 🪙 stat climbs as
+      // tools run. The terminal usage report later replaces these provisional
+      // totals with the authoritative full-context numbers.
+      addLiveCompletionTokens(tokens ?? 0);
     };
     turn.begin(prompt);
     input.reset();
