@@ -158,6 +158,23 @@ describe("createTurnPresenter", () => {
     expect(entries.at(-1)?.lines).toEqual(["⏹️ turn aborted", ""]);
   });
 
+  it("logs a max_rounds stop as a notice entry with a cap summary", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onFinish?.(9500, "max_rounds");
+    expect(entries.at(-1)).toEqual({
+      kind: "notice",
+      lines: ["⏹️ turn stopped", "reached the tool-round cap after 10s"],
+    });
+  });
+
+  it("logs no notice for a natural finish (no stopReason)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onFinish?.(1200, undefined);
+    expect(entries.filter((e) => e.kind === "notice")).toHaveLength(0);
+  });
+
   it("emits no result chunk for a failed call — the ❌ line is the whole failure", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);

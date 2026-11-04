@@ -316,7 +316,7 @@ describe("unreachableError", () => {
     expect(err.message).toContain("cannot reach yog server at http://127.0.0.1:9999");
     expect(err.message).toContain("connect ECONNREFUSED");
     expect(err.message).toContain("yog serve");
-    expect(err.message).toContain("YOG_SERVER_URL");
+    expect(err.message).toContain("baseUrl");
     expect(err.message.startsWith("cannot reach yog server at")).toBe(true);
   });
 
@@ -576,6 +576,94 @@ describe("YogClient.runTurn payload", () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.aborted).toBe(true);
     expect(aborted).toEqual(["turn aborted by operator"]);
+  });
+
+  it("propagates stopReason from turn.finished on the direct path", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: turn.finished\ndata: {"durationMs":9,"stopReason":"max_rounds"}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: Array<{ durationMs: number; stopReason?: string }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onFinish: (durationMs, stopReason) => finished.push({ durationMs, stopReason }),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.stopReason).toBe("max_rounds");
+    expect(finished).toEqual([{ durationMs: 9, stopReason: "max_rounds" }]);
+  });
+
+  it("recovers a terminal event when the stream ends cleanly without one", async () => {
+    // A server that ends the SSE stream after turn.started without a
+    // terminal event (the pre-stopReason bug): the client must not report
+    // a bare "ended without a terminal event" failure when the stored turn
+    // has one — it recovers from turn-status instead.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/turns")) {
+          return sseResponse([
+            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            'event: message.delta\ndata: {"text":"partial"}\n\n',
+            // stream ends cleanly — no terminal event
+          ]);
+        }
+        return jsonResponse(
+          {
+            turn: {
+              events: [
+                { type: "turn.started", data: { turnId: "t1", model: "m" } },
+                { type: "message.delta", data: { text: "partial" } },
+                { type: "turn.finished", data: { durationMs: 5, stopReason: "max_rounds" } },
+              ],
+            },
+          },
+          200,
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: Array<{ durationMs: number; stopReason?: string }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onFinish: (durationMs, stopReason) => finished.push({ durationMs, stopReason }),
+    });
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.stopReason).toBe("max_rounds");
+    expect(finished).toEqual([{ durationMs: 5, stopReason: "max_rounds" }]);
+  });
+
+  it("still reports a bare failure when recovery also has no terminal event", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/turns")) {
+          return sseResponse(['event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n']);
+        }
+        // Turn exists but stores no terminal event either.
+        return jsonResponse(
+          {
+            turn: {
+              events: [{ type: "turn.started", data: { turnId: "t1", model: "m" } }],
+            },
+          },
+          200,
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const outcome = await client.runTurn("hello", "model-x", {});
+    expect(outcome.ok).toBe(false);
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.failure).toBe("turn recovery returned no terminal event");
   });
 
   it("flags aborted through turn-status recovery too", async () => {

@@ -75,8 +75,8 @@ export interface TurnEvents {
   onToolCall?(id: string, name: string, args: unknown): void;
   /** `tool.result` — a tool outcome. */
   onToolResult?(id: string, name: string, ok: boolean, result: unknown, error?: string): void;
-  /** `turn.finished` — normal end. */
-  onFinish?(durationMs: number): void;
+  /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
+  onFinish?(durationMs: number, stopReason?: string): void;
   /** `turn.aborted` — the operator aborted the turn (terminal). */
   onAborted?(reason: string): void;
   /** `error` — terminal failure reported by the server. */
@@ -95,6 +95,12 @@ export interface TurnOutcome {
   aborted: boolean;
   /** Set when the stream died and turn-status recovery was used. */
   recovered: boolean;
+  /**
+   * The `stopReason` from the terminal `turn.finished` (e.g. `max_rounds`),
+   * when the server reported one. Present on both the direct and the
+   * recovered path.
+   */
+  stopReason?: string;
   /** Human-readable failure when the transport itself broke. */
   failure?: string;
 }
@@ -171,7 +177,7 @@ export function unreachableError(base: string, cause: unknown): Error {
   return new Error(
     `cannot reach yog server at ${base} (${detail}); ` +
       "start it first with `yog serve` (no server is spawned automatically) " +
-      "or point YOG_SERVER_URL at a running daemon",
+      "and point the client's `baseUrl` at the running daemon",
   );
 }
 
@@ -407,6 +413,7 @@ export class YogClient {
     let turnId: string | undefined;
     let sawFinished = false;
     let sawAborted = false;
+    let stopReason: string | undefined;
     let serverError: string | undefined;
 
     /** Apply one envelope to the callbacks; used by stream and recovery. */
@@ -441,7 +448,15 @@ export class YogClient {
         }
         case "turn.finished": {
           sawFinished = true;
-          events.onFinish?.(typeof data["durationMs"] === "number" ? data["durationMs"] : 0);
+          // A stopReason (e.g. "max_rounds") means the server stopped the
+          // turn early — surfaced on the outcome and to the UI.
+          if (typeof data["stopReason"] === "string" && data["stopReason"] !== "") {
+            stopReason = data["stopReason"];
+          }
+          events.onFinish?.(
+            typeof data["durationMs"] === "number" ? data["durationMs"] : 0,
+            stopReason,
+          );
           return;
         }
         case "turn.aborted": {
@@ -491,6 +506,7 @@ export class YogClient {
         recovered: true,
         aborted: sawAborted,
         ...(serverError !== undefined ? { error: serverError } : {}),
+        ...(recovered && sawFinished && stopReason !== undefined ? { stopReason } : {}),
         ...(recovered ? {} : { failure: "turn-status recovery failed" }),
       };
     }
@@ -499,6 +515,31 @@ export class YogClient {
       return { ok: false, recovered: false, error: serverError, aborted: false };
     if (sawAborted) return { ok: false, recovered: false, aborted: true };
     if (!sawFinished) {
+      // Clean stream end with no terminal event: a streamError would have
+      // taken the recovery path above, so this is a server-side gap (an
+      // older server that silently drops the turn). Recover the stored turn
+      // when its id is known — the events are persisted server-side — and
+      // only report a bare failure when recovery is impossible or empty.
+      if (turnId !== undefined) {
+        const recovered = await this.recoverTurn(sessionId, turnId, handle);
+        if (recovered) {
+          if (!sawFinished && !sawAborted && serverError === undefined) {
+            return {
+              ok: false,
+              recovered: true,
+              aborted: false,
+              failure: "turn recovery returned no terminal event",
+            };
+          }
+          return {
+            ok: sawFinished && serverError === undefined,
+            recovered: true,
+            aborted: sawAborted,
+            ...(serverError !== undefined ? { error: serverError } : {}),
+            ...(sawFinished && stopReason !== undefined ? { stopReason } : {}),
+          };
+        }
+      }
       return {
         ok: false,
         recovered: false,
@@ -506,7 +547,12 @@ export class YogClient {
         aborted: false,
       };
     }
-    return { ok: true, recovered: false, aborted: false };
+    return {
+      ok: true,
+      recovered: false,
+      aborted: false,
+      ...(stopReason !== undefined ? { stopReason } : {}),
+    };
   }
 
   /**
