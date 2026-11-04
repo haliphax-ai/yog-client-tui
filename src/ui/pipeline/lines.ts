@@ -27,11 +27,13 @@ export function padFrame(frame: string, width: number): string {
 
 /**
  * Compose the main pane rows (log viewport + input + status), guaranteeing
- * exactly one blank line between the log and the input. The viewport is
- * already allocated one row short of the terminal; when its last row is a
- * blank (the log's trailing entry separator, or padding for short content),
- * that blank IS the gap and nothing is added. When the last row is content
- * (scrolled away from the bottom), a blank row is inserted.
+ * exactly one blank line between the log and the input without shrinking the
+ * frame. When the viewport's last row is already blank (the log's trailing
+ * entry separator, or padding for short content), that blank IS the gap and
+ * nothing is added. When the last row is content (scrolled away from the
+ * bottom), that row is consumed as the margin — the viewport renders one
+ * row of content less and the blank takes its place, so the frame still
+ * fits the terminal exactly.
  */
 export function composeMainPane(
   viewportRows: readonly string[],
@@ -39,6 +41,8 @@ export function composeMainPane(
   statusRow: string,
 ): string[] {
   const last = viewportRows[viewportRows.length - 1];
-  const needsGap = stripAnsi(last ?? "").trim() !== "";
-  return [...viewportRows, ...(needsGap ? [""] : []), inputRow, statusRow];
+  if (stripAnsi(last ?? "").trim() !== "") {
+    return [...viewportRows.slice(0, -1), "", inputRow, statusRow];
+  }
+  return [...viewportRows, inputRow, statusRow];
 }

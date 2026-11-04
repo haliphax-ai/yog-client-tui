@@ -215,24 +215,14 @@ async function run(argv: readonly string[]): Promise<void> {
       width: cols,
       setMetrics: () => {
         // The log gets the remainder after the input bar (which grows by
-        // one row when the slash-command autocomplete menu is open), the
-        // status line, and one reserved row for the always-present blank
-        // line between the log and the input.
-        viewport.setViewportRows(
-          Math.max(1, rows - input.measure(cols) - status.measure(cols) - 1),
-        );
+        // one row when the slash-command autocomplete menu is open) and the
+        // status line. The blank line between the log and the input is
+        // provided by the composition (the log's own trailing separator at
+        // the bottom, or a dedicated margin row when scrolled away).
+        viewport.setViewportRows(Math.max(1, rows - input.measure(cols) - status.measure(cols)));
       },
-      paint: () => {
-        const frame = composeMainPane(
-          viewport.render({ cols }),
-          input.render({ cols }),
-          status.render({ cols }),
-        );
-        // Keep every frame exactly terminal height (the gap row is skipped
-        // when the viewport itself already ends blank).
-        while (frame.length < rows) frame.push("");
-        return frame;
-      },
+      paint: () =>
+        composeMainPane(viewport.render({ cols }), input.render({ cols }), status.render({ cols })),
       emit: writeFrame,
     });
   };
@@ -367,8 +357,7 @@ async function run(argv: readonly string[]): Promise<void> {
       1,
       (process.stdout.rows ?? 24) -
         input.measure(process.stdout.columns ?? 80) -
-        status.measure(process.stdout.columns ?? 80) -
-        1, // the reserved blank line between the log and the input
+        status.measure(process.stdout.columns ?? 80),
     );
 
   /**
