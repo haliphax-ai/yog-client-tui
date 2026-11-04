@@ -175,6 +175,45 @@ describe("createTurnPresenter", () => {
     expect(entries.filter((e) => e.kind === "notice")).toHaveLength(0);
   });
 
+  it("logs a per-turn token notice when usage arrives on a natural finish", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onFinish?.(1200, undefined, {
+      prompt_tokens: 1234,
+      completion_tokens: 567,
+      total_tokens: 1801,
+    });
+    expect(entries.at(-1)).toEqual({
+      kind: "notice",
+      lines: ["⏹️ turn finished", "tokens: 1,234 prompt · 567 completion · 1,801 total"],
+    });
+  });
+
+  it("appends tokens to the max_rounds notice detail", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onFinish?.(9500, "max_rounds", {
+      prompt_tokens: 1234,
+      completion_tokens: 567,
+      total_tokens: 1801,
+    });
+    expect(entries.at(-1)).toEqual({
+      kind: "notice",
+      lines: [
+        "⏹️ turn stopped",
+        "reached the tool-round cap after 10s · tokens: 1,234 prompt · 567 completion · 1,801 total",
+      ],
+    });
+  });
+
+  it("emits no token notice when usage is empty or all-non-numeric", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onFinish?.(1200, undefined, {});
+    turn.events.onFinish?.(1200, undefined, { prompt_tokens: "nope" as unknown as number });
+    expect(entries.filter((e) => e.kind === "notice")).toHaveLength(0);
+  });
+
   it("emits no result chunk for a failed call — the ❌ line is the whole failure", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);

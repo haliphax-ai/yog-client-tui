@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  formatTokenTotal,
   sessionStats,
   statusBody,
   StatusComponent,
@@ -62,6 +63,31 @@ describe("statusBody", () => {
     ).toEqual({ turns: 0, toolCalls: 0 });
   });
 
+  it("shows the 🪙 token total in the stats segment once totals exist", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(2, 27),
+      tokenTotals: { prompt: 1200, completion: 600, total: 1800 },
+    });
+    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 2  🔧 27  🪙 1.8K");
+  });
+
+  it("omits the 🪙 stat while totals are zero (no turns yet)", () => {
+    const out = body({ model: "m-1", connection: "connected", entries: fixture(0, 0) });
+    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 0  🔧 0");
+  });
+
+  it("falls back to prompt+completion when total is absent", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(1, 0),
+      tokenTotals: { prompt: 1000, completion: 500, total: 0 },
+    });
+    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K");
+  });
+
   it("removes the key legend segment", () => {
     const out = body({ busy: true, model: "m-1", connection: "connected" });
     expect(out).not.toContain("Shift+Up/Down focus");
@@ -92,8 +118,24 @@ describe("StatusComponent render", () => {
   });
 
   it("emoji labels are two cells wide", () => {
-    for (const label of ["👤", "🔌", "🔄", "🔧"]) {
+    for (const label of ["👤", "🔌", "🔄", "🔧", "🪙"]) {
       expect(displayWidth(label)).toBe(2);
     }
   });
+});
+
+describe("formatTokenTotal", () => {
+  const cases: Array<[number, string]> = [
+    [999, "999"],
+    [1109, "1.1K"],
+    [1590, "1.6K"],
+    [1000000, "1.0M"],
+    [1123456, "1.1M"],
+    [999950, "1.0M"],
+  ];
+  for (const [input, expected] of cases) {
+    it(`formats ${input} as ${expected}`, () => {
+      expect(formatTokenTotal(input)).toBe(expected);
+    });
+  }
 });

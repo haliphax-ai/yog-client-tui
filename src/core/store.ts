@@ -22,6 +22,8 @@ export interface UiState {
   statusNote: string;
   /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
   focusTarget: FocusTarget;
+  /** Running session token totals (reset on /new). */
+  tokenTotals: { prompt: number; completion: number; total: number };
 }
 
 let state: UiState = initialState();
@@ -40,6 +42,7 @@ function initialState(): UiState {
     connection: "connected",
     model: "",
     statusNote: "",
+    tokenTotals: { prompt: 0, completion: 0, total: 0 },
     focusTarget: FOCUS_NONE_TARGET,
   };
 }

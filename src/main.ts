@@ -309,6 +309,7 @@ async function run(argv: readonly string[]): Promise<void> {
               follow: true,
               focusTarget: FOCUS_NONE_TARGET,
               statusNote: "",
+              tokenTotals: { prompt: 0, completion: 0, total: 0 },
             });
             await saveState(stateFilePath(), { lastSessionId: id });
             pushLines("system", [`new session ${id} (nothing to resume)`]);
@@ -337,6 +338,25 @@ async function run(argv: readonly string[]): Promise<void> {
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
     });
+    // Surface transcript token totals in the status-bar 🪙 stat: each finished
+    // turn reports usage for the entire transcript (the server hydrates the
+    // full context into every completion), so the latest value replaces the
+    // stored totals rather than being added on top. Missing fields keep the
+    // previous value so a partial report never zeroes a known running total.
+    const baseOnFinish = turn.events.onFinish;
+    turn.events.onFinish = (durationMs, stopReason, usage) => {
+      baseOnFinish?.(durationMs, stopReason, usage);
+      if (usage === undefined) return;
+      const prev = getState().tokenTotals;
+      setState({
+        tokenTotals: {
+          prompt: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : prev.prompt,
+          completion:
+            typeof usage.completion_tokens === "number" ? usage.completion_tokens : prev.completion,
+          total: typeof usage.total_tokens === "number" ? usage.total_tokens : prev.total,
+        },
+      });
+    };
     turn.begin(prompt);
     input.reset();
     setState({ statusNote: "", follow: true });
