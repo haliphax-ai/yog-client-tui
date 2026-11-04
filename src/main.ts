@@ -75,7 +75,7 @@ import {
   runPipeline,
   writeFrame,
 } from "./ui/pipeline/index.ts";
-import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS, completeSlash } from "./core/commands.ts";
+import { isSlash, resolveSlash, slashToken, slashTokenEnd, SLASH_COMMANDS, completeSlash } from "./core/commands.ts";
 
 /** Terminal state shared with error paths (module scope, always in sync). */
 let terminalActive = false;
@@ -301,11 +301,12 @@ async function run(argv: readonly string[]): Promise<void> {
     // Slash command path (works even while a turn is in flight).
     if (isSlash(prompt)) {
       let command = resolveSlash(prompt);
-      // When the typed token is not an exact match but the fuzzy finder has at
-      // least one candidate, execute the best match instead of erroring —
-      // this gives a shortcut for commands typed with no arguments (e.g. /q →
-      // /quit). The fuzzy list is the same one the autocomplete menu uses.
-      if (command === undefined) {
+      // Fuzzy shortcut only applies when the token has no arguments (the
+      // token runs to the end of the line). With arguments the user must use
+      // Tab completion — we don't want to silently drop their text.
+      const tokenEnd = slashTokenEnd(prompt);
+      const hasArgs = tokenEnd < prompt.length;
+      if (command === undefined && !hasArgs) {
         const matches = completeSlash(prompt);
         if (matches.length > 0) {
           command = resolveSlash(matches[0] as string);

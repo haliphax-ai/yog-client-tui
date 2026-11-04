@@ -160,8 +160,10 @@ Commands run even while a turn is in flight.
 **Fuzzy shortcut:** pressing Enter on a slash line that is not an exact command
 name but *does* have at least one fuzzy-finder match runs the best match with no
 arguments — so `/q` is equivalent to `/quit`. The fuzzy list is the same one the
-autocomplete menu uses; when there are no matches the old "unknown command"
-message is shown.
+autocomplete menu uses. When the line contains arguments (text after the token)
+the shortcut is disabled — use Tab completion instead — so argument text is never
+silently dropped. When there are no matches the old "unknown command" message is
+shown.
 ### Tables
 
 A message containing a GFM pipe table is focusable, and every table in the
