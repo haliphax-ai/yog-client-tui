@@ -9,6 +9,7 @@ import {
   toYogError,
   YogError,
   type TurnEnvelope,
+  type TokenUsage,
   YogClient,
 } from "../src/yogClient.ts";
 
@@ -915,6 +916,76 @@ describe("YogClient token usage", () => {
     expect(outcome.recovered).toBe(true);
     expect(outcome.ok).toBe(true);
     expect(calls).toEqual([{ id: "c1", tokens: 4 }]);
+  });
+
+  it("passes cut-point usage through turn.aborted on the direct path", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sseResponse([
+          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+          'event: turn.aborted\ndata: {"reason":"turn aborted by operator","usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}\n\n',
+        ]),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const aborted: Array<{ reason: string; usage?: TokenUsage }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onAborted: (reason, usage) => aborted.push({ reason, usage }),
+    });
+    expect(outcome.aborted).toBe(true);
+    expect(aborted).toEqual([
+      {
+        reason: "turn aborted by operator",
+        usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+      },
+    ]);
+  });
+
+  it("carries cut-point usage through turn-status recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/turns")) {
+          return failingResponse(
+            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            new Error("reset"),
+          );
+        }
+        return jsonResponse(
+          {
+            turn: {
+              events: [
+                { type: "turn.started", data: { turnId: "t1", model: "m" } },
+                {
+                  type: "turn.aborted",
+                  data: {
+                    reason: "turn aborted by operator",
+                    usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+                  },
+                },
+              ],
+            },
+          },
+          200,
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const aborted: Array<{ reason: string; usage?: TokenUsage }> = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onAborted: (reason, usage) => aborted.push({ reason, usage }),
+    });
+    expect(outcome.recovered).toBe(true);
+    expect(outcome.aborted).toBe(true);
+    expect(aborted).toEqual([
+      {
+        reason: "turn aborted by operator",
+        usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
+      },
+    ]);
   });
 });
 

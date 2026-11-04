@@ -525,4 +525,43 @@ describe("turn usage reaches the session status bar", () => {
     );
     expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 1  🪙 1.5K");
   });
+
+  it("flushes the cut-point usage to the status bar on abort", () => {
+    resetForTests();
+
+    const entries: LogEntry[] = [];
+    const host = {
+      entries,
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        entries.push({ kind, lines });
+      },
+      width: () => 80,
+      requestRender: () => {},
+    };
+    const turn = createTurnPresenter(host);
+    // Mirror main.ts's abort wiring: base presenter first, then the store
+    // bridge that feeds the status-bar token totals.
+    const base = turn.events.onAborted;
+    turn.events.onAborted = (reason, usage) => {
+      base?.(reason, usage);
+      if (usage === undefined) return;
+      const prev = getState().tokenTotals;
+      setState({
+        tokenTotals: {
+          prompt: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : prev.prompt,
+          completion:
+            typeof usage.completion_tokens === "number" ? usage.completion_tokens : prev.completion,
+          total: typeof usage.total_tokens === "number" ? usage.total_tokens : prev.total,
+        },
+      });
+    };
+    turn.begin("hello");
+    turn.events.onAborted?.("turn aborted by operator", {
+      prompt_tokens: 1000,
+      completion_tokens: 500,
+      total_tokens: 1500,
+    });
+    setState({ entries, model: "m-1", connection: "connected" });
+    expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K");
+  });
 });
