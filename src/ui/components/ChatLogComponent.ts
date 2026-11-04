@@ -182,7 +182,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
       noteMutation(entry);
       return true;
     }
-    if (entry.kind === "tool") {
+    if (entry.kind === "tool" || entry.kind === "toolResult") {
       entry.expanded = !entry.expanded;
       noteMutation(entry);
       return true;

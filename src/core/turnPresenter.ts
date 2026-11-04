@@ -9,7 +9,14 @@
  * transcript rehydration, so restored rows render exactly like live ones.
  */
 import { parseToolArgs, type TurnEvents } from "../yogClient.ts";
-import { prettyArgs, resultStatus } from "./toolFormat.ts";
+import {
+  formatRuntime,
+  formatTokenTotal,
+  prettyArgs,
+  resultStatus,
+  resultTokens,
+  isBashShaped,
+} from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
 import type { LogEntry } from "./entries.ts";
 import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
@@ -47,6 +54,8 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
   // Tool call id → its log entry, so results can annotate the call line.
   const pendingToolCalls = new Map<string, LogEntry>();
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
+  // Tool calls announced during this turn (reset per presenter = per turn).
+  let toolCallsThisTurn = 0;
 
   const events: TurnEvents = {
     onDelta: (text) => {
@@ -73,6 +82,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.requestRender();
     },
     onToolCall: (id, name, args) => {
+      toolCallsThisTurn += 1;
       // A tool call ends the open prose segment: close it on the spot so
       // any later prose streams into a fresh block of its own (the onDelta
       // tail guard below is the generic backstop).
@@ -91,23 +101,20 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
-        // Splice the result chunk right after its call entry so the
-        // output stays visually paired with the call that produced it,
-        // even when events arrive batched (call1, call2, result1, result2).
+        // Splice the result output right after its call entry so it stays
+        // visually paired with the call that produced it, even when events
+        // arrive batched (call1, call2, result1, result2).
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
-          if (idx !== -1) {
-            host.entries.splice(idx + 1, 0, toolResultChunk(name, result));
-          } else {
-            host.entries.push(toolResultChunk(name, result));
-          }
+          const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
+          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width()));
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(toolResultChunk(name, result));
+          host.entries.push(...toolResultEntries(name, result, host.width()));
         }
       }
       host.requestRender();
@@ -125,18 +132,10 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.append("system", ["stream interrupted — recovered from turn status"]);
     },
     onFinish: (durationMs, stopReason, usage) => {
-      // A stopReason means the server stopped the turn early; surface it with
-      // the same notice shape as the abort — label · detail, rendered as one
-      // dot-separated line (amber label, dim detail) — instead of ending the
-      // turn silently. Token usage rides on the detail (a separate notice for
-      // natural finishes) so the label stays canonical and testable.
-      const lines: string[] = [];
-      if (stopReason === "max_rounds") {
-        lines.push(
-          "⏹️ turn stopped",
-          `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`,
-        );
-      }
+      // The dark-grey per-turn summary below is the happy-path signal that the
+      // turn finished; notices are reserved for terminations outside that path
+      // (capped rounds), where the label is genuinely informative. A capped
+      // turn keeps the rich token breakdown on the notice's detail line.
       const tokenParts: string[] = [];
       if (usage !== undefined) {
         if (typeof usage.prompt_tokens === "number")
@@ -146,15 +145,29 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         if (typeof usage.total_tokens === "number")
           tokenParts.push(`${formatTokens(usage.total_tokens)} total`);
       }
-      if (tokenParts.length > 0) {
-        const tokensDetail = `tokens: ${tokenParts.join(" · ")}`;
-        if (lines.length >= 2) {
-          lines[1] = `${lines[1]} · ${tokensDetail}`;
-        } else {
-          lines.push("⏹️ turn finished", tokensDetail);
-        }
+      if (stopReason === "max_rounds") {
+        const detail =
+          `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`;
+        host.append("notice", [
+          "⏹️ turn stopped",
+          tokenParts.length > 0 ? `${detail} · tokens: ${tokenParts.join(" · ")}` : detail,
+        ]);
       }
-      if (lines.length > 0) host.append("notice", lines);
+      // Per-turn summary line: runtime · tool calls · tokens (abbreviated).
+      // The tool-call total is for THIS turn only — each presenter is created
+      // fresh per submit(), so the counter never leaks across turns; session
+      // totals stay in the status bar.
+      const summary: string[] = [`runtime ${formatRuntime(durationMs)}`];
+      summary.push(`${toolCallsThisTurn} tool call${toolCallsThisTurn === 1 ? "" : "s"}`);
+      if (usage !== undefined) {
+        const total =
+          typeof usage.total_tokens === "number"
+            ? usage.total_tokens
+            : (typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0) +
+              (typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0);
+        if (total > 0) summary.push(`${formatTokenTotal(total)} tokens`);
+      }
+      host.append("status", [summary.join(" · ")]);
     },
   };
 
@@ -219,13 +232,64 @@ export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): v
  */
 export function toolResultChunk(name: string, result: unknown): LogEntry {
   const status = resultStatus(result);
-  const arrow = status ? ` → ${status}` : " →";
+  const tokens = resultTokens(result);
+  const suffix =
+    tokens === undefined ? status : status === "" ? `${tokens} tok` : `${status} · ${tokens} tok`;
+  const arrow = suffix ? ` → ${suffix}` : " →";
   return {
     kind: "chunk",
     lines: [`${name || "tool"}${arrow}`],
     collapsed: true,
     result,
   };
+}
+/**
+ * Generic tool-result component for tools without the bash-style output
+ * component: a 🔚 block that looks like a tool call (purple, expandable)
+ * and shows the result payload as JSON — collapsed/truncated by default,
+ * focus + Enter expands the full result. Shared by the live path and
+ * rehydration.
+ */
+export function toolResultEntry(name: string, result: unknown, cols: number): LogEntry {
+  const label = `🔚 ${name || "tool"}`;
+  const full =
+    result === undefined || result === null
+      ? undefined
+      : prettyArgs(result, Number.MAX_SAFE_INTEGER, "pretty");
+  const argsCompact =
+    full === undefined
+      ? undefined
+      : prettyArgs(result, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
+  const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
+  return { kind: "toolResult", lines: [shown], label, argsCompact, full, expanded: false, result };
+}
+
+/** This call's own status line (same format as the turn summary), or undefined. */
+function toolResultSummary(result: unknown): string | undefined {
+  const obj =
+    result !== null && typeof result === "object" && !Array.isArray(result)
+      ? (result as Record<string, unknown>)
+      : {};
+  const parts: string[] = [];
+  if (typeof obj["runtimeMs"] === "number") {
+    parts.push(`runtime ${formatRuntime(obj["runtimeMs"] as number)}`);
+  }
+  const tokens = resultTokens(result);
+  if (tokens !== undefined) parts.push(`${formatTokenTotal(tokens)} tokens`);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/**
+ * The log entries produced for a successful tool result: bash-shaped results
+ * keep the collapsible output chunk; any other tool renders as the generic
+ * 🔚 result component with its own attached per-call status line.
+ */
+export function toolResultEntries(name: string, result: unknown, cols: number): LogEntry[] {
+  if (isBashShaped(result)) return [toolResultChunk(name, result)];
+  const entries: LogEntry[] = [toolResultEntry(name, result, cols)];
+  const summary = toolResultSummary(result);
+  if (summary !== undefined) entries.push({ kind: "status", lines: [summary] });
+  return entries;
 }
 
 /**
@@ -267,11 +331,8 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         annotateToolCall(call.entry, decoded.ok, decoded.error);
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           const idx = out.indexOf(call.entry);
-          if (idx !== -1) {
-            out.splice(idx + 1, 0, toolResultChunk(call.name, decoded.value));
-          } else {
-            out.push(toolResultChunk(call.name, decoded.value));
-          }
+          const insertAt = idx !== -1 ? idx + 1 : out.length;
+          out.splice(insertAt, 0, ...toolResultEntries(call.name, decoded.value, cols));
         }
         i += 1;
       }
@@ -293,7 +354,7 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(toolResultChunk(label, decoded.value));
+        out.push(...toolResultEntries(label, decoded.value, cols));
       }
     } else {
       out.push({ kind: "system", lines: [e.text] });

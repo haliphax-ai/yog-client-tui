@@ -23,6 +23,9 @@ export const ST = {
   /** Terminal-state notice: `⏹` marker + event label bright, detail dim. */
   notice: newStyle().foreground("#fbbf24").padding(0, 1),
   noticeDetail: newStyle().foreground("#a1a1aa"),
+  /** Per-turn summary line: dark grey text on the normal background, 1-cell
+   *  horizontal padding (unlike the session status bar, which has a backing). */
+  statusLine: newStyle().foreground("#a1a1aa").padding(0, 1),
   error: newStyle().foreground("#ef4444").bold(true),
   /** Tool block (unfocused): black bg, dark grey text, 1-cell padding. */
   chunkBlock: newStyle().foreground("#a1a1aa").background("#000000").padding(1),

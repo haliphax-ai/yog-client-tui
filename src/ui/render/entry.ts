@@ -30,6 +30,7 @@ function kindStyle(kind: EntryKind): Style {
     case "assistant":
       return ST.assistant;
     case "tool":
+    case "toolResult":
       return ST.tool;
     case "system":
       return ST.system;
@@ -37,6 +38,8 @@ function kindStyle(kind: EntryKind): Style {
       return ST.error;
     case "notice":
       return ST.notice; // marker+label only; the detail row styles itself
+    case "status":
+      return ST.statusLine;
     case "chunk":
       return ST.chunkBlock;
     case "debug":
@@ -163,7 +166,12 @@ export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
   const units: FocusTarget[] = [];
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i] as LogEntry;
-    if (entry.kind === "chunk" || entry.kind === "tool" || entry.kind === "debug") {
+    if (
+      entry.kind === "chunk" ||
+      entry.kind === "tool" ||
+      entry.kind === "toolResult" ||
+      entry.kind === "debug"
+    ) {
       units.push({ entry: i, table: -1 });
       continue;
     }
@@ -309,7 +317,7 @@ function renderEntry(
     return renderChunkLike(entry, cols, focusedTable);
   }
 
-  if (entry.kind === "tool") {
+  if (entry.kind === "tool" || entry.kind === "toolResult") {
     // Identical geometry in both states (1-cell side padding, full width):
     // focusing only recolors, and expansion persists regardless of focus.
     // Collapsed: cell-cap the summary line to the body width — a long tool-error
@@ -351,6 +359,19 @@ function renderEntry(
         ? head
         : `${head}\x1b[39m· ${ST.noticeDetail.render(truncateAnsi(detail, Math.max(0, budget - displayWidth(label))))}`;
     return { rendered: body, rows: 1, tableOffsets: [] };
+  }
+
+  if (entry.kind === "status") {
+    // Per-turn summary line, one line: dark grey text on the normal
+    // background with 1-cell horizontal padding, capped to the terminal width
+    // (the padding sits inside the style, so the content budget is cols-2).
+    const line = entry.lines[0] ?? "";
+    const budget = Math.max(0, cols - 2);
+    return {
+      rendered: ST.statusLine.render(truncateAnsi(line, budget)),
+      rows: 1,
+      tableOffsets: [],
+    };
   }
 
   const lines: string[] = [];

@@ -11,10 +11,12 @@ export type EntryKind =
   | "user"
   | "assistant"
   | "tool"
+  | "toolResult"
   | "system"
   | "error"
   | "chunk"
   | "notice"
+  | "status"
   | "debug";
 
 /**
