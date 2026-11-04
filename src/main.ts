@@ -56,7 +56,7 @@ import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
-import { createScheduler, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
+import { createScheduler, resetFrameCache, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
 import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS } from "./core/commands.ts";
 
 /** Terminal state shared with error paths (module scope, always in sync). */
@@ -427,6 +427,9 @@ async function run(argv: readonly string[]): Promise<void> {
     process.stdin.on("data", handleData);
 
     const onResize = (): void => {
+      // The emit stage diffs rows against the previous frame — a cleared
+      // screen invalidates that baseline, so the next write repaints all.
+      resetFrameCache();
       process.stdout.write("\x1b[2J\x1b[H");
       draw();
     };
