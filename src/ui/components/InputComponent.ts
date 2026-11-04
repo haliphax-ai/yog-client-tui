@@ -36,16 +36,24 @@ import {
   withKeys,
 } from "@oakoliver/bubbles";
 import type { TextareaModel, TextareaStyles } from "@oakoliver/bubbles";
-import { joinHorizontal, Left, newStyle } from "@oakoliver/lipgloss";
+import { newStyle } from "@oakoliver/lipgloss";
 import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
+import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
 import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
-import { truncateAnsi } from "../../util/ansi.ts";
-import { SLASH_COMMANDS, completeSlash, slashTokenEnd } from "../../core/commands.ts";
+import {
+  SLASH_COMMANDS,
+  completeSlash,
+  slashTokenEnd,
+  type SlashCommand,
+} from "../../core/commands.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 
 /** The input grows to this many rows before it scrolls vertically. */
 export const MAX_LINES = 10;
+
+/** Maximum rows the slash autocomplete menu shows (candidates in ranked order). */
+export const MAX_MENU_ROWS = 5;
 
 /**
  * Shift+Enter sequences across modifier-reporting schemes:
@@ -306,7 +314,7 @@ export class InputComponent extends BaseComponent {
   }
 
   /**
-   * Slash-command autocomplete row: shown only when the input starts with
+   * Slash-command autocomplete list: shown only when the input starts with
    * "/" (the trigger) and at least one command matches. The selected
    * candidate is highlighted; Tab cycles through and applies the selection.
    */
@@ -315,16 +323,26 @@ export class InputComponent extends BaseComponent {
     if (candidates.length === 0) return "";
     const state = getState();
     const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
-    const parts: string[] = [ST.promptMarker.render("↹ ")];
-    candidates.forEach((candidate, index) => {
-      parts.push(
-        index === sel ? ST.suggestionSel.render(candidate) : ST.suggestion.render(candidate),
-      );
-    });
-    const selected = candidates[sel];
-    const command = SLASH_COMMANDS.find((c) => "/" + c.name === selected);
-    if (command !== undefined) parts.push(ST.suggestion.render(`— ${command.summary}`));
-    return truncateAnsi(joinHorizontal(Left, ...parts), cols);
+    // Ranked order up to the cap; the leading "/" is implied by the trigger
+    // and is not shown. Each row is one candidate + its summary.
+    const shown = candidates.slice(0, MAX_MENU_ROWS);
+    const byName = new Map<string, SlashCommand>();
+    for (const command of SLASH_COMMANDS) byName.set("/" + command.name, command);
+    const labels = shown.map((candidate) =>
+      candidate.startsWith("/") ? candidate.slice(1) : candidate,
+    );
+    const labelW = Math.max(...labels.map((label) => displayWidth(label)));
+    return labels
+      .map((label, index) => {
+        const command = byName.get(candidates[index] as string);
+        const description = command === undefined ? "" : command.summary;
+        const gap = " ".repeat(Math.max(1, labelW - displayWidth(label) + 1));
+        const row = `${label}${gap}${description}`.trimEnd();
+        const styled = index === sel ? ST.suggestionSel.render(row) : ST.suggestion.render(row);
+        const prefix = index === 0 ? ST.promptMarker.render("↹ ") : "  ";
+        return truncateAnsi(prefix + styled, cols);
+      })
+      .join("\n");
   }
 
   /** Insert pasted text verbatim (newlines included) — never submits. */

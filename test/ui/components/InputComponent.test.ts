@@ -135,13 +135,31 @@ describe("InputComponent — bubbletea TextArea input bar", () => {
 describe("InputComponent slash autocomplete", () => {
   beforeEach(() => resetForTests());
 
-  it("shows a menu row with the matching command when input starts with '/'", () => {
+  it("shows a menu row with the matching command when input starts with '/", () => {
     const component = new InputComponent();
     typeText(component, "/q");
     const out = component.render({ cols: 80 }).split("\n");
     expect(out.length).toBeGreaterThanOrEqual(2);
-    expect(stripAnsi(out[1] ?? "")).toContain("/quit");
+    expect(stripAnsi(out[1] ?? "")).toContain("quit");
     expect(stripAnsi(out[1] ?? "")).toContain("exit");
+    expect(stripAnsi(out[1] ?? "")).not.toContain("/quit"); // slash implied
+  });
+
+  it("lists candidates across lines, ranked and without slashes", () => {
+    const component = new InputComponent();
+    typeText(component, "/");
+    const out = component.render({ cols: 80 }).split("\n");
+    const menu = out
+      .slice(1)
+      .map((line) => stripAnsi(line))
+      .join("\n");
+    expect(menu.split("\n").length).toBeGreaterThan(1); // multiline
+    expect(menu).toContain("new");
+    expect(menu).toContain("quit");
+    expect(menu).toContain("start a fresh session");
+    expect(menu).toContain("exit the client");
+    expect(menu).not.toContain("/new");
+    expect(menu).not.toContain("/quit");
   });
 
   it("hides the menu when the slash is not the first character", () => {
