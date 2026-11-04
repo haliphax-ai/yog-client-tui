@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { cachedHeights, cachedRows, totalRows } from "../../../src/ui/render/entry.ts";
+import { cachedRows, totalRows } from "../../../src/ui/render/entry.ts";
 import { C, ST } from "../../../src/ui/theme.ts";
-import { lineHeight, stripAnsi } from "../../../src/util/ansi.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 import type { LogEntry } from "../../../src/core/entries.ts";
 
 const ESC = "\x1b";
@@ -140,24 +140,23 @@ describe("terminal-state notice", () => {
   });
 });
 
-describe("cachedHeights / height summary", () => {
-  it("stores heights matching the line-height of the cached rows", () => {
+describe("height summary", () => {
+  it("counts one terminal row per rendered row plus the separator", () => {
     const row: LogEntry = { kind: "system", lines: ["hello world"] };
     const rows = cachedRows(row, 40);
-    const heights = cachedHeights(row, 40);
-    expect(heights).toHaveLength(rows.length);
-    expect(heights[0] as number).toBe(1);
+    expect(rows.length).toBe(1);
+    expect(totalRows([row], 40)).toBe(2);
 
+    // Hard-wrapped prose: every rendered row fits within the width, so each
+    // row is exactly one terminal row (no soft-wrap height).
     const long: LogEntry = {
       kind: "assistant",
       lines: ["this is a long reply that wraps across several rows for sure"],
     };
     const longRows = cachedRows(long, 20);
-    const longHeights = cachedHeights(long, 20);
-    expect(longHeights).toHaveLength(longRows.length);
-    for (let i = 0; i < longRows.length; i++) {
-      expect(longHeights[i] as number).toBe(lineHeight(longRows[i] as string, 20));
-    }
+    expect(longRows.length).toBeGreaterThan(1);
+    for (const r of longRows) expect(displayWidth(r)).toBeLessThanOrEqual(20);
+    expect(totalRows([long], 20)).toBe(longRows.length + 1);
   });
 
   it("reuses the cached total while nothing changes and rebuilds on mutation", () => {

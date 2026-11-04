@@ -8,7 +8,7 @@
  */
 import type { Style } from "@oakoliver/lipgloss";
 import { ST, CHUNK_HEADER } from "../theme.ts";
-import { displayWidth, lineHeight, truncateAnsi, wrapText } from "../../util/ansi.ts";
+import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { resultPreview } from "./formatting.ts";
@@ -98,12 +98,10 @@ interface SectionCache {
   sections: TableSection[];
 }
 
-/** The cached rendered rows of one entry, with their terminal-row heights. */
+/** The cached rendered rows of one entry. */
 interface RowCache {
   key: string;
   rows: string[];
-  /** Terminal-row height of each row, same length as rows. */
-  heights: number[];
   tableOffsets: number[];
 }
 
@@ -382,14 +380,13 @@ function renderKeyOf(
 }
 
 /**
- * Rendered rows for one entry, memoized on the `LogEntry` object together
- * with their terminal-row heights. The key captures everything `renderEntry`
- * derives output from (see {@link renderKeyOf}); a matching key means a
- * byte-identical render — safe to reuse.
+ * Rendered rows for one entry, memoized on the `LogEntry` object. The key
+ * captures everything `renderEntry` derives output from (see
+ * {@link renderKeyOf}); a matching key means a byte-identical render — safe
+ * to reuse.
  *
  * A cache hit performs no table parse and no width measurement: the
- * prose/table split is cached separately (keyed by the content signature)
- * and heights are stored alongside the rows.
+ * prose/table split is cached separately (keyed by the content signature).
  */
 export function cachedRowData(
   entry: LogEntry,
@@ -402,8 +399,7 @@ export function cachedRowData(
   if (hit !== undefined && hit.key === key) return hit;
   const rendered = renderEntry(entry, cols, focused, focusedTableIndex);
   const rows = rendered.rendered.split("\n");
-  const heights = rows.map((row) => lineHeight(row, cols));
-  const cache: RowCache = { key, rows, heights, tableOffsets: rendered.tableOffsets };
+  const cache: RowCache = { key, rows, tableOffsets: rendered.tableOffsets };
   rowCaches.set(entry, cache);
   revision += 1;
   return cache;
@@ -419,10 +415,6 @@ export function cachedRows(
   return cachedRowData(entry, cols, focused, focusedTableIndex).rows;
 }
 
-/** Terminal-row heights of an entry's unfocused rendered rows (cache-backed). */
-export function cachedHeights(entry: LogEntry, cols: number): number[] {
-  return cachedRowData(entry, cols).heights;
-}
 /** Record a direct entry mutation: evict its cached rows and bump the
  *  revision, so height summaries rebuild on the next query. Components call
  *  this when they mutate an entry outside a render pass (e.g. toggles,
@@ -443,12 +435,11 @@ export function tableOffsetsOf(entry: LogEntry): number[] | undefined {
 /**
  * Number of TERMINAL rows the given entries occupy at `cols` (incl.
  * separators). Rows are hard-wrapped to the terminal width, so each row
- * occupies exactly one terminal row; the serializer still accounts for the
- * theoretical soft-wrap height of a row for safety.
+ * occupies exactly one terminal row.
  *
  * Backed by a cached summary per (entries array identity, cols): the total
  * is reused verbatim while the row-cache revision is unchanged — steady-state
- * frames pay O(1) here instead of re-measuring every row.
+ * frames pay O(1) here instead of re-counting every row.
  */
 export function heightSummaryOf(entries: LogEntry[], cols: number): HeightSummary {
   const cached = heightSummaries.get(entries);
@@ -465,7 +456,7 @@ export function heightSummaryOf(entries: LogEntry[], cols: number): HeightSummar
   tops[0] = 0;
   let total = 0;
   for (let i = 0; i < n; i++) {
-    total += sum(cachedHeights(entries[i] as LogEntry, cols)) + 1;
+    total += cachedRows(entries[i] as LogEntry, cols).length + 1;
     tops[i + 1] = total;
   }
   const summary: HeightSummary = { cols, revision, length: n, total, tops };
@@ -475,11 +466,4 @@ export function heightSummaryOf(entries: LogEntry[], cols: number): HeightSummar
 
 export function totalRows(entries: LogEntry[], cols: number): number {
   return heightSummaryOf(entries, cols).total;
-}
-
-/** Sum of a numeric array without spreading (huge logs would overflow the stack). */
-function sum(values: readonly number[]): number {
-  let total = 0;
-  for (const v of values) total += v;
-  return total;
 }
