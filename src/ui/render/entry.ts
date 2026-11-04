@@ -51,7 +51,6 @@ function fitStyle(style: Style, row: string, cols: number, hPad: number): string
 /** Rows a tool-output block body shows before truncation (label excluded). */
 const COLLAPSE_LINES = 5;
 
-
 /** A fully styled entry: its rendered rows, their count, and the row offset
  *  of every table section within the rendered block (0-based, relative to the
  *  entry's first row). Used by `revealFocus` to scroll a focused table — not
@@ -77,7 +76,7 @@ function flattenMarkdown(rows: string[]): string[] {
       .replaceAll("\x1b[m", "\x1b[23m\x1b[22m")
       .replaceAll("\x1b[0m", "\x1b[23m\x1b[22m")
       .replace(
-// eslint-disable-next-line no-control-regex
+        // eslint-disable-next-line no-control-regex
         /\x1b\[(?:38;2;\d{1,3};\d{1,3};\d{1,3}|38;5;\d{1,3}|48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})((?:;\d+)*)m/g,
         (_m, attrs: string) => {
           const clean = attrs.replace(/^;/, ""); // drop leading ";"
@@ -102,15 +101,35 @@ interface SectionCache {
   sections: TableSection[];
 }
 
-/** The cached rendered rows of one entry. */
+/** The cached rendered rows of one entry, with their terminal-row heights. */
 interface RowCache {
   key: string;
   rows: string[];
+  /** Terminal-row height of each row (soft-wrap aware), same length as rows. */
+  heights: number[];
   tableOffsets: number[];
 }
 
 const sectionCaches = new WeakMap<LogEntry, SectionCache>();
 const rowCaches = new WeakMap<LogEntry, RowCache>();
+/** Monotonic row-cache version: bumped on every render miss so cached
+ *  height summaries can detect staleness in O(1). */
+let revision = 0;
+
+/** Cached aggregate height data for one entries array at one width. */
+export interface HeightSummary {
+  cols: number;
+  /** `revision` when this summary was built; mismatch means rebuild. */
+  revision: number;
+  /** Number of entries the summary covers (append guard). */
+  length: number;
+  /** Total TERMINAL rows (incl. separators). */
+  total: number;
+  /** tops[i] = terminal row where entry i begins (incl. prior separators). */
+  tops: number[];
+}
+
+const heightSummaries = new WeakMap<LogEntry[], HeightSummary>();
 
 /**
  * The entry's prose/table sections, parsed once per content change.
@@ -250,8 +269,7 @@ function renderEntry(
     // The body comes from the raw result when the entry carries one (the
     // presenter stores the data; the renderer formats it), else from the
     // pre-rendered body lines.
-    const body =
-      entry.result !== undefined ? resultPreview(entry.result) : entry.lines.slice(1);
+    const body = entry.result !== undefined ? resultPreview(entry.result) : entry.lines.slice(1);
     const expandable = body.length > COLLAPSE_LINES;
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
@@ -275,7 +293,11 @@ function renderEntry(
     }
     const shown = body.slice(0, COLLAPSE_LINES);
     const hidden = body.length - shown.length;
-    const rendered = block([styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`]);
+    const rendered = block([
+      styledHeader,
+      ...shown,
+      `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`,
+    ]);
     return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
   }
 
@@ -358,28 +380,54 @@ function renderKeyOf(
 }
 
 /**
- * Rendered rows for one entry, memoized on the `LogEntry` object. The key
- * captures everything `renderEntry` derives output from (see
- * {@link renderKeyOf}). Entries only ever grow (in place for the same
- * signature), so a matching key means a byte-identical render — safe to
- * reuse.
+ * Rendered rows for one entry, memoized on the `LogEntry` object together
+ * with their terminal-row heights. The key captures everything `renderEntry`
+ * derives output from (see {@link renderKeyOf}); a matching key means a
+ * byte-identical render — safe to reuse.
  *
- * A cache hit performs no table parse: the prose/table split is cached
- * separately, keyed by the content signature.
+ * A cache hit performs no table parse and no width measurement: the
+ * prose/table split is cached separately (keyed by the content signature)
+ * and heights are stored alongside the rows.
  */
+export function cachedRowData(
+  entry: LogEntry,
+  cols: number,
+  focused = false,
+  focusedTableIndex = -1,
+): RowCache {
+  const key = renderKeyOf(entry, cols, focused, focusedTableIndex);
+  const hit = rowCaches.get(entry);
+  if (hit !== undefined && hit.key === key) return hit;
+  const rendered = renderEntry(entry, cols, focused, focusedTableIndex);
+  const rows = rendered.rendered.split("\n");
+  const heights = rows.map((row) => lineHeight(row, cols));
+  const cache: RowCache = { key, rows, heights, tableOffsets: rendered.tableOffsets };
+  rowCaches.set(entry, cache);
+  revision += 1;
+  return cache;
+}
+
+/** Backwards-compatible view: the cached rows of one entry. */
 export function cachedRows(
   entry: LogEntry,
   cols: number,
   focused = false,
   focusedTableIndex = -1,
 ): string[] {
-  const key = renderKeyOf(entry, cols, focused, focusedTableIndex);
-  const hit = rowCaches.get(entry);
-  if (hit !== undefined && hit.key === key) return hit.rows;
-  const rendered = renderEntry(entry, cols, focused, focusedTableIndex);
-  const rows = rendered.rendered.split("\n");
-  rowCaches.set(entry, { key, rows, tableOffsets: rendered.tableOffsets });
-  return rows;
+  return cachedRowData(entry, cols, focused, focusedTableIndex).rows;
+}
+
+/** Terminal-row heights of an entry's unfocused rendered rows (cache-backed). */
+export function cachedHeights(entry: LogEntry, cols: number): number[] {
+  return cachedRowData(entry, cols).heights;
+}
+/** Record a direct entry mutation: evict its cached rows and bump the
+ *  revision, so height summaries rebuild on the next query. Components call
+ *  this when they mutate an entry outside a render pass (e.g. toggles,
+ *  appends) that the row cache would otherwise not observe. */
+export function noteMutation(entry?: LogEntry): void {
+  if (entry !== undefined) rowCaches.delete(entry);
+  revision += 1;
 }
 
 /** Row offsets of every table section inside an entry's rendered block.
@@ -390,14 +438,45 @@ export function tableOffsetsOf(entry: LogEntry): number[] | undefined {
   return rowCaches.get(entry)?.tableOffsets;
 }
 
-/** Number of TERMINAL rows the given entries occupy at `cols` (incl.
- *  separators). Soft-wrapped logical lines count their visual height:
- *  ceil(displayWidth / cols), min 1. */
-export function totalRows(entries: LogEntry[], cols: number): number {
-  let rows = 0;
-  for (const entry of entries) {
-    for (const row of cachedRows(entry, cols)) rows += lineHeight(row, cols);
-    rows += 1;
+/**
+ * Number of TERMINAL rows the given entries occupy at `cols` (incl.
+ * separators). Soft-wrapped logical lines count their visual height:
+ * ceil(displayWidth / cols), min 1.
+ *
+ * Backed by a cached summary per (entries array identity, cols): the total
+ * is reused verbatim while the row-cache revision is unchanged — steady-state
+ * frames pay O(1) here instead of re-measuring every row.
+ */
+export function heightSummaryOf(entries: LogEntry[], cols: number): HeightSummary {
+  const cached = heightSummaries.get(entries);
+  if (
+    cached !== undefined &&
+    cached.cols === cols &&
+    cached.revision === revision &&
+    cached.length === entries.length
+  ) {
+    return cached;
   }
-  return rows;
+  const n = entries.length;
+  const tops = Array.from({ length: n + 1 }, () => 0);
+  tops[0] = 0;
+  let total = 0;
+  for (let i = 0; i < n; i++) {
+    total += sum(cachedHeights(entries[i] as LogEntry, cols)) + 1;
+    tops[i + 1] = total;
+  }
+  const summary: HeightSummary = { cols, revision, length: n, total, tops };
+  heightSummaries.set(entries, summary);
+  return summary;
+}
+
+export function totalRows(entries: LogEntry[], cols: number): number {
+  return heightSummaryOf(entries, cols).total;
+}
+
+/** Sum of a numeric array without spreading (huge logs would overflow the stack). */
+function sum(values: readonly number[]): number {
+  let total = 0;
+  for (const v of values) total += v;
+  return total;
 }

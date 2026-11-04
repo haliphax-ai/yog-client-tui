@@ -281,6 +281,8 @@ describe("ChatLogComponent — memoized row cache", () => {
   it("invalidates on focus change", () => {
     const log = new Log(fixture());
     log.setViewportRows(VIEWPORT);
+    log.setFollow(false);
+    log.setOffset(0);
     const entry = log.getEntries()[1] as LogEntry;
     log.render({ cols: COLS });
     const before = cacheOf(entry);
@@ -345,5 +347,34 @@ describe("ChatLogComponent — layout sizing", () => {
     expect(log.measure(COLS)).toBe(totalRows(log.getEntries(), COLS));
     log.setViewportRows(4);
     expect(log.measure(COLS)).toBe(4);
+  });
+});
+describe("ChatLogComponent — visible-window production", () => {
+  it("renders a window deep in a large log", () => {
+    const entries: LogEntry[] = [];
+    for (let i = 0; i < 200; i++) {
+      entries.push({ kind: "system", lines: [`message ${i}`] });
+    }
+    const log = new Log(entries);
+    log.setViewportRows(5);
+    log.setFollow(false);
+    log.setOffset(log.maxScrollOffset(5));
+    const rows = log.render({ cols: COLS });
+    expect(rows).toHaveLength(5);
+    expect(stripAnsi(rows.join("\n"))).toContain("message 199");
+  });
+
+  it("matches the full-content render over the same window", () => {
+    const entries: LogEntry[] = [];
+    for (let i = 0; i < 40; i++) {
+      entries.push({ kind: "system", lines: [`message ${i}`] });
+    }
+    const log = new Log(entries);
+    log.setViewportRows(7);
+    log.setFollow(false);
+    log.setOffset(10);
+    const visible = log.render({ cols: COLS });
+    const full = log.produceRows(COLS);
+    expect(visible).toEqual(full.slice(10, 17));
   });
 });

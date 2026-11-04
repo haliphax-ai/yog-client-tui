@@ -14,9 +14,28 @@
 import { ViewportComponent } from "./ViewportComponent.ts";
 import { FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "../../core/focus.ts";
 import { tableState, type LogEntry } from "../../core/entries.ts";
-import { cachedRows, focusUnits, tableOffsetsOf, totalRows } from "../render/index.ts";
+import {
+  cachedRowData,
+  cachedRows,
+  focusUnits,
+  heightSummaryOf,
+  noteMutation,
+  tableOffsetsOf,
+  totalRows,
+} from "../render/index.ts";
 import { resolveTableLayout, splitTableSections } from "../render/table/index.ts";
 import { lineHeight } from "../../util/ansi.ts";
+/** Index of the entry whose span contains terminal-row `row` (clamped). */
+function entryAt(tops: readonly number[], row: number): number {
+  let lo = 0;
+  let hi = tops.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if ((tops[mid] as number) <= row) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
 
 /** Bounds of entry `i`: first row and full block height (incl. separator). */
 function entryBounds(
@@ -27,7 +46,9 @@ function entryBounds(
   const top = totalRows(entries.slice(0, index), cols);
   const entry = entries[index];
   const height =
-    entry === undefined ? 0 : cachedRows(entry, cols).reduce((acc, row) => acc + lineHeight(row, cols), 0) + 1;
+    entry === undefined
+      ? 0
+      : cachedRows(entry, cols).reduce((acc, row) => acc + lineHeight(row, cols), 0) + 1;
   return { top, height };
 }
 
@@ -47,6 +68,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
   /** Replace the entries collection (the store hands over a new array). */
   setEntries(entries: LogEntry[]): void {
     this.entries = entries;
+    noteMutation();
   }
 
   /** Current entries collection (shared reference — do not reassign). */
@@ -57,6 +79,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
   /** Append one entry to the collection. */
   appendEntry(entry: LogEntry): void {
     this.entries.push(entry);
+    noteMutation(entry);
   }
 
   // -- focus ring ----------------------------------------------------------
@@ -159,10 +182,12 @@ export abstract class ChatLogComponent extends ViewportComponent {
     if (entry === undefined) return false;
     if (entry.kind === "chunk") {
       entry.collapsed = !entry.collapsed;
+      noteMutation(entry);
       return true;
     }
     if (entry.kind === "tool") {
       entry.expanded = !entry.expanded;
+      noteMutation(entry);
       return true;
     }
     if ((entry.kind === "user" || entry.kind === "assistant") && this.focusTarget.table >= 0) {
@@ -178,6 +203,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
       if (!layout.expandable) return false; // nothing to toggle
       state.expanded = !state.expanded;
       if (state.expanded !== true) state.scrollX = 0; // collapsing resets the scroll
+      noteMutation(entry);
       return true;
     }
     return false;
@@ -208,6 +234,43 @@ export abstract class ChatLogComponent extends ViewportComponent {
       rows.push(""); // separator after each entry
     }
     return rows;
+  }
+  /**
+   * Efficient window producer: renders only the entries intersecting
+   * [top, bottom) instead of the whole log. Locates the first entry via the
+   * cached height summary (binary search), then walks forward with per-entry
+   * cached heights — visible-only rendering regardless of log size.
+   */
+  override produceVisible(
+    top: number,
+    bottom: number,
+    cols: number,
+  ): { lines: string[]; heights: number[]; top: number } {
+    const entries = this.entries;
+    const summary = heightSummaryOf(entries, cols);
+    if (entries.length === 0 || top >= summary.total) {
+      return { lines: [], heights: [], top: 0 };
+    }
+    const start = entryAt(summary.tops, top);
+    const end = Math.min(entries.length - 1, entryAt(summary.tops, Math.max(0, bottom - 1)));
+    const focusedEntry = this.focusTarget.entry;
+    const focusedTable = this.focusTarget.table;
+    const lines: string[] = [];
+    const heights: number[] = [];
+    for (let i = start; i <= end; i++) {
+      const isEntryFocused = i === focusedEntry;
+      const cache = cachedRowData(
+        entries[i] as LogEntry,
+        cols,
+        isEntryFocused,
+        isEntryFocused ? focusedTable : -1,
+      );
+      lines.push(...cache.rows);
+      heights.push(...cache.heights);
+      lines.push(""); // separator after each entry
+      heights.push(1);
+    }
+    return { lines, heights, top: summary.tops[start] as number };
   }
 
   /** Rows the content occupies at `cols` (incl. separators). */
