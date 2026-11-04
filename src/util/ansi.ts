@@ -27,6 +27,7 @@ export function stripAnsi(text: string): string {
 /** Match one ANSI escape sequence at the start of `rest`, if any. */
 export function matchEscape(rest: string): string | undefined {
   const esc = rest.match(
+// eslint-disable-next-line no-control-regex
     /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|^\x1b\[[0-9;?]*[ -/]*[@-~]|^\x1b[@-Z\\-_]/,
   );
   return esc ? esc[0] : undefined;

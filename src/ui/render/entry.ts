@@ -77,6 +77,7 @@ function flattenMarkdown(rows: string[]): string[] {
       .replaceAll("\x1b[m", "\x1b[23m\x1b[22m")
       .replaceAll("\x1b[0m", "\x1b[23m\x1b[22m")
       .replace(
+// eslint-disable-next-line no-control-regex
         /\x1b\[(?:38;2;\d{1,3};\d{1,3};\d{1,3}|38;5;\d{1,3}|48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})((?:;\d+)*)m/g,
         (_m, attrs: string) => {
           const clean = attrs.replace(/^;/, ""); // drop leading ";"

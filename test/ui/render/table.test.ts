@@ -456,10 +456,9 @@ describe("renderTable — styled output", () => {
   it("sequence position drives margins in the entry renderer", () => {
     const tableMd = ["| A |", "| --- |", "| one |"];
     const entry = (lines: string[]): LogEntry => ({ kind: "assistant", lines });
-    // Assistant prose rows no longer carry a border prefix — the table
-    // Table FIRST in the sequence: no top margin (row 0 = top border).
-    const leadTable = cachedRows(entry([...tableMd]), 60);
-    // borders are the first visible content on every row.
+    // Border margins depend on sequence position: a table FIRST in the entry
+    // renders without a top margin, a table LAST without a bottom margin.
+    // Prose rows carry no border prefix.
     // Prose then table: table LAST — no bottom margin (last row = bottom border).
     const proseThenTable = cachedRows(entry(["Intro prose.", ...tableMd]), 60);
     expect(stripAnsi(proseThenTable[proseThenTable.length - 1]!).endsWith("┘")).toBe(true);

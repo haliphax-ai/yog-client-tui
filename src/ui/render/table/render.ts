@@ -87,6 +87,7 @@ function backgroundSafe(text: string): string {
       .replaceAll("\x1b[0m", "\x1b[22;23;24;25;27;29;39m")
       .replaceAll("\x1b[m", "\x1b[22;23;24;25;27;29;39m")
       // strip any remaining background SGRs (48;2;... / 48;5;...)
+// eslint-disable-next-line no-control-regex
       .replace(/\x1b\[(?:48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})(?:;\d+)*m/g, "")
   );
 }
@@ -127,26 +128,38 @@ export function renderTable(
   // table rendered above. Bare runes would inherit the terminal's
   // current fg, which may still be blue.
   const whiteRune = (rune: string): string =>
+// eslint-disable-next-line no-control-regex
     ST.tableBorderUnfocused.render(rune).replace(/\x1b\[0?m$/, "");
   const border = focused
+// eslint-disable-next-line no-control-regex
     ? ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "")
     : whiteRune("│");
   const hBorder = focused
+// eslint-disable-next-line no-control-regex
     ? ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "")
     : whiteRune("─");
+// eslint-disable-next-line no-control-regex
   const tl = focused ? ST.tableBorderFocused.render("┌").replace(/\x1b\[0?m$/, "") : whiteRune("┌");
+// eslint-disable-next-line no-control-regex
   const tr = focused ? ST.tableBorderFocused.render("┐").replace(/\x1b\[0?m$/, "") : whiteRune("┐");
+// eslint-disable-next-line no-control-regex
   const ml = focused ? ST.tableBorderFocused.render("├").replace(/\x1b\[0?m$/, "") : whiteRune("├");
+// eslint-disable-next-line no-control-regex
   const mr = focused ? ST.tableBorderFocused.render("┤").replace(/\x1b\[0?m$/, "") : whiteRune("┤");
+// eslint-disable-next-line no-control-regex
   const bl = focused ? ST.tableBorderFocused.render("└").replace(/\x1b\[0?m$/, "") : whiteRune("└");
+// eslint-disable-next-line no-control-regex
   const br = focused ? ST.tableBorderFocused.render("┘").replace(/\x1b\[0?m$/, "") : whiteRune("┘");
   const cross = focused
+// eslint-disable-next-line no-control-regex
     ? ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "")
     : whiteRune("┼");
   const tCross = focused
+// eslint-disable-next-line no-control-regex
     ? ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "")
     : whiteRune("┬");
   const bCross = focused
+// eslint-disable-next-line no-control-regex
     ? ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "")
     : whiteRune("┴");
 

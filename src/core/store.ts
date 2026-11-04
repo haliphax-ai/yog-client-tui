@@ -56,7 +56,7 @@ export function getState(): Readonly<UiState> {
 /** Shallow-merge `patch` into the state and notify subscribers. */
 export function setState(patch: Partial<UiState>): void {
   state = { ...state, ...patch };
-  for (const listener of [...listeners]) listener();
+  for (const listener of Array.from(listeners)) listener();
 }
 
 /** Subscribe to state changes; returns an unsubscribe function. */

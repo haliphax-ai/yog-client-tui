@@ -29,6 +29,7 @@ function scanContentRules() {
 
   // Rule 6 - raw color literals (ANSI 256/truecolor fg escapes, hex colors)
   // are allowed only in ui/theme.ts.
+// eslint-disable-next-line no-control-regex
   const colorLiteral = /\\x1b\[38;|\\u001b\[38;|\\e\[38;|\x1b\[38;|#[0-9a-f]{6}\b/i;
 
   // Rule 9 - no default-server-URL constant (127.0.0.1:8111, localhost:8111,
