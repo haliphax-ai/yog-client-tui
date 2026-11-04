@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   formatTokenTotal,
@@ -25,6 +25,9 @@ function fixture(turns: number, toolCalls: number): LogEntry[] {
 }
 
 describe("statusBody", () => {
+  beforeEach(() => {
+    resetForTests();
+  });
   afterEach(() => {
     resetForTests();
   });
