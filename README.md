@@ -204,7 +204,8 @@ The server owns the canonical conversation. At startup the client:
    produces, annotated with their results, before the first frame is drawn.
    When the server captured per-turn usage, each rehydrated turn ends with
    the same summary line a live turn shows (runtime · tool-call count ·
-   tokens), per-call token segments are restored on tool results, and the
+   incremental tokens — the delta vs. the prior context total, not the
+   session total), per-call token segments are restored on tool results, and the
    startup note includes the resumed context weight
    (`resumed session … · ~1.2M tokens in context`). Old servers without the
    optional metrics simply render as before.

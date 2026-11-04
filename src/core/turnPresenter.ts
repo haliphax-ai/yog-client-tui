@@ -67,6 +67,12 @@ export interface TurnHost {
   width: () => number;
   /** Schedule a redraw (coalesced by the render scheduler). */
   requestRender: () => void;
+  /**
+   * The session token total before this turn ran (used to show the turn's
+   * incremental tokens in the summary line). Omit to fall back to showing
+   * the full reported total.
+   */
+  prevTokenTotal?: () => number;
 }
 
 /** Mutable turn session handed to the client's `TurnEvents` handlers. */
@@ -198,12 +204,17 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       const summary: string[] = [`runtime ${formatRuntime(durationMs)}`];
       summary.push(`${toolCallsThisTurn} tool call${toolCallsThisTurn === 1 ? "" : "s"}`);
       if (usage !== undefined) {
-        const total =
+        const absolute =
           typeof usage.total_tokens === "number"
             ? usage.total_tokens
             : (typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0) +
               (typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0);
-        if (total > 0) summary.push(`${formatTokenTotal(total)} tokens`);
+        // The server reports the full hydrated-context total, not this turn's
+        // contribution — show the delta against the session total before the
+        // turn ran (baseline 0 when unknown/first).
+        const prev = host.prevTokenTotal?.() ?? 0;
+        const delta = Math.max(0, absolute - prev);
+        if (delta > 0) summary.push(`${formatTokenTotal(delta)} tokens`);
       }
       host.append("status", [summary.join(" · ")]);
     },
