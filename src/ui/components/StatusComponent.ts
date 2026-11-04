@@ -4,6 +4,7 @@
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, type UiState } from "../../core/store.ts";
+import { formatTokenTotal } from "../../core/toolFormat.ts";
 import { ST } from "../theme.ts";
 import { displayWidth, stripAnsi } from "../../util/ansi.ts";
 import type { LogEntry } from "../../core/entries.ts";
@@ -41,23 +42,7 @@ export function sessionStats(entries: readonly LogEntry[]): {
 }
 
 /** Abbreviate a token total for the status-bar stat (K/M with one decimal). */
-export function formatTokenTotal(value: number): string {
-  if (!Number.isFinite(value) || value < 0) return "0";
-  if (value < 1000) return String(Math.round(value));
-  const suffixes = ["", "K", "M"];
-  let idx = 0;
-  let scaled = value;
-  while (scaled >= 1000 && idx < suffixes.length - 1) {
-    scaled /= 1000;
-    idx += 1;
-  }
-  // Rounding to one decimal may push a value onto the next order (e.g. 999.95
-  // → 1000.0K); promote it so the display stays tidy (1.0M).
-  if (scaled >= 999.95 && idx < suffixes.length - 1) {
-    return `1.0${suffixes[idx + 1]}`;
-  }
-  return `${(Math.round(scaled * 10) / 10).toFixed(1)}${suffixes[idx]}`;
-}
+export { formatTokenTotal };
 
 /** Session stats segment: turns · tools, plus token totals once nonzero. */
 export function statsSegment(

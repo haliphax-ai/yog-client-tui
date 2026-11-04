@@ -37,6 +37,8 @@ function kindStyle(kind: EntryKind): Style {
       return ST.error;
     case "notice":
       return ST.notice; // marker+label only; the detail row styles itself
+    case "status":
+      return ST.statusLine;
     case "chunk":
       return ST.chunkBlock;
     case "debug":
@@ -351,6 +353,19 @@ function renderEntry(
         ? head
         : `${head}\x1b[39m· ${ST.noticeDetail.render(truncateAnsi(detail, Math.max(0, budget - displayWidth(label))))}`;
     return { rendered: body, rows: 1, tableOffsets: [] };
+  }
+
+  if (entry.kind === "status") {
+    // Per-turn summary line, one line: dark grey text on the normal
+    // background with 1-cell horizontal padding, capped to the terminal width
+    // (the padding sits inside the style, so the content budget is cols-2).
+    const line = entry.lines[0] ?? "";
+    const budget = Math.max(0, cols - 2);
+    return {
+      rendered: ST.statusLine.render(truncateAnsi(line, budget)),
+      rows: 1,
+      tableOffsets: [],
+    };
   }
 
   const lines: string[] = [];

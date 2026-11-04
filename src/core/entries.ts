@@ -15,6 +15,7 @@ export type EntryKind =
   | "error"
   | "chunk"
   | "notice"
+  | "status"
   | "debug";
 
 /**

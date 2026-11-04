@@ -81,6 +81,25 @@ describe("toolResultChunk", () => {
     // The body is the raw result; the renderer turns it into rows.
     expect(chunk.result).toEqual({ exitCode: 0, runtimeMs: 1 });
   });
+  it("appends the token count as a segment of the result header", () => {
+    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 42, tokens: 1234 });
+    expect(chunk.lines[0]).toBe("bash → exit 0 · 42ms · 1234 tok");
+  });
+
+  it("shows tokens alone when the result has no exit/runtime", () => {
+    const chunk = toolResultChunk("bash", { tokens: 77 });
+    expect(chunk.lines[0]).toBe("bash → 77 tok");
+  });
+
+  it("omits the token segment when the result carries none", () => {
+    const chunk = toolResultChunk("bash", { stdout: "x", exitCode: 0 });
+    expect(chunk.lines[0]).toBe("bash → exit 0");
+  });
+
+  it("omits the token segment for malformed/non-numeric token fields", () => {
+    const chunk = toolResultChunk("bash", { tokens: "1234" });
+    expect(chunk.lines[0]).toBe("bash →");
+  });
 });
 
 /** Host that records appended log entries. */
@@ -162,9 +181,13 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onFinish?.(9500, "max_rounds");
-    expect(entries.at(-1)).toEqual({
+    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
       lines: ["⏹️ turn stopped", "reached the tool-round cap after 10s"],
+    });
+    expect(entries.at(-1)).toEqual({
+      kind: "status",
+      lines: ["runtime 9s · 0 tool calls"],
     });
   });
 
@@ -183,9 +206,13 @@ describe("createTurnPresenter", () => {
       completion_tokens: 567,
       total_tokens: 1801,
     });
-    expect(entries.at(-1)).toEqual({
+    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
       lines: ["⏹️ turn finished", "tokens: 1,234 prompt · 567 completion · 1,801 total"],
+    });
+    expect(entries.at(-1)).toEqual({
+      kind: "status",
+      lines: ["runtime 1s · 0 tool calls · 1.8K tokens"],
     });
   });
 
@@ -197,12 +224,17 @@ describe("createTurnPresenter", () => {
       completion_tokens: 567,
       total_tokens: 1801,
     });
-    expect(entries.at(-1)).toEqual({
+    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
       lines: [
         "⏹️ turn stopped",
         "reached the tool-round cap after 10s · tokens: 1,234 prompt · 567 completion · 1,801 total",
       ],
+    });
+    // The per-turn summary line follows the notice and abbreviates the total.
+    expect(entries.at(-1)).toEqual({
+      kind: "status",
+      lines: ["runtime 9s · 0 tool calls · 1.8K tokens"],
     });
   });
 
@@ -212,6 +244,37 @@ describe("createTurnPresenter", () => {
     turn.events.onFinish?.(1200, undefined, {});
     turn.events.onFinish?.(1200, undefined, { prompt_tokens: "nope" as unknown as number });
     expect(entries.filter((e) => e.kind === "notice")).toHaveLength(0);
+  });
+  it("counts only this turn's tool calls in the summary line", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 });
+    turn.events.onFinish?.(321_000, undefined);
+    expect(entries.at(-1)).toEqual({
+      kind: "status",
+      lines: ["runtime 5m21s · 2 tool calls"],
+    });
+  });
+
+  it("emits a fresh presenter per turn so totals never leak across turns", () => {
+    const { host, entries } = makeHost();
+    const first = createTurnPresenter(host);
+    first.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    first.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    first.events.onFinish?.(1000, undefined);
+    const second = createTurnPresenter(host);
+    second.events.onFinish?.(1000, undefined, {
+      prompt_tokens: 500,
+      completion_tokens: 250,
+      total_tokens: 750,
+    });
+    const firstStatus = entries.filter((e) => e.kind === "status")[0];
+    const secondStatus = entries.filter((e) => e.kind === "status")[1];
+    expect(firstStatus?.lines[0]).toBe("runtime 1s · 1 tool call");
+    expect(secondStatus?.lines[0]).toBe("runtime 1s · 0 tool calls · 750 tokens");
   });
 
   it("emits no result chunk for a failed call — the ❌ line is the whole failure", () => {

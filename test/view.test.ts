@@ -7,7 +7,11 @@ import {
   resultPreview,
   totalRows,
 } from "../src/ui/render/index.ts";
-import { prettyArgs, resultStatus } from "../src/core/toolFormat.ts";
+import { formatRuntime, prettyArgs, resultStatus, resultTokens } from "../src/core/toolFormat.ts";
+import { createTurnPresenter } from "../src/core/turnPresenter.ts";
+import { getState, resetForTests, setState } from "../src/core/store.ts";
+import { statusBody } from "../src/ui/components/StatusComponent.ts";
+import { parseToolArgs } from "../src/yogClient.ts";
 import type { LogEntry } from "../src/core/entries.ts";
 import { displayWidth, stripAnsi, wrapText } from "../src/util/ansi.ts";
 
@@ -275,6 +279,40 @@ describe("resultStatus", () => {
     expect(resultStatus([1, 2])).toBe("");
   });
 });
+describe("resultTokens", () => {
+  it("reads a finite non-negative integer tokens field", () => {
+    expect(resultTokens({ tokens: 1234 })).toBe(1234);
+    expect(resultTokens({ tokens: 0 })).toBe(0);
+  });
+
+  it("returns undefined for missing or invalid token fields", () => {
+    expect(resultTokens({ exitCode: 0 })).toBeUndefined();
+    expect(resultTokens({ tokens: "1234" })).toBeUndefined();
+    expect(resultTokens({ tokens: NaN })).toBeUndefined();
+    expect(resultTokens({ tokens: -1 })).toBeUndefined();
+    expect(resultTokens(null)).toBeUndefined();
+    expect(resultTokens("str")).toBeUndefined();
+  });
+});
+
+describe("formatRuntime", () => {
+  const cases: Array<[number, string]> = [
+    [0, "0ms"],
+    [321, "321ms"],
+    [999, "999ms"],
+    [1000, "1s"],
+    [59_999, "59s"],
+    [60_000, "1m0s"],
+    [321_000, "5m21s"],
+    [3_600_000, "1h0m0s"],
+    [3_661_000, "1h1m1s"],
+  ];
+  for (const [input, expected] of cases) {
+    it(`formats ${input}ms as ${expected}`, () => {
+      expect(formatRuntime(input)).toBe(expected);
+    });
+  }
+});
 
 describe("resultPreview", () => {
   it("renders bash stdout/stderr as plain text rows", () => {
@@ -435,5 +473,53 @@ describe("displayWidth / stripAnsi", () => {
 
   it("strips OSC title sequences", () => {
     expect(stripAnsi("before\x1b]0;title\x07after")).toBe("beforeafter");
+  });
+});
+describe("turn usage reaches the session status bar", () => {
+  it("updates the 🪙 stat when a finished turn reports usage", () => {
+    resetForTests();
+
+    const entries: LogEntry[] = [];
+    const host = {
+      entries,
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        entries.push({ kind, lines });
+      },
+      width: () => 80,
+      requestRender: () => {},
+    };
+    const turn = createTurnPresenter(host);
+    // The exact main.ts wiring: the presenter's onFinish first, then the
+    // store bridge that feeds the status-bar token totals.
+    const base = turn.events.onFinish;
+    turn.events.onFinish = (durationMs, stopReason, usage) => {
+      base?.(durationMs, stopReason, usage);
+      if (usage === undefined) return;
+      const prev = getState().tokenTotals;
+      setState({
+        tokenTotals: {
+          prompt: typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : prev.prompt,
+          completion:
+            typeof usage.completion_tokens === "number" ? usage.completion_tokens : prev.completion,
+          total: typeof usage.total_tokens === "number" ? usage.total_tokens : prev.total,
+        },
+      });
+    };
+    turn.begin("hello");
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    turn.events.onFinish?.(321_000, undefined, {
+      prompt_tokens: 1000,
+      completion_tokens: 500,
+      total_tokens: 1500,
+    });
+    turn.finish();
+    setState({ entries, model: "m-1", connection: "connected" });
+    // The per-turn summary line carries the turn's own stats; the session
+    // status bar shows the 🪙 total from the same usage report.
+    expect(entries.filter((e) => e.kind === "status").at(-1)?.lines[0]).toBe(
+      "runtime 5m21s · 1 tool call · 1.5K tokens",
+    );
+    expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 1  🪙 1.5K");
   });
 });

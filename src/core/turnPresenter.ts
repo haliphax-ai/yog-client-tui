@@ -9,7 +9,13 @@
  * transcript rehydration, so restored rows render exactly like live ones.
  */
 import { parseToolArgs, type TurnEvents } from "../yogClient.ts";
-import { prettyArgs, resultStatus } from "./toolFormat.ts";
+import {
+  formatRuntime,
+  formatTokenTotal,
+  prettyArgs,
+  resultStatus,
+  resultTokens,
+} from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
 import type { LogEntry } from "./entries.ts";
 import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
@@ -47,6 +53,8 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
   // Tool call id → its log entry, so results can annotate the call line.
   const pendingToolCalls = new Map<string, LogEntry>();
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
+  // Tool calls announced during this turn (reset per presenter = per turn).
+  let toolCallsThisTurn = 0;
 
   const events: TurnEvents = {
     onDelta: (text) => {
@@ -73,6 +81,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.requestRender();
     },
     onToolCall: (id, name, args) => {
+      toolCallsThisTurn += 1;
       // A tool call ends the open prose segment: close it on the spot so
       // any later prose streams into a fresh block of its own (the onDelta
       // tail guard below is the generic backstop).
@@ -155,6 +164,21 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         }
       }
       if (lines.length > 0) host.append("notice", lines);
+      // Per-turn summary line: runtime · tool calls · tokens (abbreviated).
+      // The tool-call total is for THIS turn only — each presenter is created
+      // fresh per submit(), so the counter never leaks across turns; session
+      // totals stay in the status bar.
+      const summary: string[] = [`runtime ${formatRuntime(durationMs)}`];
+      summary.push(`${toolCallsThisTurn} tool call${toolCallsThisTurn === 1 ? "" : "s"}`);
+      if (usage !== undefined) {
+        const total =
+          typeof usage.total_tokens === "number"
+            ? usage.total_tokens
+            : (typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0) +
+              (typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0);
+        if (total > 0) summary.push(`${formatTokenTotal(total)} tokens`);
+      }
+      host.append("status", [summary.join(" · ")]);
     },
   };
 
@@ -219,7 +243,10 @@ export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): v
  */
 export function toolResultChunk(name: string, result: unknown): LogEntry {
   const status = resultStatus(result);
-  const arrow = status ? ` → ${status}` : " →";
+  const tokens = resultTokens(result);
+  const suffix =
+    tokens === undefined ? status : status === "" ? `${tokens} tok` : `${status} · ${tokens} tok`;
+  const arrow = suffix ? ` → ${suffix}` : " →";
   return {
     kind: "chunk",
     lines: [`${name || "tool"}${arrow}`],
