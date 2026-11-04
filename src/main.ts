@@ -19,9 +19,9 @@
  * the pipeline's paint stage renders their rows and emit writes the frame.
  *
  * CLI flags:
- *   --session <id>   resume the given server session
- *   --new            start a fresh session (wins over any stored id; the
- *                    new id is written back to state.json)
+ *   --session <id>  resume the given server session
+ *   --new           start a fresh session (wins over any stored id; the
+ *                   new id is written back to state.json)
  *
  * Key bindings (also documented in README). The top-level focus ring has two
  * targets — the input and the log; keys go to whichever side holds the ring:
@@ -31,17 +31,19 @@
  *                   (log) expand/collapse the focused unit
  *   Shift+Enter     insert a newline in the input (does not submit)
  *   Paste           multi-line text is inserted as-is (never submits)
+ *   /new            fresh session: connects to a new server session and
+ *                   clears the chat log (current turn must be idle).
  *   /quit           quit via the slash command (type "/" as the first
  *                   character, Tab completes, Enter runs it). Ctrl+C is
  *                   unbound (inert); the session stays on the server so
  *                   the next launch can resume it.
- *   Input editing    the TextArea keymap is fully reachable while the input
+ *   Input editing   the TextArea keymap is fully reachable while the input
  *                   holds the ring (arrows, Alt/Ctrl+arrows word nav,
  *                   Home/End, PgUp/PgDn, Ctrl+A/E/K/U/W, selection, copy).
- *   Log navigation   Home/End jump to top/bottom; PgUp/PgDn scroll by page;
+ *   Log navigation  Home/End jump to top/bottom; PgUp/PgDn scroll by page;
  *                   Up/Down scroll by one row; Tab/Shift-Tab cycle the entry
  *                   focus ring; Esc leaves focus mode (unhandled keys drop).
- *   Esc            (input) abort the in-flight turn via the abort endpoint;
+ *   Esc             (input) abort the in-flight turn via the abort endpoint;
  *                   (log, nothing focused) return to the input.
  */
 import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from "./config.ts";
@@ -286,6 +288,38 @@ async function run(argv: readonly string[]): Promise<void> {
       const command = resolveSlash(prompt);
       if (command !== undefined && command.name === "quit") {
         void quit(0);
+        return;
+      }
+      if (command !== undefined && command.name === "new") {
+        // Starting a fresh session while a turn is in flight would orphan
+        // that turn's events, so require the current turn to finish first.
+        if (getState().busy) {
+          pushLines("system", ["wait for the current turn, then /new"]);
+          input.reset();
+          return;
+        }
+        void (async () => {
+          try {
+            const id = await client.open();
+            // Point the client at the fresh session and clear the log before
+            // any next prompt is sent.
+            setState({
+              entries: [],
+              scrollOffset: 0,
+              follow: true,
+              focusTarget: FOCUS_NONE_TARGET,
+              statusNote: "",
+            });
+            await saveState(stateFilePath(), { lastSessionId: id });
+            pushLines("system", [`new session ${id} (nothing to resume)`]);
+          } catch (err) {
+            pushLines("error", [
+              `failed to start a new session: ${err instanceof Error ? err.message : String(err)}`,
+            ]);
+          } finally {
+            input.reset();
+          }
+        })();
         return;
       }
       const token = slashToken(prompt) ?? "";

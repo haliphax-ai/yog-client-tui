@@ -16,6 +16,7 @@ export interface SlashCommand {
 
 /** The built-in slash commands (registry order is completion order). */
 export const SLASH_COMMANDS: readonly SlashCommand[] = Object.freeze([
+  { name: "new", summary: "start a fresh session with an empty chat log" },
   { name: "quit", summary: "exit the client (session stays on the server)" },
 ]);
 
