@@ -10,6 +10,10 @@
  *   Shift-Tab cycle its focusable units; Home/End/PageUp/PageDown/arrows
  *   operate the viewport; Shift+Down or Esc-on-empty returns to the input).
  *   Unhandled keys are dropped — they are never passed to the input.
+ *   Global bindings are scoped to a ring side: log-side navigation (Tab /
+ *   Shift-Tab, Home/End/PageUp/PageDown/arrows) is consulted only while the
+ *   log holds the ring, and input-side actions (Enter, Esc) only while the
+ *   input does. Neither side's bindings can leak onto the other.
  *
  * Every component must declare its ring side via the `ring` property
  * ("log" or "input"); components without a ring never receive keys.
@@ -57,12 +61,12 @@ export interface Globals {
 }
 
 /**
- * Global bindings: sequences no component claims while the log is the ring
- * target. Log-side navigation (scroll/jump + entry-focus cycling) lives
- * here; input-side global actions (submit, abort) are gated to the input
- * ring target inside the handlers.
+ * Global bindings for the LOG ring: only consulted while the log holds the
+ * top-level ring, so none of them can ever reach the chat focus ring while
+ * the text input is active. Entry-focus cycling and viewport navigation
+ * live here.
  */
-const GLOBAL_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
+const LOG_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
     binding: newBinding(withKeys("\x1b[Z"), withHelp("Shift+Tab", "previous entry")),
     run: (g) => g.focusPrev(),
@@ -95,54 +99,57 @@ const GLOBAL_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
     run: (g) => g.scrollBy(g.pageRows()),
   },
   {
-    binding: newBinding(withKeys("\x1bOA"), withHelp("Up", "scroll up one line")),
+    binding: newBinding(withKeys("\x1bOA", "\x1b[A"), withHelp("Up", "scroll up one line")),
     run: (g) => g.scrollBy(-1),
   },
   {
-    binding: newBinding(withKeys("\x1bOB"), withHelp("Down", "scroll down one line")),
-    run: (g) => g.scrollBy(1),
-  },
-  {
-    binding: newBinding(withKeys("\x1b[A"), withHelp("Up", "scroll up one line")),
-    run: (g) => g.scrollBy(-1),
-  },
-  {
-    binding: newBinding(withKeys("\x1b[B"), withHelp("Down", "scroll down one line")),
+    binding: newBinding(withKeys("\x1bOB", "\x1b[B"), withHelp("Down", "scroll down one line")),
     run: (g) => g.scrollBy(1),
   },
 ];
 
 /**
- * Char-level global bindings: single control characters. Tab cycles the
- * log's entry focus ring only while the log is the ring target; Enter/Esc
- * stay input-side (the log consumes its own Enter/Esc semantics first).
- * Each run returns whether it consumed the key (so a gated-off binding is
- * dropped instead of claimed).
+ * Global bindings for the INPUT ring: only consulted while the input holds
+ * the top-level ring. This is the deliberate, closed list of app-level keys
+ * that still work while typing — currently just the single-line ↑/↓ scroll
+ * carve-out (multi-line arrows are claimed by the textarea itself). Anything
+ * added here is an explicit decision, never an accidental fall-through from
+ * the log side.
  */
-const CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => boolean }[] = [
+const INPUT_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
-    binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
-    run: (g) => {
-      if (topLevel !== "log") return false;
-      g.focusNext();
-      return true;
-    },
+    binding: newBinding(withKeys("\x1bOA", "\x1b[A"), withHelp("Up", "scroll up one line")),
+    run: (g) => g.scrollBy(-1),
   },
   {
+    binding: newBinding(withKeys("\x1bOB", "\x1b[B"), withHelp("Down", "scroll down one line")),
+    run: (g) => g.scrollBy(1),
+  },
+];
+
+/**
+ * Char-level global bindings for the LOG ring: Tab cycles the log's entry
+ * focus ring. Only consulted while the log holds the top-level ring.
+ */
+const LOG_CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
+  {
+    binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
+    run: (g) => g.focusNext(),
+  },
+];
+
+/**
+ * Char-level global bindings for the INPUT ring: Enter submits, Esc aborts
+ * the in-flight turn. Only consulted while the input holds the top-level ring.
+ */
+const INPUT_CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
+  {
     binding: newBinding(withKeys("\r", "\n"), withHelp("Enter", "send input")),
-    run: (g) => {
-      if (topLevel !== "input") return false;
-      g.submit();
-      return true;
-    },
+    run: (g) => g.submit(),
   },
   {
     binding: newBinding(withKeys("\x1b"), withHelp("Esc", "abort turn")),
-    run: (g) => {
-      if (topLevel !== "input") return false;
-      g.abortTurn();
-      return true;
-    },
+    run: (g) => g.abortTurn(),
   },
 ];
 
@@ -155,14 +162,16 @@ function ringWalk(chain: readonly Component[]): readonly Component[] {
 }
 
 /**
- * Route one key sequence: the ring target's components, then the globals.
- * Returns whether anyone handled it (false = dropped).
+ * Route one key sequence: the ring target's components, then the active
+ * ring side's global bindings. Returns whether anyone handled it
+ * (false = dropped).
  */
 export function routeKey(chain: readonly Component[], seq: string, globals: Globals): boolean {
   for (const component of ringWalk(chain)) {
     if (component.handleKey(seq) === "handled") return true;
   }
-  for (const { binding, run } of GLOBAL_BINDINGS) {
+  const bindings = topLevel === "log" ? LOG_KEY_BINDINGS : INPUT_KEY_BINDINGS;
+  for (const { binding, run } of bindings) {
     if (matches({ toString: () => seq }, binding)) {
       run(globals);
       return true;
@@ -173,15 +182,18 @@ export function routeKey(chain: readonly Component[], seq: string, globals: Glob
 
 /**
  * Route one decoded character through the same ring ordering. Unclaimed chars
- * fall through to the gated global bindings (Tab/Enter/Esc).
+ * fall through to the active ring side's global bindings (log: Tab; input:
+ * Enter/Esc).
  */
 export function routeChar(chain: readonly Component[], ch: string, globals: Globals): boolean {
   for (const component of ringWalk(chain)) {
     if (component.handleChar(ch) === "handled") return true;
   }
-  for (const { binding, run } of CHAR_BINDINGS) {
+  const bindings = topLevel === "log" ? LOG_CHAR_BINDINGS : INPUT_CHAR_BINDINGS;
+  for (const { binding, run } of bindings) {
     if (matches({ toString: () => ch }, binding)) {
-      if (run(globals)) return true;
+      run(globals);
+      return true;
     }
   }
   return false;

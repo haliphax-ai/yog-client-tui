@@ -122,6 +122,47 @@ describe("routeKey — ring target only, then globals", () => {
     expect(calls).toEqual(["focusPrev", "scrollBy:24", "jump:true"]);
   });
 
+  it("Shift+Tab cycles the log backward only while the log holds the ring", () => {
+    const a = new Stub({ ring: "log" });
+    const { globals, calls } = globalsSpy();
+
+    setTopLevel("input"); // input side holds the ring
+    expect(routeKey([a], "\x1b[Z", globals)).toBe(false); // dropped
+    expect(calls).toEqual([]); // log focus ring untouched
+
+    setTopLevel("log");
+    expect(routeKey([a], "\x1b[Z", globals)).toBe(true);
+    expect(calls).toEqual(["focusPrev"]);
+  });
+
+  it("log-side navigation bindings never fire while the input holds the ring", () => {
+    const a = new Stub({ ring: "log" });
+    const { globals, calls } = globalsSpy();
+
+    setTopLevel("input");
+    for (const seq of [
+      "\x1b[Z", // Shift+Tab
+      "\x1b[H", // Home
+      "\x1b[F", // End
+      "\x1b[5~", // PageUp
+      "\x1b[6~", // PageDown
+      "\x1b[1;5H", // Ctrl+Home
+    ]) {
+      expect(routeKey([a], seq, globals)).toBe(false);
+    }
+    expect(calls).toEqual([]); // no log navigation ran
+  });
+
+  it("single-line Up/Down from the input still scroll the log (carve-out)", () => {
+    const a = new Stub({ ring: "log" });
+    const { globals, calls } = globalsSpy();
+
+    setTopLevel("input");
+    expect(routeKey([a], "\x1b[A", globals)).toBe(true); // Up
+    expect(routeKey([a], "\x1b[B", globals)).toBe(true); // Down
+    expect(calls).toEqual(["scrollBy:-1", "scrollBy:1"]);
+  });
+
   it("the page size comes from the injected terminal height", () => {
     const a = new Stub({ ring: "log" });
     setTopLevel("log");
