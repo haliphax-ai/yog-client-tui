@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  contextTokenTotal,
   decodeTurnUsage,
   decodeToolCalls,
   decodeToolResult,
+  finalContextTotal,
+  perTurnDeltas,
   toTranscriptEntries,
   transcriptText,
 } from "../../src/core/transcript.ts";
-import type { TranscriptMessage } from "../../src/yogClient.ts";
+import type { TranscriptMessage, TokenUsage } from "../../src/yogClient.ts";
 
 /** A minimal well-formed row with overrides. */
 function row(overrides: Partial<TranscriptMessage>): TranscriptMessage {
@@ -205,19 +206,73 @@ describe("decodeTurnUsage", () => {
   });
 });
 
-describe("contextTokenTotal", () => {
-  it("sums total_tokens across per-turn metrics", () => {
+describe("finalContextTotal", () => {
+  it("returns the last known absolute total (the current context size)", () => {
     expect(
-      contextTokenTotal([
+      finalContextTotal([
         { usage: { total_tokens: 150 } },
         { usage: { total_tokens: 250 } },
         undefined,
       ]),
-    ).toBe(400);
+    ).toBe(250);
   });
 
   it("ignores missing, malformed, and non-positive totals", () => {
-    expect(contextTokenTotal([{ usage: {} }, { usage: { total_tokens: -5 } }, {}])).toBe(0);
-    expect(contextTokenTotal(undefined)).toBe(0);
+    expect(finalContextTotal([{ usage: {} }, { usage: { total_tokens: -5 } }, {}])).toBe(0);
+    expect(finalContextTotal(undefined)).toBe(0);
+    expect(
+      finalContextTotal([
+        { usage: { total_tokens: 200 } },
+        { usage: { total_tokens: "nope" as unknown as number } },
+      ]),
+    ).toBe(200);
+  });
+});
+
+describe("perTurnDeltas", () => {
+  it("turns absolute context totals into per-turn deltas (baseline 0)", () => {
+    const map = perTurnDeltas([
+      { turnId: 1, usage: { total_tokens: 150 }, durationMs: 1000 },
+      { turnId: 2, usage: { total_tokens: 200 }, durationMs: 1000 },
+      { turnId: 3, usage: { total_tokens: 260 }, durationMs: 1000 },
+    ]);
+    expect([...map.entries()]).toEqual([
+      [1, { usage: { total_tokens: 150 }, durationMs: 1000 }],
+      [2, { usage: { total_tokens: 50 }, durationMs: 1000 }],
+      [3, { usage: { total_tokens: 60 }, durationMs: 1000 }],
+    ]);
+  });
+
+  it("skips absent totals without breaking later deltas", () => {
+    const map = perTurnDeltas([
+      { turnId: 1, usage: { total_tokens: 150 }, durationMs: 1000 },
+      { turnId: 2, durationMs: 900 },
+      { turnId: 3, usage: { total_tokens: 260 }, durationMs: 1000 },
+    ]);
+    expect(map.get(1)).toEqual({ usage: { total_tokens: 150 }, durationMs: 1000 });
+    expect(map.get(2)).toEqual({ durationMs: 900 });
+    // 260 - 150: the middle turn (no usage) is folded into the next delta.
+    expect(map.get(3)).toEqual({ usage: { total_tokens: 110 }, durationMs: 1000 });
+  });
+
+  it("omits usage when the delta would be negative (provider inconsistency)", () => {
+    const map = perTurnDeltas([
+      { turnId: 1, usage: { total_tokens: 150 }, durationMs: 1000 },
+      { turnId: 2, usage: { total_tokens: 120 }, durationMs: 1000 },
+    ]);
+    expect(map.get(2)).toEqual({ durationMs: 1000 });
+    expect(map.get(2)?.usage).toBeUndefined();
+  });
+
+  it("returns an empty map for absent or malformed input", () => {
+    expect(perTurnDeltas(undefined)).toEqual(new Map());
+    expect(perTurnDeltas([])).toEqual(new Map());
+    expect(
+      perTurnDeltas([null, 42, { turnId: "x", usage: { total_tokens: 5 } }] as unknown as Array<{
+        turnId: number;
+        usage?: TokenUsage;
+        durationMs?: number;
+      }>),
+    ).toEqual(new Map());
   });
 });

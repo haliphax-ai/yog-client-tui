@@ -659,3 +659,44 @@ describe("createTurnPresenter per-call tokens (live)", () => {
     expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
   });
 });
+
+describe("createTurnPresenter incremental tokens", () => {
+  it("shows the token delta against the session total before the turn ran", () => {
+    const host = {
+      entries: [] as LogEntry[],
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        host.entries.push({ kind, lines });
+      },
+      width: () => COLS,
+      requestRender: () => {},
+      prevTokenTotal: () => 150,
+    };
+    const presenter = createTurnPresenter(host);
+    presenter.events.onFinish?.(1000, undefined, {
+      prompt_tokens: 80,
+      completion_tokens: 120,
+      total_tokens: 200,
+    });
+    const status = host.entries.find((e) => e.kind === "status");
+    expect(status?.lines[0]).toBe("runtime 1s · 0 tool calls · 50 tokens");
+  });
+
+  it("falls back to the full total when no previous total is provided", () => {
+    const host = {
+      entries: [] as LogEntry[],
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        host.entries.push({ kind, lines });
+      },
+      width: () => COLS,
+      requestRender: () => {},
+    };
+    const presenter = createTurnPresenter(host);
+    presenter.events.onFinish?.(1000, undefined, {
+      prompt_tokens: 80,
+      completion_tokens: 120,
+      total_tokens: 200,
+    });
+    const status = host.entries.find((e) => e.kind === "status");
+    expect(status?.lines[0]).toBe("runtime 1s · 0 tool calls · 200 tokens");
+  });
+});

@@ -50,7 +50,7 @@ import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from 
 import { type LogEntry } from "./core/entries.ts";
 import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { getState, setState } from "./core/store.ts";
-import { contextTokenTotal, toTranscriptEntries } from "./core/transcript.ts";
+import { finalContextTotal, perTurnDeltas, toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
 import { formatTokenTotal } from "./core/toolFormat.ts";
 import { YogClient, YogError, type TurnEvents, type TurnOutcome } from "./yogClient.ts";
@@ -172,6 +172,8 @@ async function run(argv: readonly string[]): Promise<void> {
    * session with a one-line note. Transport failures propagate — only a
    * stale id is recoverable.
    */
+  /** Restored context weight (last known total) when resuming; 0 otherwise. */
+  let resumedTokenWeight = 0;
   const resolveSession = async (): Promise<void> => {
     if (requested === undefined) {
       const id = await client.open();
@@ -184,13 +186,17 @@ async function run(argv: readonly string[]): Promise<void> {
         throw new YogError("unknown_session", `session ${requested} not found`, 404);
       }
       const dump = await client.getTranscript();
-      const tokenWeight = contextTokenTotal(dump.turns);
+      const tokenWeight = finalContextTotal(dump.turns);
+      resumedTokenWeight = tokenWeight;
       startupNote(
         `resumed session ${requested} · ${dump.messages.length} messages from server transcript` +
           (tokenWeight > 0 ? ` · ~${formatTokenTotal(tokenWeight)} tokens in context` : ""),
       );
       const cols = process.stdout.columns ?? 80;
-      for (const entry of transcriptLogEntries(toTranscriptEntries(dump.messages), cols)) {
+      const turnMetrics = perTurnDeltas(dump.turns);
+      for (const entry of transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
+        turns: turnMetrics,
+      })) {
         seedEntries.push(entry);
       }
       return;
@@ -340,6 +346,7 @@ async function run(argv: readonly string[]): Promise<void> {
       append: pushLines,
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
+      prevTokenTotal: () => getState().tokenTotals.total,
     });
     // Surface transcript token totals in the status-bar 🪙 stat: each finished
     // turn reports usage for the entire transcript (the server hydrates the
@@ -514,6 +521,9 @@ async function run(argv: readonly string[]): Promise<void> {
     ],
     model: config.model,
     focusTarget: FOCUS_NONE_TARGET,
+    // Seed the status-bar total with the restored context so the first live
+    // turn after a resume shows only its own incremental tokens.
+    tokenTotals: { prompt: 0, completion: 0, total: resumedTokenWeight },
   });
 
   // Client-side debug chunks are seeded when enabled so the mode is visible.

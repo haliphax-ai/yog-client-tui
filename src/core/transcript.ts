@@ -94,17 +94,58 @@ export function decodeTurnUsage(value: unknown): TokenUsage | undefined {
   return has ? out : undefined;
 }
 
-/** Sum the total token weight across per-turn metrics (0 when none known). */
-export function contextTokenTotal(
+/** The current context weight: the last known absolute total (0 when none). */
+export function finalContextTotal(
   turns: ReadonlyArray<{ usage?: TokenUsage } | undefined> | undefined,
 ): number {
-  if (turns === undefined) return 0;
-  let total = 0;
+  if (!Array.isArray(turns)) return 0;
+  let last = 0;
   for (const t of turns) {
     const n = t?.usage?.total_tokens;
-    if (typeof n === "number" && Number.isFinite(n) && n > 0) total += n;
+    if (typeof n === "number" && Number.isFinite(n) && n > 0) last = n;
   }
-  return total;
+  return last;
+}
+
+/**
+ * Reduce per-turn metrics (absolute token totals as reported per turn) to
+ * the incremental delta each turn contributed: total after the turn minus
+ * total before it, with a baseline of 0 for the first known total. The
+ * reported total is the full hydrated-context size, so the per-turn summary
+ * line should show this delta, not the session total. Turns without a
+ * numeric total are kept for their duration but contribute no usage, and
+ * deltas that would be negative (provider inconsistency) are omitted rather
+ * than shown as a nonsensical decrease.
+ */
+export function perTurnDeltas(
+  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }> | undefined,
+): Map<number, { usage?: TokenUsage; durationMs?: number }> {
+  const out = new Map<number, { usage?: TokenUsage; durationMs?: number }>();
+  if (!Array.isArray(turns)) return out;
+  let prevTotal = 0;
+  const ordered = [...turns]
+    .filter(
+      (t): t is { turnId: number; usage?: TokenUsage; durationMs?: number } =>
+        t !== null && typeof t === "object",
+    )
+    .sort((a, b) => a.turnId - b.turnId);
+  for (const t of ordered) {
+    if (t === null || typeof t !== "object") continue;
+    const turnId = t.turnId;
+    if (typeof turnId !== "number" || !Number.isFinite(turnId)) continue;
+    const total = t.usage?.total_tokens;
+    const entry: { usage?: TokenUsage; durationMs?: number } = {};
+    if (typeof t.durationMs === "number" && Number.isFinite(t.durationMs)) {
+      entry.durationMs = t.durationMs;
+    }
+    if (typeof total === "number" && Number.isFinite(total) && total > 0) {
+      const delta = total - prevTotal;
+      if (delta > 0) entry.usage = { total_tokens: delta };
+      prevTotal = total;
+    }
+    if (entry.usage !== undefined || entry.durationMs !== undefined) out.set(turnId, entry);
+  }
+  return out;
 }
 
 /** Pretty text for a tool result row: `name → <result>`. */
