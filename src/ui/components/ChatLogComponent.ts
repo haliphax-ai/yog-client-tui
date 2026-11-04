@@ -24,7 +24,6 @@ import {
   totalRows,
 } from "../render/index.ts";
 import { resolveTableLayout, splitTableSections } from "../render/table/index.ts";
-import { lineHeight } from "../../util/ansi.ts";
 /** Index of the entry whose span contains terminal-row `row` (clamped). */
 function entryAt(tops: readonly number[], row: number): number {
   let lo = 0;
@@ -45,10 +44,7 @@ function entryBounds(
 ): { top: number; height: number } {
   const top = totalRows(entries.slice(0, index), cols);
   const entry = entries[index];
-  const height =
-    entry === undefined
-      ? 0
-      : cachedRows(entry, cols).reduce((acc, row) => acc + lineHeight(row, cols), 0) + 1;
+  const height = entry === undefined ? 0 : cachedRows(entry, cols).length + 1;
   return { top, height };
 }
 
@@ -133,18 +129,19 @@ export abstract class ChatLogComponent extends ViewportComponent {
     // When a table inside the entry is focused (not the entry itself),
     // scroll the TABLE into view — not just the entry. An entry can be
     // taller than the viewport with the table at the bottom, and scrolling
-    // only the entry top leaves the table off-screen.
+    // only the entry top leaves the table off-screen. Every rendered row is
+    // one terminal row, so a table's row offset is its terminal offset.
     if (this.focusTarget.table >= 0) {
       const offsets = tableOffsetsOf(this.entries[entry] as LogEntry);
       if (offsets !== undefined && this.focusTarget.table < offsets.length) {
-        const entryRows = cachedRows(this.entries[entry] as LogEntry, this.cols);
-        const toTerm = (logIdx: number): number =>
-          entryRows.slice(0, logIdx).reduce((acc, row) => acc + lineHeight(row, this.cols), 0);
+        const toTerm = (logIdx: number): number => logIdx;
         const tableTop = top + toTerm(offsets[this.focusTarget.table] ?? 0);
         const tableHeight = Math.max(
           1,
-          toTerm(offsets[this.focusTarget.table + 1] ?? entryRows.length) -
-            toTerm(offsets[this.focusTarget.table] ?? 0),
+          toTerm(
+            offsets[this.focusTarget.table + 1] ??
+              cachedRows(this.entries[entry] as LogEntry, this.cols).length,
+          ) - toTerm(offsets[this.focusTarget.table] ?? 0),
         );
         if (tableTop < this.scrollOffset) {
           this.follow = false;
@@ -239,24 +236,23 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * Efficient window producer: renders only the entries intersecting
    * [top, bottom) instead of the whole log. Locates the first entry via the
    * cached height summary (binary search), then walks forward with per-entry
-   * cached heights — visible-only rendering regardless of log size.
+   * cached rows — visible-only rendering regardless of log size.
    */
   override produceVisible(
     top: number,
     bottom: number,
     cols: number,
-  ): { lines: string[]; heights: number[]; top: number } {
+  ): { lines: string[]; top: number } {
     const entries = this.entries;
     const summary = heightSummaryOf(entries, cols);
     if (entries.length === 0 || top >= summary.total) {
-      return { lines: [], heights: [], top: 0 };
+      return { lines: [], top: 0 };
     }
     const start = entryAt(summary.tops, top);
     const end = Math.min(entries.length - 1, entryAt(summary.tops, Math.max(0, bottom - 1)));
     const focusedEntry = this.focusTarget.entry;
     const focusedTable = this.focusTarget.table;
     const lines: string[] = [];
-    const heights: number[] = [];
     for (let i = start; i <= end; i++) {
       const isEntryFocused = i === focusedEntry;
       const cache = cachedRowData(
@@ -266,11 +262,9 @@ export abstract class ChatLogComponent extends ViewportComponent {
         isEntryFocused ? focusedTable : -1,
       );
       lines.push(...cache.rows);
-      heights.push(...cache.heights);
       lines.push(""); // separator after each entry
-      heights.push(1);
     }
-    return { lines, heights, top: summary.tops[start] as number };
+    return { lines, top: summary.tops[start] as number };
   }
 
   /** Rows the content occupies at `cols` (incl. separators). */

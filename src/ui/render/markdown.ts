@@ -1,17 +1,13 @@
 /**
  * Glamour markdown rendering, shared by prose and table cells.
  *
- * Two renderers:
- *  - SOFT (word wrap disabled): prose sections, code fences, and tool-output
- *    highlight blocks. Each source line stays one LOGICAL line; the terminal
- *    soft-wraps it at the right margin, so selections copy without inserted
- *    hard breaks.
- *  - HARD (width-bounded word wrap): single-line table cells, which are
- *    measured and laid out at a fixed column width.
- *
- * Normalization strips glamour's block furniture (document margins, shared
- * indent, padding rows) so output fits arbitrary widths — full terminal
- * rows for prose, column widths for table cells.
+ * One formatter for both: glamour detects markdown links and bare URLs
+ * (OSC 8 included), styles inline markdown, and word-wraps. The
+ * normalization here strips glamour's block furniture (document margins,
+ * shared indent, padding rows) so the output fits arbitrary widths —
+ * full terminal rows for prose, column widths for table cells. Rows are
+ * HARD-wrapped: every output line is capped to the requested width, so
+ * no line ever exceeds it and the terminal never soft-wraps a chunk.
  */
 import {
   newTermRenderer,
@@ -21,20 +17,12 @@ import {
 } from "@oakoliver/glamour";
 import { sliceAnsi } from "@oakoliver/lipgloss";
 import { GLAMOUR_THEME } from "../theme.ts";
-import { displayWidth, matchEscape, stripAnsi } from "../../util/ansi.ts";
+import { displayWidth, matchEscape, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
 
-/** Soft renderer: word wrap disabled — paragraphs/code stay logical lines. */
-let softRenderer: TermRenderer | undefined;
-
-function mdSoftRenderer(): TermRenderer {
-  softRenderer ??= newTermRenderer(withStandardStyle(GLAMOUR_THEME), withWordWrap(0));
-  return softRenderer;
-}
-
-/** Memoized hard renderers, keyed by wrap width (max 8 before reuse). */
+/** Memoized glamour renderers, keyed by wrap width (max 8 before reuse). */
 const mdRenderers = new Map<number, TermRenderer>();
 
-/** Hard glamour renderer for `cols` (constructed once per width, then reused). */
+/** Glamour renderer for `cols` (constructed once per width, then reused). */
 function mdRenderer(cols: number): TermRenderer {
   const width = Math.max(1, cols);
   const cached = mdRenderers.get(width);
@@ -45,10 +33,11 @@ function mdRenderer(cols: number): TermRenderer {
   return renderer;
 }
 
-/** Render markdown with the soft (unwrapped) renderer. Returns "" on failure. */
-function mdRenderSoft(text: string): string {
+/** Render markdown at `cols` via glamour with tokyo-night styling. Returns ""
+ *  on renderer failure so callers can fall back to plain text. */
+export function mdRender(text: string, cols: number): string {
   try {
-    return mdSoftRenderer().render(text);
+    return mdRenderer(cols).render(text);
   } catch {
     return "";
   }
@@ -97,37 +86,31 @@ export function sharedIndent(lines: string[]): number {
   return indents.length > 0 ? Math.min(...indents) : 0;
 }
 
-/** Normalize a soft-rendered block: strip outer blanks + shared indent, keep
- *  interior paragraph breaks. Lines are returned whole (no width capping). */
-function normalizeSoft(rendered: string): string[] {
-  const lines = trimBlankOuter(rendered.split("\n"));
-  if (lines.length === 0) return [];
-  const indent = sharedIndent(lines);
-  const out: string[] = [];
-  for (const line of lines) {
-    if (stripAnsi(line).trim() === "") {
-      out.push("");
-      continue;
-    }
-    out.push(trimLeading(line, indent));
-  }
-  return out;
-}
-
 /**
  * Render raw text/JSON with glamour syntax highlighting, then normalize it
- * for the terminal: drop glamour's blank outer lines and shared indent.
- * Lines are kept whole (soft wrapped by the terminal). Returns undefined on
- * failure or oversized input so callers can fall back to plain text.
+ * for the terminal: drop glamour's blank outer lines and shared indent,
+ * cap every line to `cols`. Returns undefined on failure or oversized input
+ * so callers can fall back to plain text.
  */
-export function highlightBlock(value: unknown, lang: string = "json"): string[] | undefined {
+export function highlightBlock(
+  value: unknown,
+  cols: number,
+  lang: string = "json",
+): string[] | undefined {
   try {
     const text =
       typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? String(value));
     if (text.length > 100_000) return undefined;
-    const rendered = mdRenderSoft(`\`\`\`${lang}\n${text}\n\`\`\``);
+    const rendered = mdRender(`\`\`\`${lang}\n${text}\n\`\`\``, cols);
     if (rendered === "") return undefined;
-    const out = normalizeSoft(rendered);
+    const lines = trimBlankOuter(rendered.split("\n"));
+    if (lines.length === 0) return undefined;
+    const indent = sharedIndent(lines);
+    const out: string[] = [];
+    for (const line of lines) {
+      if (stripAnsi(line).trim() === "") continue; // glamour padding rows
+      out.push(truncateAnsi(trimLeading(line, indent), cols));
+    }
     return out.length > 0 ? out : undefined;
   } catch {
     return undefined;
@@ -135,17 +118,27 @@ export function highlightBlock(value: unknown, lang: string = "json"): string[] 
 }
 
 /**
- * Render markdown through glamour (tokyo-night) with wrapping disabled and
- * normalize: drop blank outer rows, strip glamour's shared indent, keep
- * interior blank rows (paragraph breaks). Returns [] on failure or oversized
- * input so callers can fall back to plain text. Each returned row is one
- * LOGICAL line — the terminal soft-wraps it at the right margin.
+ * Render markdown through glamour (tokyo-night) at `cols` and normalize:
+ * drop blank outer rows, strip glamour's shared indent, keep interior blank
+ * rows (paragraph breaks), and cap every line to `cols`. Returns [] on
+ * failure or oversized input so callers can fall back to plain text.
  */
-export function renderMarkdown(text: string): string[] {
+export function renderMarkdown(text: string, cols: number): string[] {
   if (text.length > 100_000) return [];
-  const rendered = mdRenderSoft(text);
+  const rendered = mdRender(text, cols);
   if (rendered === "") return [];
-  return normalizeSoft(rendered);
+  const lines = trimBlankOuter(rendered.split("\n"));
+  if (lines.length === 0) return [];
+  const indent = sharedIndent(lines);
+  const out: string[] = [];
+  for (const line of lines) {
+    if (stripAnsi(line).trim() === "") {
+      out.push(""); // paragraph break inside the entry
+      continue;
+    }
+    out.push(truncateAnsi(trimLeading(line, indent), cols));
+  }
+  return out;
 }
 
 /**

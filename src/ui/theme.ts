@@ -9,9 +9,11 @@ import { newStyle } from "@oakoliver/lipgloss";
 /** Styling map. Tool-output blocks: black bg, dark grey text, 1-cell padding. */
 export const ST = {
   /** Prompt: dark grey bg, light grey text, 1-cell padding, no margin. */
-  user: newStyle().foreground("#d4d4d8").background("#3f3f46").padding(1, 0),
+  user: newStyle().foreground("#d4d4d8").background("#3f3f46").padding(1),
   /** Response: normal background, white text; spacing comes from the uniform entry separator. */
   assistant: newStyle().foreground("#ffffff"),
+  /** Assistant prose left border: blue right-half block on every row. */
+  assistantBorder: newStyle().foreground("#60a5fa"),
   tool: newStyle().foreground("#a78bfa"),
   /** System chatter: connection notes, lifecycle messages. */
   system: newStyle().foreground("#94a3b8"),
