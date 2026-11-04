@@ -23,6 +23,7 @@ const USER_EMOJI = "\u{1F464}"; // 👤 bust in silhouette
 const SESSION_EMOJI = "\u{1F50C}"; // 🔌 electric plug
 const TURNS_EMOJI = "\u{1F504}"; // 🔄 refresh
 const TOOLS_EMOJI = "\u{1F527}"; // 🔧 wrench
+const TOKENS_EMOJI = "\u{1FA99}"; // 🪙 coin
 
 /** Session counters derived from the log: one turn per user message, one
  *  tool call per ⚙️ call entry. */
@@ -37,6 +38,39 @@ export function sessionStats(entries: readonly LogEntry[]): {
     else if (entry.kind === "tool") toolCalls += 1;
   }
   return { turns, toolCalls };
+}
+
+/** Abbreviate a token total for the status-bar stat (K/M with one decimal). */
+export function formatTokenTotal(value: number): string {
+  if (!Number.isFinite(value) || value < 0) return "0";
+  if (value < 1000) return String(Math.round(value));
+  const suffixes = ["", "K", "M"];
+  let idx = 0;
+  let scaled = value;
+  while (scaled >= 1000 && idx < suffixes.length - 1) {
+    scaled /= 1000;
+    idx += 1;
+  }
+  // Rounding to one decimal may push a value onto the next order (e.g. 999.95
+  // → 1000.0K); promote it so the display stays tidy (1.0M).
+  if (scaled >= 999.95 && idx < suffixes.length - 1) {
+    return `1.0${suffixes[idx + 1]}`;
+  }
+  return `${(Math.round(scaled * 10) / 10).toFixed(1)}${suffixes[idx]}`;
+}
+
+/** Session stats segment: turns · tools, plus token totals once nonzero. */
+export function statsSegment(
+  state: Readonly<UiState>,
+  stats: { turns: number; toolCalls: number },
+): string {
+  const parts = [`${TURNS_EMOJI} ${stats.turns}  ${TOOLS_EMOJI} ${stats.toolCalls}`];
+  const totals = state.tokenTotals;
+  if (totals.total > 0 || totals.prompt > 0 || totals.completion > 0) {
+    const total = totals.total > 0 ? totals.total : totals.prompt + totals.completion;
+    parts.push(`${TOKENS_EMOJI} ${formatTokenTotal(total)}`);
+  }
+  return parts.join("  ");
 }
 
 /** Activity items (spinner + note), empty while idle. */
@@ -60,7 +94,7 @@ export function statusBody(): string {
       state.connection === "connected" ? "ok" : state.connection
     }`,
   );
-  segments.push(`${TURNS_EMOJI} ${stats.turns}  ${TOOLS_EMOJI} ${stats.toolCalls}`);
+  segments.push(statsSegment(state, stats));
   return segments.join(" │ ");
 }
 
@@ -85,9 +119,7 @@ export class StatusComponent extends BaseComponent {
         `${SESSION_EMOJI} ${state.connection === "connected" ? "ok" : state.connection}`,
       ),
     ].join(ST.status.render(" · "));
-    const statsLine = ST.status.render(
-      `${TURNS_EMOJI} ${stats.turns}  ${TOOLS_EMOJI} ${stats.toolCalls}`,
-    );
+    const statsLine = ST.status.render(statsSegment(state, stats));
     const segments: string[] = [];
     if (activity.length > 0) segments.push(activity.join(ST.status.render(" · ")));
     segments.push(session, statsLine);

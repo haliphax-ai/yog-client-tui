@@ -124,18 +124,37 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
     onRecovered: () => {
       host.append("system", ["stream interrupted — recovered from turn status"]);
     },
-    onFinish: (durationMs, stopReason) => {
-      // A stopReason means the server stopped the turn early; surface it
-      // with the same notice shape as the abort — label · detail, rendered
-      // as one dot-separated line (amber label, dim detail) — instead of
-      // ending the turn silently. The duration rides on the detail so the
-      // label stays canonical and testable.
+    onFinish: (durationMs, stopReason, usage) => {
+      // A stopReason means the server stopped the turn early; surface it with
+      // the same notice shape as the abort — label · detail, rendered as one
+      // dot-separated line (amber label, dim detail) — instead of ending the
+      // turn silently. Token usage rides on the detail (a separate notice for
+      // natural finishes) so the label stays canonical and testable.
+      const lines: string[] = [];
       if (stopReason === "max_rounds") {
-        host.append("notice", [
+        lines.push(
           "⏹️ turn stopped",
           `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`,
-        ]);
+        );
       }
+      const tokenParts: string[] = [];
+      if (usage !== undefined) {
+        if (typeof usage.prompt_tokens === "number")
+          tokenParts.push(`${formatTokens(usage.prompt_tokens)} prompt`);
+        if (typeof usage.completion_tokens === "number")
+          tokenParts.push(`${formatTokens(usage.completion_tokens)} completion`);
+        if (typeof usage.total_tokens === "number")
+          tokenParts.push(`${formatTokens(usage.total_tokens)} total`);
+      }
+      if (tokenParts.length > 0) {
+        const tokensDetail = `tokens: ${tokenParts.join(" · ")}`;
+        if (lines.length >= 2) {
+          lines[1] = `${lines[1]} · ${tokensDetail}`;
+        } else {
+          lines.push("⏹️ turn finished", tokensDetail);
+        }
+      }
+      if (lines.length > 0) host.append("notice", lines);
     },
   };
 
@@ -282,4 +301,9 @@ export function transcriptLogEntries(entries: TranscriptEntry[], cols: number): 
     i += 1;
   }
   return out;
+}
+
+/** Format a token count with thousands separators for the per-turn notice. */
+function formatTokens(value: number): string {
+  return value.toLocaleString("en-US");
 }
