@@ -46,7 +46,10 @@ export const ST = {
   /** Input text when the input is blurred (log holds the top-level ring). */
   inputTextBlur: newStyle().foreground("#52525b"),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
-  status: newStyle().foreground("#64748b"),
+  /** Status bar: dark grey backing, black text by default. */
+  status: newStyle().background("#3f3f46").foreground("#000000"),
+  /** Status bar busy label: spinner + "generating" in bright purple. */
+  generating: newStyle().background("#3f3f46").foreground("#c084fc").bold(true),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Focused table border: blue runes (the focus indicator — not a row bg). */

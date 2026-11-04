@@ -210,11 +210,19 @@ async function run(argv: readonly string[]): Promise<void> {
         const rows = process.stdout.rows ?? 24;
         const cols = process.stdout.columns ?? 80;
         // The log gets the remainder after the input bar (which grows by
-        // one row when the slash-command autocomplete menu is open) and the
-        // status line.
-        viewport.setViewportRows(Math.max(1, rows - input.measure(cols) - status.measure(cols)));
+        // one row when the slash-command autocomplete menu is open), the
+        // status line, and one reserved row for the always-present blank
+        // line between the log and the input.
+        viewport.setViewportRows(
+          Math.max(1, rows - input.measure(cols) - status.measure(cols) - 1),
+        );
       },
-      paint: () => [...viewport.render({ cols }), input.render({ cols }), status.render({ cols })],
+      paint: () => [
+        ...viewport.render({ cols }),
+        "", // guaranteed blank line between the log and the input
+        input.render({ cols }), // single string; may contain internal newlines
+        status.render({ cols }),
+      ],
       emit: writeFrame,
     });
   };
@@ -349,7 +357,8 @@ async function run(argv: readonly string[]): Promise<void> {
       1,
       (process.stdout.rows ?? 24) -
         input.measure(process.stdout.columns ?? 80) -
-        status.measure(process.stdout.columns ?? 80),
+        status.measure(process.stdout.columns ?? 80) -
+        1, // the reserved blank line between the log and the input
     );
 
   /**
