@@ -456,10 +456,9 @@ describe("renderTable — styled output", () => {
   it("sequence position drives margins in the entry renderer", () => {
     const tableMd = ["| A |", "| --- |", "| one |"];
     const entry = (lines: string[]): LogEntry => ({ kind: "assistant", lines });
-    // Assistant prose rows no longer carry a border prefix — the table
-    // Table FIRST in the sequence: no top margin (row 0 = top border).
-    const leadTable = cachedRows(entry([...tableMd]), 60);
-    // borders are the first visible content on every row.
+    // Border margins depend on sequence position: a table FIRST in the entry
+    // renders without a top margin, a table LAST without a bottom margin.
+    // Prose rows carry no border prefix.
     // Prose then table: table LAST — no bottom margin (last row = bottom border).
     const proseThenTable = cachedRows(entry(["Intro prose.", ...tableMd]), 60);
     expect(stripAnsi(proseThenTable[proseThenTable.length - 1]!).endsWith("┘")).toBe(true);
@@ -483,7 +482,7 @@ describe("renderTable — styled output", () => {
 });
 
 describe("renderEntry — tool-line wrapping", () => {
-  it("cell-caps a collapsed tool line instead of wrapping it", () => {
+  it("cell-caps a collapsed tool line and appends an ellipsis", () => {
     const longArgs = '{"cmd":"' + "x".repeat(120) + '"}';
     const entry: LogEntry = {
       kind: "tool",
@@ -493,10 +492,18 @@ describe("renderEntry — tool-line wrapping", () => {
     const rows = cachedRows(entry, cols);
     // ONE physical line: the overlong line is cell-capped, never wrapped
     expect(rows.length).toBe(1);
-    // The style pads to the block width (cols); content itself capped to cols-2
+    // The style pads to the block width (cols); content capped to cols-2 with
+    // one more cell sacrificed for the ellipsis marker.
     expect(displayWidth(stripAnsi(rows[0]!))).toBeLessThanOrEqual(cols);
+    expect(stripAnsi(rows[0]!).trim()).toMatch(/…$/);
     // The error reason survives the cap (label comes first)
     expect(stripAnsi(rows[0]!)).toContain("⚙️ bash ❌");
+  });
+
+  it("omits the ellipsis when the collapsed line fits", () => {
+    const rows = cachedRows({ kind: "tool", lines: ["⚙️ run ✅ ok"] }, 40);
+    expect(rows.length).toBe(1);
+    expect(stripAnsi(rows[0]!).trim()).toBe("⚙️ run ✅ ok");
   });
 
   it("expanded tool bodies still wrap", () => {

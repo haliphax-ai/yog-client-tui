@@ -167,50 +167,49 @@ describe("totalRows", () => {
 
 describe("highlightBlock", () => {
   it("returns non-blank styled rows for a JSON object", () => {
-    const rows = highlightBlock({ a: 1, b: "two" }, 40);
+    const rows = highlightBlock({ a: 1, b: "two" });
     expect(rows).toBeDefined();
     const list = rows as string[];
     expect(list.length).toBeGreaterThan(0);
     for (const row of list) {
       expect(stripAnsi(row).trim()).not.toBe("");
-      expect(displayWidth(row)).toBeLessThanOrEqual(40);
     }
     const plain = list.map((r) => stripAnsi(r)).join("\n");
     expect(plain).toContain('"a"');
     expect(plain).toContain('"two"');
   });
 
-  it("caps every row to the requested width", () => {
-    const rows = highlightBlock({ a: 1 }, 10) as string[];
-    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(10);
+  it("keeps overlong rows whole (soft wrap, no truncation)", () => {
+    const rows = highlightBlock("x".repeat(60), "text") as string[];
+    expect(rows.some((r) => displayWidth(r) > 40)).toBe(true);
+    expect(stripAnsi(rows.join("\n"))).toContain("x".repeat(60));
   });
 
   it("renders string values with the requested language", () => {
-    const rows = highlightBlock("some *text* here", 40, "markdown");
+    const rows = highlightBlock("some *text* here", "markdown");
     expect(rows).toBeDefined();
     const plain = (rows as string[]).map((r) => stripAnsi(r)).join("\n");
     expect(plain).toContain("some");
     expect(plain).toContain("here");
     for (const row of rows as string[]) {
-      expect(displayWidth(row)).toBeLessThanOrEqual(40);
       expect(stripAnsi(row).trim()).not.toBe("");
     }
   });
 
   it("handles arrays and undefined values", () => {
-    const arr = highlightBlock([1, 2], 40);
+    const arr = highlightBlock([1, 2]);
     expect(arr).toBeDefined();
     expect((arr as string[]).map((r) => stripAnsi(r)).join("\n")).toContain("1");
     // undefined stringifies to text rather than failing
-    expect(highlightBlock(undefined, 40)).toBeDefined();
+    expect(highlightBlock(undefined)).toBeDefined();
   });
 
   it("returns undefined for oversized input", () => {
-    expect(highlightBlock("x".repeat(100_001), 40)).toBeUndefined();
+    expect(highlightBlock("x".repeat(100_001))).toBeUndefined();
   });
 
   it("accepts input right at the size limit", () => {
-    expect(highlightBlock("x".repeat(100_000), 40)).toBeDefined();
+    expect(highlightBlock("x".repeat(100_000))).toBeDefined();
   });
 });
 
@@ -218,7 +217,7 @@ describe("renderMarkdown", () => {
   const sample = "# Title\n\nHello *world* paragraph.";
 
   it("produces stable structural rows for a small sample", () => {
-    const rows = renderMarkdown(sample, 40);
+    const rows = renderMarkdown(sample);
     expect(rows.length).toBe(3);
     // outer glamour padding rows are stripped
     expect(stripAnsi(rows[0] ?? "").trim()).not.toBe("");
@@ -228,25 +227,24 @@ describe("renderMarkdown", () => {
     expect(stripAnsi(rows[0] ?? "")).toContain("Title");
     expect(stripAnsi(rows[2] ?? "")).toContain("Hello");
     expect(stripAnsi(rows[2] ?? "")).toContain("world");
-    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(40);
   });
 
   it("is deterministic for the same input", () => {
-    expect(renderMarkdown(sample, 40)).toEqual(renderMarkdown(sample, 40));
-    expect(renderMarkdown(sample, 40).join("\n")).toBe(renderMarkdown(sample, 40).join("\n"));
+    expect(renderMarkdown(sample)).toEqual(renderMarkdown(sample));
+    expect(renderMarkdown(sample).join("\n")).toBe(renderMarkdown(sample).join("\n"));
   });
 
   it("returns [] for oversized input", () => {
-    expect(renderMarkdown("x".repeat(100_001), 40)).toEqual([]);
+    expect(renderMarkdown("x".repeat(100_001))).toEqual([]);
   });
 
-  it("keeps every row within the width budget", () => {
+  it("keeps a paragraph as one logical line (soft wrap)", () => {
     const rows = renderMarkdown(
       "A paragraph with enough words that it must wrap across several lines at this width.",
-      32,
     );
-    expect(rows.length).toBeGreaterThan(1);
-    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(32);
+    expect(rows.length).toBe(1);
+    expect(displayWidth(rows[0] ?? "")).toBeGreaterThan(32);
+    expect(stripAnsi(rows[0] ?? "")).toContain("width.");
   });
 });
 
@@ -278,61 +276,50 @@ describe("resultStatus", () => {
 
 describe("resultPreview", () => {
   it("renders bash stdout/stderr as plain text rows", () => {
-    expect(resultPreview({ stdout: "line1\nline2\n", stderr: "" }, 40)).toEqual(["line1", "line2"]);
-    expect(resultPreview({ stdout: "", stderr: "err line\n" }, 40)).toEqual(["err line"]);
+    expect(resultPreview({ stdout: "line1\nline2\n", stderr: "" })).toEqual(["line1", "line2"]);
+    expect(resultPreview({ stdout: "", stderr: "err line\n" })).toEqual(["err line"]);
     // stdout rows come before stderr rows
-    expect(resultPreview({ stdout: "a\nb", stderr: "e" }, 40)).toEqual(["a", "b", "e"]);
+    expect(resultPreview({ stdout: "a\nb", stderr: "e" })).toEqual(["a", "b", "e"]);
   });
 
   it("returns [] when the bash output is blank", () => {
-    expect(resultPreview({ stdout: "   ", stderr: "" }, 40)).toEqual([]);
+    expect(resultPreview({ stdout: "   ", stderr: "" })).toEqual([]);
   });
 
   it("falls back to highlighted JSON for other shapes", () => {
-    const rows = resultPreview({ nope: true }, 40);
+    const rows = resultPreview({ nope: true });
     expect(rows.length).toBeGreaterThan(0);
     const plain = rows.map((r) => stripAnsi(r)).join("\n");
     expect(plain).toContain('"nope"');
   });
 
-  it("keeps every row within cols-2 cells", () => {
-    for (const result of [
-      { stdout: "one\ntwo" },
-      { nope: true },
-      "text result",
-      null,
-      undefined,
-      [],
-    ]) {
-      for (const row of resultPreview(result, 40)) {
-        expect(displayWidth(row)).toBeLessThanOrEqual(38);
-      }
-    }
+  it("keeps overlong rows whole (soft wrap, no truncation)", () => {
+    const rows = resultPreview({ stdout: "x".repeat(60) + "\nshort" });
+    expect(rows).toEqual(["x".repeat(60), "short"]);
   });
 
   it("renders scalar fallbacks as visible text", () => {
     expect(
-      resultPreview("text result", 40)
+      resultPreview("text result")
         .map((r) => stripAnsi(r))
         .join("\n"),
     ).toContain("text result");
     expect(
-      resultPreview(undefined, 40)
+      resultPreview(undefined)
         .map((r) => stripAnsi(r))
         .join("\n"),
     ).toContain("undefined");
     expect(
-      resultPreview(null, 40)
+      resultPreview(null)
         .map((r) => stripAnsi(r))
         .join("\n"),
     ).toContain("null");
   });
 
   it("returns [] for an empty string result", () => {
-    expect(resultPreview("", 40)).toEqual([]);
+    expect(resultPreview("")).toEqual([]);
   });
 });
-
 describe("colorizeToolLine", () => {
   it("colors JSON keys, values, numbers, and punctuation", () => {
     expect(colorizeToolLine('{"a":1}')).toBe(

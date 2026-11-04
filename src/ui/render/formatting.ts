@@ -1,25 +1,17 @@
 /**
  * Entry-level formatting helpers: tool-result body rows.
  *
- * The tool-call argument formatting lives in `core/toolFormat.ts` — the
- * presenter builds the call line from it, and the domain must not depend
- * on the presentation layer.
+ * Tool bodies render as LOGICAL lines: each source line stays whole, and the
+ * terminal soft-wraps overlong ones at the right margin. Collapsed rows and
+ * table cells remain width-bounded elsewhere.
  */
 import { highlightBlock } from "./markdown.ts";
-import { wrapText } from "../../util/ansi.ts";
 
-/**
- * Body rows for a tool-result block. The bash tool's shape (stdout/stderr)
- * is rendered as real text — never the JSON-escaped blob; anything else is
- * syntax-highlighted JSON, falling back to plain wrapped lines. Returns
- * undefined when there is nothing worth showing (the exit status then lives
- * in the block header alone).
- */
-function previewBody(result: unknown, cols: number): string[] | undefined {
-  const target = Math.max(1, cols - 2);
-  const CAP = 500;
+/** Loose cap on the number of body rows shown for a tool result. */
+const CAP = 500;
 
-  // bash-shaped result: stdout/stderr as text (exit status is in the header).
+/** Body rows for a tool-result block (undefined when nothing is worth showing). */
+function previewBody(result: unknown): string[] | undefined {
   if (result !== null && typeof result === "object" && !Array.isArray(result)) {
     const obj = result as Record<string, unknown>;
     const out = obj["stdout"];
@@ -31,24 +23,24 @@ function previewBody(result: unknown, cols: number): string[] | undefined {
         const body = chunk.replace(/\n$/, "").split("\n");
         for (const line of body) {
           if (rows.length >= CAP) break;
-          rows.push(...wrapText(line, target));
+          rows.push(line);
         }
       }
       return rows.length > 0 ? rows : undefined;
     }
   }
 
-  const highlighted = highlightBlock(result, target);
+  const highlighted = highlightBlock(result);
   if (highlighted && highlighted.length > 0) return highlighted;
   const text =
     typeof result === "string" ? result : (JSON.stringify(result, null, 2) ?? String(result));
   if (text.trim() === "") return undefined;
   const plain = text.split("\n");
-  if (plain.length > CAP) return plain.slice(0, CAP).flatMap((line) => wrapText(line, target));
-  return plain.flatMap((line) => wrapText(line, target));
+  if (plain.length > CAP) return plain.slice(0, CAP);
+  return plain;
 }
 
 /** Body rows for a tool-result block ([] when there is nothing to show). */
-export function resultPreview(result: unknown, cols: number): string[] {
-  return previewBody(result, cols) ?? [];
+export function resultPreview(result: unknown): string[] {
+  return previewBody(result) ?? [];
 }

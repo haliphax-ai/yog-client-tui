@@ -6,13 +6,18 @@
  * table, or anything else. It clamps the offset, slices the visible window,
  * and pads to the assigned height.
  *
- * Both axes are supported: `scrollOffset` for vertical, `scrollX` for
- * horizontal. The viewport only slices vertically; horizontal scroll is
- * applied by the content producer (e.g. `renderTable` takes `scrollX`).
+ * Rows are LOGICAL lines: a row may be longer than the terminal width
+ * (soft-wrapped prose/code/tool output) and occupy several visual rows.
+ * Scroll offsets are measured in TERMINAL rows; slicing therefore converts
+ * logical rows to visual segments and cuts partial lines at the edges, the
+ * way a terminal screen does. Both axes are supported: `scrollOffset` for
+ * vertical, `scrollX` for horizontal. The viewport only slices vertically;
+ * horizontal scroll is applied by the content producer (e.g. `renderTable`
+ * takes `scrollX`).
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { clampScroll, jump as jumpScroll, scrollBy as scrollByState } from "../../core/scroll.ts";
-import { truncateAnsi } from "../../util/ansi.ts";
+import { displayWidth, lineHeight, skipAnsi, truncateAnsi } from "../../util/ansi.ts";
 
 export abstract class ViewportComponent extends BaseComponent {
   /** First visible row (clamped into range before render). */
@@ -48,9 +53,11 @@ export abstract class ViewportComponent extends BaseComponent {
     return this.cols;
   }
 
-  /** Rows the content occupies at `cols`. */
+  /** Total TERMINAL rows the content occupies at `cols`. */
   totalContentRows(cols: number = this.cols): number {
-    return this.produceRows(cols).length;
+    let rows = 0;
+    for (const row of this.produceRows(cols)) rows += lineHeight(row, cols);
+    return rows;
   }
 
   /** Maximum scroll offset for `viewportRows` visible rows. */
@@ -98,15 +105,66 @@ export abstract class ViewportComponent extends BaseComponent {
     return this.renderViewport(this.cols, rows);
   }
 
-  /** Slice the visible window from `produceRows` and pad to `rows`. */
+  /** Slice the visible terminal rows from `produceRows`, cutting partial
+   *  lines at the top/bottom edges, and pad to the assigned height. */
   protected renderViewport(cols: number, rows: number): string[] {
     const allRows = this.produceRows(cols);
-    const offset = Math.max(0, this.scrollOffset);
-    const visible: string[] = [];
-    for (let i = offset; i < allRows.length && visible.length < rows; i++) {
-      visible.push(truncateAnsi(allRows[i] ?? "", cols));
+    const heights = allRows.map((line) => lineHeight(line, cols));
+    let offset = Math.max(0, this.scrollOffset);
+
+    // Walk to the logical line containing the scroll offset.
+    let i = 0;
+    while (i < allRows.length && offset >= heights[i]!) {
+      offset -= heights[i]!;
+      i += 1;
     }
-    while (visible.length < rows) visible.push("");
+
+    const visible: string[] = [];
+    let used = 0;
+    let first = true;
+
+    while (used < rows && i < allRows.length) {
+      const line = allRows[i] as string;
+      const height = heights[i] as number;
+      const remaining = rows - used;
+
+      if (first && offset > 0) {
+        // Top edge cuts through this line: show its tail.
+        const cut = offset * cols;
+        if (cut >= displayWidth(line)) {
+          offset -= height; // remainder lies above the viewport
+          i += 1;
+          continue;
+        }
+        const seg = skipAnsi(line, cut);
+        const segHeight = lineHeight(seg, cols);
+        if (segHeight > remaining) {
+          visible.push(truncateAnsi(seg, remaining * cols));
+          used += remaining;
+        } else {
+          visible.push(seg);
+          used += segHeight;
+        }
+        first = false;
+        i += 1;
+        continue;
+      }
+
+      if (height <= remaining) {
+        visible.push(line);
+        used += height;
+        i += 1;
+        continue;
+      }
+      // Bottom edge cuts through this line: show its prefix only.
+      visible.push(truncateAnsi(line, remaining * cols));
+      used = rows;
+    }
+
+    while (used < rows) {
+      visible.push("");
+      used += 1;
+    }
     return visible;
   }
 }

@@ -16,6 +16,7 @@ import { FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "../../core/focus
 import { tableState, type LogEntry } from "../../core/entries.ts";
 import { cachedRows, focusUnits, tableOffsetsOf, totalRows } from "../render/index.ts";
 import { resolveTableLayout, splitTableSections } from "../render/table/index.ts";
+import { lineHeight } from "../../util/ansi.ts";
 
 /** Bounds of entry `i`: first row and full block height (incl. separator). */
 function entryBounds(
@@ -25,7 +26,8 @@ function entryBounds(
 ): { top: number; height: number } {
   const top = totalRows(entries.slice(0, index), cols);
   const entry = entries[index];
-  const height = entry === undefined ? 0 : cachedRows(entry, cols).length + 1;
+  const height =
+    entry === undefined ? 0 : cachedRows(entry, cols).reduce((acc, row) => acc + lineHeight(row, cols), 0) + 1;
   return { top, height };
 }
 
@@ -112,10 +114,14 @@ export abstract class ChatLogComponent extends ViewportComponent {
     if (this.focusTarget.table >= 0) {
       const offsets = tableOffsetsOf(this.entries[entry] as LogEntry);
       if (offsets !== undefined && this.focusTarget.table < offsets.length) {
-        const tableTop = top + (offsets[this.focusTarget.table] ?? 0);
+        const entryRows = cachedRows(this.entries[entry] as LogEntry, this.cols);
+        const toTerm = (logIdx: number): number =>
+          entryRows.slice(0, logIdx).reduce((acc, row) => acc + lineHeight(row, this.cols), 0);
+        const tableTop = top + toTerm(offsets[this.focusTarget.table] ?? 0);
         const tableHeight = Math.max(
           1,
-          (offsets[this.focusTarget.table + 1] ?? height) - (offsets[this.focusTarget.table] ?? 0),
+          toTerm(offsets[this.focusTarget.table + 1] ?? entryRows.length) -
+            toTerm(offsets[this.focusTarget.table] ?? 0),
         );
         if (tableTop < this.scrollOffset) {
           this.follow = false;
