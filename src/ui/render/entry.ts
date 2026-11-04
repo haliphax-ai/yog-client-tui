@@ -281,14 +281,21 @@ function renderEntry(
   if (entry.kind === "tool") {
     // Identical geometry in both states (1-cell side padding, full width):
     // focusing only recolors, and expansion persists regardless of focus.
-    // Collapsed: cell-cap the line to the body width — a long tool-error
-    // line must never wrap (a wrapped JSON blob reads as several entries).
+    // Collapsed: cell-cap the summary line to the body width — a long tool-error
+    // line must never wrap (a wrapped JSON blob reads as several entries). When
+    // truncated, drop one more cell and append a UTF-8 ellipsis so the marker
+    // fits within the same budget.
     // Expanded: emit logical lines; the terminal soft-wraps overlong ones.
     const base = focusedTable ? ST.toolFocus : ST.toolPlain;
     const rows =
       entry.expanded && entry.full !== undefined
         ? [entry.label ?? entry.lines[0] ?? "", ...entry.full.split("\n")]
-        : [truncateAnsi(entry.lines[0] ?? "", Math.max(1, cols - 2))];
+        : (() => {
+            const line = entry.lines[0] ?? "";
+            const cap = Math.max(1, cols - 2);
+            if (displayWidth(line) <= cap) return [line];
+            return cap > 1 ? [truncateAnsi(line, cap - 1) + "…"] : ["…"];
+          })();
     const rendered = rows.map((r) => fitStyle(base, r, cols, 2)).join("\n");
     return {
       rendered: colorizeToolLine(rendered),
