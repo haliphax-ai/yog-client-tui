@@ -57,6 +57,7 @@ function codePointWidth(text: string, index: number): number {
 
 /** Insert text at the cursor (control characters stripped). */
 export function insert(text: string): void {
+// eslint-disable-next-line no-control-regex
   const clean = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
   if (clean === "") return;
   const state = getState();

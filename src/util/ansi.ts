@@ -11,6 +11,7 @@ import {
   ansiTokens,
   graphemes,
   graphemeWidth,
+  sliceAnsi as lgSliceAnsi,
 } from "@oakoliver/lipgloss";
 
 /** Width of a string in terminal cells, ignoring ANSI escape sequences. */
@@ -26,6 +27,7 @@ export function stripAnsi(text: string): string {
 /** Match one ANSI escape sequence at the start of `rest`, if any. */
 export function matchEscape(rest: string): string | undefined {
   const esc = rest.match(
+// eslint-disable-next-line no-control-regex
     /^\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|^\x1b\[[0-9;?]*[ -/]*[@-~]|^\x1b[@-Z\\-_]/,
   );
   return esc ? esc[0] : undefined;
@@ -81,4 +83,15 @@ export function scrollLeft(line: string, n: number): string {
     }
   }
   return result;
+}
+/** Terminal rows a logical line occupies at `cols` (soft wrap), min 1. */
+export function lineHeight(line: string, cols: number): number {
+  const width = Math.max(1, cols);
+  return Math.max(1, Math.ceil(displayWidth(line) / width));
+}
+
+/** Drop the first `cells` display cells of an ANSI string (keeps styles). */
+export function skipAnsi(line: string, cells: number): string {
+  if (cells <= 0) return line;
+  return lgSliceAnsi(line, cells, 10 ** 9);
 }

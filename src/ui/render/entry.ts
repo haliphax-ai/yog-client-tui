@@ -8,7 +8,7 @@
  */
 import type { Style } from "@oakoliver/lipgloss";
 import { ST, CHUNK_HEADER } from "../theme.ts";
-import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
+import { displayWidth, lineHeight, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { resultPreview } from "./formatting.ts";
@@ -41,6 +41,12 @@ function kindStyle(kind: EntryKind): Style {
       return ST.chunkBlock;
   }
 }
+/** Render one row with `style`, filling to `cols` when it fits and leaving
+ *  overlong rows whole (the terminal soft-wraps them). `hPad` is the
+ *  style's total horizontal padding in cells (left + right). */
+function fitStyle(style: Style, row: string, cols: number, hPad: number): string {
+  return displayWidth(row) + hPad <= cols ? style.width(cols).render(row) : style.render(row);
+}
 
 /** Rows a tool-output block body shows before truncation (label excluded). */
 const COLLAPSE_LINES = 5;
@@ -71,6 +77,7 @@ function flattenMarkdown(rows: string[]): string[] {
       .replaceAll("\x1b[m", "\x1b[23m\x1b[22m")
       .replaceAll("\x1b[0m", "\x1b[23m\x1b[22m")
       .replace(
+// eslint-disable-next-line no-control-regex
         /\x1b\[(?:38;2;\d{1,3};\d{1,3};\d{1,3}|38;5;\d{1,3}|48;2;\d{1,3};\d{1,3};\d{1,3}|48;5;\d{1,3})((?:;\d+)*)m/g,
         (_m, attrs: string) => {
           const clean = attrs.replace(/^;/, ""); // drop leading ";"
@@ -190,10 +197,9 @@ function renderEntry(
     let tableIndex = 0;
     for (const section of sections) {
       if (section.kind === "prose") {
-        const md = renderMarkdown(section.text, bodyW);
-        parts.push(
-          ...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)),
-        );
+        const md = renderMarkdown(section.text);
+        const prose = md.length > 0 ? md : section.text.split("\n");
+        parts.push(...(isUser ? flattenMarkdown(prose) : prose));
         continue;
       }
       // A table section. The column layout comes from the layout engine:
@@ -228,7 +234,9 @@ function renderEntry(
     }
     if (parts.length === 0) parts.push("");
     if (isUser) {
-      const rendered = ST.user.width(cols).render(parts.join("\n"));
+      const rowStyle = ST.user.copy().paddingTop(0).paddingBottom(0);
+      const fill = rowStyle.width(cols).render("");
+      const rendered = [fill, ...parts.map((p) => fitStyle(rowStyle, p, cols, 0)), fill].join("\n");
       return { rendered, rows: rendered.split("\n").length, tableOffsets };
     }
     // Assistant: style each prose row with the assistant style (white text,
@@ -243,7 +251,7 @@ function renderEntry(
     // presenter stores the data; the renderer formats it), else from the
     // pre-rendered body lines.
     const body =
-      entry.result !== undefined ? resultPreview(entry.result, cols) : entry.lines.slice(1);
+      entry.result !== undefined ? resultPreview(entry.result) : entry.lines.slice(1);
     const expandable = body.length > COLLAPSE_LINES;
     const open = !entry.collapsed || !expandable; // short blocks are full
     const header = entry.lines[0] ?? "";
@@ -256,33 +264,40 @@ function renderEntry(
         ? CHUNK_HEADER.ok
         : CHUNK_HEADER.fail;
     const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
-    const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
+    const base = focusedTable ? ST.chunkBlockFocus : ST.chunkBlock;
+    const rowStyle = base.copy().paddingTop(0).paddingBottom(0);
+    const fill = rowStyle.width(cols).render("");
+    const block = (rows: string[]): string =>
+      [fill, ...rows.map((r) => fitStyle(rowStyle, r, cols, 2)), fill].join("\n");
     if (open) {
-      const rendered = style.render([styledHeader, ...body].join("\n"));
+      const rendered = block([styledHeader, ...body]);
       return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
     }
     const shown = body.slice(0, COLLAPSE_LINES);
     const hidden = body.length - shown.length;
-    const rendered = style.render(
-      [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`].join(
-        "\n",
-      ),
-    );
+    const rendered = block([styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`]);
     return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
   }
 
   if (entry.kind === "tool") {
     // Identical geometry in both states (1-cell side padding, full width):
     // focusing only recolors, and expansion persists regardless of focus.
-    // Collapsed: cell-cap the line to the body width — a long tool-error
-    // line must never wrap (a wrapped JSON blob reads as several entries).
-    // Expanded: wrap the full body as before.
+    // Collapsed: cell-cap the summary line to the body width — a long tool-error
+    // line must never wrap (a wrapped JSON blob reads as several entries). When
+    // truncated, drop one more cell and append a UTF-8 ellipsis so the marker
+    // fits within the same budget.
+    // Expanded: emit logical lines; the terminal soft-wraps overlong ones.
+    const base = focusedTable ? ST.toolFocus : ST.toolPlain;
     const rows =
       entry.expanded && entry.full !== undefined
-        ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
-        : [truncateAnsi(entry.lines[0] ?? "", Math.max(1, cols - 2))];
-    const style = (focusedTable ? ST.toolFocus : ST.toolPlain).width(cols);
-    const rendered = style.render(rows.join("\n"));
+        ? [entry.label ?? entry.lines[0] ?? "", ...entry.full.split("\n")]
+        : (() => {
+            const line = entry.lines[0] ?? "";
+            const cap = Math.max(1, cols - 2);
+            if (displayWidth(line) <= cap) return [line];
+            return cap > 1 ? [truncateAnsi(line, cap - 1) + "…"] : ["…"];
+          })();
+    const rendered = rows.map((r) => fitStyle(base, r, cols, 2)).join("\n");
     return {
       rendered: colorizeToolLine(rendered),
       rows: rendered.split("\n").length,
@@ -375,11 +390,14 @@ export function tableOffsetsOf(entry: LogEntry): number[] | undefined {
   return rowCaches.get(entry)?.tableOffsets;
 }
 
-/** Number of rows the given entries occupy at `cols` (incl. separators). */
+/** Number of TERMINAL rows the given entries occupy at `cols` (incl.
+ *  separators). Soft-wrapped logical lines count their visual height:
+ *  ceil(displayWidth / cols), min 1. */
 export function totalRows(entries: LogEntry[], cols: number): number {
   let rows = 0;
   for (const entry of entries) {
-    rows += cachedRows(entry, cols).length + 1;
+    for (const row of cachedRows(entry, cols)) rows += lineHeight(row, cols);
+    rows += 1;
   }
   return rows;
 }
