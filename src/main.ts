@@ -61,6 +61,7 @@ import { StatusComponent } from "./ui/components/StatusComponent.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
 import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
 import { createInputDecoder } from "./ui/components/inputDecode.ts";
+import { appendFileSync } from "node:fs";
 import { createScheduler, resetFrameCache, runPipeline, writeFrame } from "./ui/pipeline/index.ts";
 import { isSlash, resolveSlash, slashToken, SLASH_COMMANDS } from "./core/commands.ts";
 
@@ -380,6 +381,14 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   // ---- key handling ------------------------------------------------------
+  /** Optional key-debug log file (`YOG_DEBUG_KEYS=<file>`, default /tmp). */
+  const keyEnv = process.env.YOG_DEBUG_KEYS;
+  const keyDebugPath =
+    keyEnv === undefined || keyEnv === ""
+      ? undefined
+      : keyEnv === "1"
+        ? "/tmp/yog-client-keys.log"
+        : keyEnv;
   /** Raw-input decoder (sequences, chars, bracketed paste framing). */
   const decodeInput = createInputDecoder({
     onSequence: (seq) => {
@@ -397,8 +406,8 @@ async function run(argv: readonly string[]): Promise<void> {
   });
 
   const handleData = (chunk: string): void => {
-    if (process.env.YOG_DEBUG_KEYS === "1") {
-      process.stderr.write(`[keys] ${Buffer.from(chunk, "utf8").toString("hex")}\n`);
+    if (keyDebugPath !== undefined) {
+      appendFileSync(keyDebugPath, `${Buffer.from(chunk, "utf8").toString("hex")}\n`);
     }
     decodeInput(chunk);
   };
