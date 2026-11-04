@@ -11,8 +11,8 @@
  *   node helpers/align-columns.mjs <file...> [options]
  *
  * Options:
- *   --column N   target description column (default: longest label + 2)
- *   --check      report files that would change and exit 1; write nothing
+ *   --column N  target description column (default: longest label + 2)
+ *   --check     report files that would change and exit 1; write nothing
  *   -h/--help   show this help
  */
 
@@ -67,9 +67,12 @@ function isCommentLine(line) {
 function alignBlock(block, explicitColumn) {
   const items = block.map((line) => {
     const m = line.match(/^(\s*)(\*|\/\/|#)(\s*)/);
-    const prefix = m ? m[1] + m[2] + m[3] : "";
-    const body = m ? line.slice(prefix.length) : line;
-    return { line, prefix, body };
+    if (m === null) return { line, lead: "", marker: "", baseLen: 0, body: line };
+    const lead = m[1];
+    const marker = m[2];
+    const indent = m[3];
+    const baseLen = lead.length + marker.length;
+    return { line, lead, marker, indent, baseLen, body: line.slice(baseLen + indent.length) };
   });
 
   const parsed = [];
@@ -81,13 +84,20 @@ function alignBlock(block, explicitColumn) {
       parsed.push({
         type: "label",
         line: it.line,
-        prefix: it.prefix,
+        prefix: it.lead + it.marker + it.indent,
         label: fm[1],
         desc: fm[2],
-        labelEnd: it.prefix.length + fm[1].length,
+        labelEnd: it.lead.length + it.marker.length + it.indent.length + fm[1].length,
       });
-    } else if (active && /^\s+\S/.test(it.body)) {
-      parsed.push({ type: "cont", line: it.line, prefix: it.prefix, body: it.body });
+    } else if (active && /^\s{2,}\S/.test(it.line.slice(it.baseLen))) {
+      parsed.push({
+        type: "cont",
+        line: it.line,
+        lead: it.lead,
+        marker: it.marker,
+        baseLen: it.baseLen,
+        body: it.body,
+      });
     } else {
       active = false;
       parsed.push({ type: "other", line: it.line });
@@ -108,8 +118,8 @@ function alignBlock(block, explicitColumn) {
       if (rebuilt !== p.line) changed = true;
       out.push(rebuilt);
     } else if (p.type === "cont") {
-      const pad = Math.max(0, target - p.prefix.length);
-      const rebuilt = p.prefix + " ".repeat(pad) + p.body.trimStart();
+      const pad = Math.max(0, target - p.baseLen);
+      const rebuilt = p.lead + p.marker + " ".repeat(pad) + p.body.trimStart();
       if (rebuilt !== p.line) changed = true;
       out.push(rebuilt);
     } else {

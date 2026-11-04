@@ -21,7 +21,7 @@
  * CLI flags:
  *   --session <id>  resume the given server session
  *   --new           start a fresh session (wins over any stored id; the
- *                    new id is written back to state.json)
+ *                   new id is written back to state.json)
  *
  * Key bindings (also documented in README). The top-level focus ring has two
  * targets — the input and the log; keys go to whichever side holds the ring:
