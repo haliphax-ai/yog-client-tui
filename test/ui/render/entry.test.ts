@@ -43,7 +43,8 @@ describe("assistant prose — full-width, no border", () => {
     expect(rows.length).toBe(3);
     expect(rows[1]).toBe("");
     expect(stripAnsi(rows[0] ?? "")).toContain("bold");
-    expect(rows[0]).toMatch(/\x1b\[[0-9;]*1m/); // bold remains on the row
+    expect(rows[0]).toContain(ESC); // styled with ANSI escape sequences
+    expect(rows[0]).toContain(";1m"); // bold attribute retained
     for (const row of rows) expect(stripAnsi(row).indexOf("▐")).toBe(-1);
   });
 
