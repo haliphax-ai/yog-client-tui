@@ -23,29 +23,26 @@
  *   --new            start a fresh session (wins over any stored id; the
  *                    new id is written back to state.json)
  *
- * Key bindings (also documented in README):
- *   Enter            submit (ignored while a turn is in flight)
+ * Key bindings (also documented in README). The top-level focus ring has two
+ * targets — the input and the log; keys go to whichever side holds the ring:
+ *   Shift+Up        input → log
+ *   Shift+Down      log → input
+ *   Enter           (input) submit, ignored while a turn is in flight
+ *                   (log) expand/collapse the focused unit
  *   Shift+Enter     insert a newline in the input (does not submit)
  *   Paste           multi-line text is inserted as-is (never submits)
  *   /quit           quit via the slash command (type "/" as the first
- *                    character, Tab completes, Enter runs it). Ctrl+C is
- *                    unbound (inert); the session stays on the server so
- *                    the next launch can resume it.
- *   Left/Right       move the input cursor
- *   Home/End         input cursor to line start/end
- *   Backspace/Delete delete before/at cursor
- *   PageUp/PageDown  scroll the log (stops auto-follow; PageDown at the
- *                    bottom resumes it)
- *   Ctrl+Home/Ctrl+End  jump to top/bottom of the log (End resumes follow)
- *   Up/Down          scroll the log by one row (when the input is
- *                    single-line; multi-line input moves the caret instead)
- *   Tab / Shift-Tab focus the next/previous expandable entry (tool chunk,
- *                    table-bearing message) — Enter expands/collapses it,
- *                    Esc leaves focus mode (focus wraps through "none")
- *   Left/Right (on a focused expanded table)  scroll columns horizontally
- *   Esc              abort the in-flight turn via the server's abort endpoint
- *                    (no-op when idle; with a focused entry it still just
- *                    leaves focus mode)
+ *                   character, Tab completes, Enter runs it). Ctrl+C is
+ *                   unbound (inert); the session stays on the server so
+ *                   the next launch can resume it.
+ *   Input editing    the TextArea keymap is fully reachable while the input
+ *                   holds the ring (arrows, Alt/Ctrl+arrows word nav,
+ *                   Home/End, PgUp/PgDn, Ctrl+A/E/K/U/W, selection, copy).
+ *   Log navigation   Home/End jump to top/bottom; PgUp/PgDn scroll by page;
+ *                   Up/Down scroll by one row; Tab/Shift-Tab cycle the entry
+ *                   focus ring; Esc leaves focus mode (unhandled keys drop).
+ *   Esc            (input) abort the in-flight turn via the abort endpoint;
+ *                   (log, nothing focused) return to the input.
  */
 import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from "./config.ts";
 import { type LogEntry } from "./core/entries.ts";
@@ -341,6 +338,9 @@ async function run(argv: readonly string[]): Promise<void> {
   const viewport = new ChatViewport();
   const input = new InputComponent();
   const status = new StatusComponent();
+  // Top-level focus ring: the log and the input are the two ring targets.
+  viewport.ring = "log";
+  input.ring = "input";
   const chain: readonly Component[] = [viewport, input, status];
 
   /** Rows available to the log viewport in the current terminal layout. */

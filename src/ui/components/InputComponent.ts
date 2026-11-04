@@ -13,20 +13,19 @@
  * vertically (its internal viewport) — the input row count the pipeline sees
  * is capped at `MAX_LINES`.
  *
- * Submit boundary: plain Enter (CR/LF) is **not** claimed here — it bubbles
- * to the router's global submit binding. Shift+Enter is claimed and maps to
- * the textarea's `insertNewline`, so it inserts a line break without
- * submitting. Bracketed paste is decoded by the composition root (main.ts)
- * and delivered as one `paste(content)` call, so pasted newlines are inserted
- * literally and never trigger submit.
- *
- * Key routing stays as before: the router offers the key to the focused
- * component first, then the rest of the chain, then globals. The input
- * claims every editing key whenever it is reached (focused or not); submit
- * and Esc bubble, and Tab completes a slash command or bubbles to the
- * focus-cycling global. Up/Down are claimed only while the input spans
- * multiple lines — a single-line input leaves them for the log-scroll
- * globals. Ctrl+C is intentionally unbound (inert).
+ * Key routing: the input is the "input" target of the top-level focus ring
+ * (see `keyRouter`). While it holds the ring, it receives ALL keys: escape
+ * sequences are translated into `KeyPressMsg` events (the textarea's default
+ * keymap — arrows, word navigation, Home/End, PgUp/PgDn, Ctrl+A/E/K/U/W,
+ * selection, copy, case transforms, …) and fed to the model. The few
+ * app-level carve-outs are:
+ * - Enter (CR/LF) is **not** claimed — it bubbles to the global submit.
+ * - Shift+Enter maps to the textarea's `insertNewline` (newline, no submit).
+ * - Shift+Up moves the top-level ring to the log.
+ * - Esc bubbles (abort turn); Tab completes a slash command.
+ * Bracketed paste is decoded by the composition root (main.ts) and delivered
+ * as one `paste(content)` call, so pasted newlines are inserted literally and
+ * never trigger submit.
  */
 import { KeyCode, KeyMod, KeyPressMsg } from "@oakoliver/bubbletea";
 import {
@@ -43,6 +42,7 @@ import { getState, setState } from "../../core/store.ts";
 import { ST, CURSOR_COLOR } from "../theme.ts";
 import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
 import { SLASH_COMMANDS, completeSlash, slashTokenEnd } from "../../core/commands.ts";
+import { setTopLevel } from "./keyRouter.ts";
 
 /** Input prompt marker (also sizes the textarea's prompt gutter). */
 export const PROMPT = "you › ";
@@ -62,6 +62,12 @@ const SHIFT_ENTER_SEQS: ReadonlySet<string> = new Set([
   "\x1b[13;2~",
 ]);
 
+/** Shift+Up encodings — move top-level focus from the input to the log. */
+const SHIFT_UP_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[1;2A", // xterm-style
+  "\x1b[65;2u", // CSI-u / Kitty
+]);
+
 /** A key event fed to the textarea model (shape of bubbletea's `Key`). */
 interface SeqKey {
   readonly text?: string;
@@ -69,15 +75,13 @@ interface SeqKey {
   readonly code: number;
 }
 
-/** Escape sequences the input claims (editing keys, generally cursor moves). */
-const SEQ_KEYS: Readonly<Record<string, SeqKey>> = {
-  "\x1b[A": { code: KeyCode.Up },
-  "\x1b[B": { code: KeyCode.Down },
-  "\x1b[C": { code: KeyCode.Right },
-  "\x1b[D": { code: KeyCode.Left },
-  "\x1b[H": { code: KeyCode.Home },
-  "\x1b[F": { code: KeyCode.End },
-  "\x1bOA": { code: KeyCode.Up }, // application mode
+/**
+ * Legacy (non-CSI) sequences the input claims: SS3 application-mode arrows
+ * (ESC O x) and the Alt+letter escapes some terminals still send for word
+ * navigation / case transforms.
+ */
+const LEGACY_SEQ_KEYS: Readonly<Record<string, SeqKey>> = {
+  "\x1bOA": { code: KeyCode.Up },
   "\x1bOB": { code: KeyCode.Down },
   "\x1bOC": { code: KeyCode.Right },
   "\x1bOD": { code: KeyCode.Left },
@@ -86,7 +90,129 @@ const SEQ_KEYS: Readonly<Record<string, SeqKey>> = {
   "\x1b[1~": { code: KeyCode.Home }, // rxvt
   "\x1b[4~": { code: KeyCode.End }, // rxvt
   "\x1b[3~": { code: KeyCode.Delete },
+  "\x1bb": { code: KeyCode.Left, mod: KeyMod.Alt }, // alt+left
+  "\x1bf": { code: KeyCode.Right, mod: KeyMod.Alt }, // alt+right
+  "\x1bc": { code: 99, mod: KeyMod.Alt }, // alt+c
+  "\x1bl": { code: 108, mod: KeyMod.Alt }, // alt+l
+  "\x1bu": { code: 117, mod: KeyMod.Alt }, // alt+u
+  "\x1bd": { code: 100, mod: KeyMod.Alt }, // alt+d
+  "\x1b<": { code: 60, mod: KeyMod.Alt }, // alt+<
+  "\x1b>": { code: 62, mod: KeyMod.Alt }, // alt+>
+  "\x1bF": { code: 70, mod: KeyMod.Alt | KeyMod.Shift }, // alt+shift+f
+  "\x1bB": { code: 66, mod: KeyMod.Alt | KeyMod.Shift }, // alt+shift+b
 };
+
+/** Modifier bits for a CSI parameter byte (1=shift, 2=alt, 4=ctrl…). */
+function modFor(param: number): number {
+  switch (param) {
+    case 1:
+      return KeyMod.Shift;
+    case 2:
+      return KeyMod.Shift;
+    case 3:
+      return KeyMod.Alt;
+    case 4:
+      return KeyMod.Alt | KeyMod.Shift;
+    case 5:
+      return KeyMod.Ctrl;
+    case 6:
+      return KeyMod.Ctrl | KeyMod.Shift;
+    case 7:
+      return KeyMod.Ctrl | KeyMod.Alt;
+    case 8:
+      return KeyMod.Ctrl | KeyMod.Alt | KeyMod.Shift;
+    default:
+      return KeyMod.None;
+  }
+}
+
+/** Key code for a CSI-u (Kitty) code point. */
+function codeForU(cp: number): number | undefined {
+  switch (cp) {
+    case 13:
+      return KeyCode.Enter;
+    case 127:
+    case 8:
+      return KeyCode.Backspace;
+    case 9:
+      return KeyCode.Tab;
+    case 27:
+      return KeyCode.Escape;
+    case 32:
+      return KeyCode.Space;
+    case 65:
+      return KeyCode.Up;
+    case 66:
+      return KeyCode.Down;
+    case 67:
+      return KeyCode.Right;
+    case 68:
+      return KeyCode.Left;
+    case 70:
+      return KeyCode.End;
+    case 72:
+      return KeyCode.Home;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Parse a CSI sequence (ESC [ params final) into a key event: arrows, Home/
+ * End (C and `~` forms), PgUp/PgDn, Delete, Backspace, Enter, Tab, Esc —
+ * each with its modifier bits. Returns undefined for sequences the textarea
+ * does not bind (unknown finals, printable/other CSI-u code points).
+ */
+function parseSeqKey(seq: string): SeqKey | undefined {
+  if (!seq.startsWith("\x1b[")) return undefined;
+  const match = /^([\d;]*)([A-Za-z~])$/.exec(seq.slice(2));
+  if (match === null) return undefined;
+  const paramStr = match[1] as string;
+  const final = match[2] as string;
+  const params = paramStr === "" ? [] : paramStr.split(";").map(Number);
+  const mod = params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
+
+  let code: number | undefined;
+  switch (final) {
+    case "A":
+      code = KeyCode.Up;
+      break;
+    case "B":
+      code = KeyCode.Down;
+      break;
+    case "C":
+      code = KeyCode.Right;
+      break;
+    case "D":
+      code = KeyCode.Left;
+      break;
+    case "H":
+      code = KeyCode.Home;
+      break;
+    case "F":
+      code = KeyCode.End;
+      break;
+    case "u": {
+      const cp = params[0];
+      if (cp === undefined) return undefined;
+      code = codeForU(cp);
+      break;
+    }
+    case "~": {
+      const kind = params[0];
+      if (kind === 1) code = KeyCode.Home;
+      else if (kind === 4) code = KeyCode.End;
+      else if (kind === 3) code = KeyCode.Delete;
+      else if (kind === 5) code = KeyCode.PgUp;
+      else if (kind === 6) code = KeyCode.PgDown;
+      break;
+    }
+    default:
+      return undefined;
+  }
+  if (code === undefined) return undefined;
+  return { code, mod };
+}
 
 /** Textarea styles mapped onto the theme (cursor block, prompt marker). */
 function inputStyles(): TextareaStyles {
@@ -194,14 +320,28 @@ export class InputComponent extends BaseComponent {
     setState({ input: "", commandSel: 0 });
   }
 
+  /** Feed a control character (Ctrl+letter) to the textarea model. */
+  private feedControl(code: number): void {
+    this.textarea.update(new KeyPressMsg({ text: "", mod: KeyMod.Ctrl, code }));
+    this.commitEdit();
+  }
+
   override handleChar(ch: string): KeyResult {
     if (ch === "\r" || ch === "\n") return "unhandled"; // submit → globals
     if (ch === "\t") return this.completeTab() ? "handled" : "unhandled";
     if (ch === "\x1b") return "unhandled"; // Esc → viewport or globals
     if (ch === "\x03") return "unhandled"; // Ctrl+C is intentionally unbound
-    if (ch === "\x7f" || ch === "\x08") {
+    if (ch === "\x7f") {
       this.feed({ code: KeyCode.Backspace });
       this.commitEdit();
+      return "handled";
+    }
+    const code = ch.charCodeAt(0);
+    // The textarea binds every Ctrl+letter editing key (ctrl+a/e/k/u/w/f/b/
+    // n/p/t/g/h/d…); route them all to the model. Unknown control chars are
+    // still swallowed so they never leak into the text.
+    if (code >= 1 && code <= 26) {
+      this.feedControl(code);
       return "handled";
     }
     if (ch < " ") return "handled"; // other control chars stay swallowed
@@ -219,8 +359,8 @@ export class InputComponent extends BaseComponent {
   /**
    * Tab inside a slash line: advance the completion selection and apply it
    * (replaces the typed token; anything after a space is preserved). Returns
-   * false when autocomplete is not active so Tab still bubbles to the global
-   * focus-cycling binding.
+   * false when autocomplete is not active so Tab stays with the input ring
+   * (dropped) instead of leaking into the log.
    */
   private completeTab(): boolean {
     const state = getState();
@@ -243,7 +383,11 @@ export class InputComponent extends BaseComponent {
       this.commitEdit();
       return "handled";
     }
-    const key = SEQ_KEYS[seq];
+    if (SHIFT_UP_SEQS.has(seq)) {
+      setTopLevel("log");
+      return "handled";
+    }
+    const key = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
     if (key === undefined) return "unhandled";
     // Up/Down move the caret only when the input spans multiple lines; a
     // single-line input leaves them to the log-scroll globals.

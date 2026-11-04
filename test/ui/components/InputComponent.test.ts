@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
 import { InputComponent, MAX_LINES } from "../../../src/ui/components/InputComponent.ts";
+import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
 import { stripAnsi } from "../../../src/util/ansi.ts";
 
 /** Type a string into a component, one code point at a time. */
@@ -165,5 +166,60 @@ describe("InputComponent slash autocomplete", () => {
     typeText(component, "hello");
     expect(component.handleChar("\t")).toBe("unhandled");
     expect(getState().input).toBe("hello");
+  });
+});
+
+describe("InputComponent — textarea keybindings (full keymap reachable)", () => {
+  beforeEach(() => {
+    resetForTests();
+    setTopLevel("input");
+  });
+
+  it("Ctrl+A / Ctrl+E jump to line start/end", () => {
+    const component = new InputComponent();
+    typeText(component, "hello");
+    component.handleChar("\x01"); // ctrl+a → start
+    component.handleChar("X");
+    expect(getState().input).toBe("Xhello");
+    component.handleChar("\x05"); // ctrl+e → end
+    component.handleChar("Y");
+    expect(getState().input).toBe("XhelloY");
+  });
+
+  it("Ctrl+W deletes the word before the cursor", () => {
+    const component = new InputComponent();
+    typeText(component, "hello world");
+    component.handleChar("\x17"); // ctrl+w
+    expect(getState().input).toBe("hello ");
+  });
+
+  it("Ctrl+K deletes from the cursor to the end of the line", () => {
+    const component = new InputComponent();
+    typeText(component, "hello world");
+    component.handleChar("\x01"); // home
+    component.handleChar("\x0b"); // ctrl+k
+    expect(getState().input).toBe("");
+  });
+
+  it("Alt+Left moves one word backward (legacy ESC-b)", () => {
+    const component = new InputComponent();
+    typeText(component, "abc def");
+    component.handleKey("\x1bb"); // alt+left
+    component.handleChar("Z");
+    expect(getState().input).toBe("abc Zdef");
+  });
+
+  it("modified arrow sequences reach the model (Ctrl+Left)", () => {
+    const component = new InputComponent();
+    typeText(component, "one two");
+    expect(component.handleKey("\x1b[1;5D")).toBe("handled"); // ctrl+left
+    component.handleChar("X");
+    expect(getState().input).toBe("one Xtwo"); // start of the previous word
+  });
+
+  it("Shift+Up moves top-level focus to the log", () => {
+    const component = new InputComponent();
+    expect(component.handleKey("\x1b[1;2A")).toBe("handled");
+    expect(getTopLevel()).toBe("log");
   });
 });

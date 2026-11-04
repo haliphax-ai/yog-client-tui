@@ -35,8 +35,8 @@ export function statusBody(): string {
   segments.push(session.join(" · "));
   segments.push(
     state.busy
-      ? "Tab focus · PgUp/PgDn scroll · Esc abort · /quit exit"
-      : "Tab focus · PgUp/PgDn scroll · Enter send · /quit exit",
+      ? "Shift+Up/Down focus · Tab focus · PgUp/PgDn scroll · Esc abort · /quit exit"
+      : "Shift+Up/Down focus · Tab focus · PgUp/PgDn scroll · Enter send · /quit exit",
   );
   return segments.join(" │ ");
 }

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
+import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
 import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
 import { getState, resetForTests, setState, subscribe } from "../../../src/core/store.ts";
 import { totalRows } from "../../../src/ui/render/index.ts";
@@ -167,8 +168,20 @@ describe("ChatViewport — Esc routing", () => {
     expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
   });
 
-  it("bubbles Esc when nothing is focused (the turn-abort path)", () => {
+  it("returns to the input when nothing is focused (ring-empty Esc)", () => {
     const viewport = new ChatViewport();
-    expect(viewport.handleChar("\x1b")).toBe("unhandled");
+    expect(viewport.handleChar("\x1b")).toBe("handled");
+    expect(getTopLevel()).toBe("input");
+    setTopLevel("input"); // restore for other tests
+  });
+});
+
+describe("ChatViewport — top-level ring return", () => {
+  it("Shift+Down hands the ring back to the input", () => {
+    const viewport = new ChatViewport();
+    setTopLevel("log");
+    expect(viewport.handleKey("\x1b[1;2B")).toBe("handled");
+    expect(getTopLevel()).toBe("input");
+    setTopLevel("input");
   });
 });
