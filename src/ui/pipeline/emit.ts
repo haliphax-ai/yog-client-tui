@@ -3,12 +3,15 @@
  * funnels every write through `writeFrame` here — nothing else in the code
  * base writes composed frames to stdout.
  *
- * Frames are DIFF-painted: each frame's rows are compared against the last
- * frame's rows and only changed rows are written (cursor-home + one CRLF per
- * row). Unchanged rows cost nothing on the wire, which removes the flicker
- * of full-screen repaints on no-op keystrokes and typing (only the input row
- * changes). The previous frame height equals the terminal height, so row N of
- * this frame is always terminal row N — diffing by index is absolute.
+ * Frames are DIFF-painted against the previous frame's rows. Row N of a
+ * frame is always terminal row N (the previous frame is exactly terminal
+ * height), so a changed row is reached with cursor-home plus one CRLF per
+ * row above it; unchanged rows contribute separator CRLFs only — no bytes
+ * of content. Rows after the last changed row are not touched at all, so
+ * the write never ends in a CRLF (which would scroll at the bottom row).
+ * No-op keystrokes write nothing; typing writes only the input row's
+ * transit. The post stage pads every line to exactly the terminal width,
+ * so writing a changed row's full-width content overwrites it completely.
  */
 const HOME = "\x1b[H";
 
@@ -21,28 +24,31 @@ export function resetFrameCache(): void {
   lastLines = null;
 }
 
-/** Write one composed frame. Changed rows only; a shrunken frame clears
- *  the rows it no longer covers. No trailing CRLF: a CRLF written while the
- *  cursor sits on the terminal's last row would scroll the screen. */
+/** Write one composed frame. Changed rows only, in absolute position. */
 export function writeFrame(frame: string): void {
   const lines = frame.split("\n");
   const prev = lastLines;
   lastLines = lines;
-  const out: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] as string;
-    if (prev !== null && i < prev.length && prev[i] === line) continue;
-    out.push(line);
+  if (prev === null) {
+    process.stdout.write(`${HOME}${lines.join("\r\n")}`);
+    return;
   }
-  // Trailing skipped rows write nothing — drop them so the join never ends
-  // in a CRLF (which would push the cursor past the last row and scroll).
-  while (out.length > 0 && out[out.length - 1] === "") out.pop();
-  if (out.length > 0) {
-    process.stdout.write(`${HOME}${out.join("\r\n")}`);
+  const shared = Math.min(lines.length, prev.length);
+  let lastChanged = -1;
+  for (let i = 0; i < shared; i++) {
+    if (prev[i] !== lines[i]) lastChanged = i;
   }
-  if (prev !== null && lines.length < prev.length) {
-    // The frame shrank (e.g. the autocomplete menu closed and the layout
-    // grew the viewport back): erase the rows below the new frame.
-    process.stdout.write("\x1b[J");
+  if (lines.length > prev.length) lastChanged = lines.length - 1; // new rows
+  if (lastChanged === -1) {
+    if (lines.length < prev.length) process.stdout.write("\x1b[J");
+    return;
   }
+  const out: string[] = [HOME];
+  for (let i = 0; i <= lastChanged; i++) {
+    if (i > 0) out.push("\r\n"); // transit: unchanged rows just advance
+    if (i < shared && prev[i] === lines[i]) continue; // unchanged: no bytes
+    out.push(lines[i] ?? "");
+  }
+  process.stdout.write(out.join(""));
+  if (lines.length < prev.length) process.stdout.write("\x1b[J");
 }

@@ -34,13 +34,13 @@ describe("emit — diff frame writer", () => {
     expect(write).toHaveBeenCalledWith("\x1b[Hone\r\ntwo\r\nthree");
   });
 
-  it("skips unchanged rows on the next frame", () => {
+  it("paints only the changed rows on the next frame", () => {
     const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     writeFrame("one\ntwo\nthree");
     write.mockClear();
     writeFrame("one\nTWO\nthree");
-    expect(write).toHaveBeenCalledTimes(1);
-    expect(write).toHaveBeenCalledWith("\x1b[HTWO");
+    // Cursor home + transit to row 2, then the changed row only.
+    expect(write).toHaveBeenCalledWith("\x1b[H\r\nTWO");
   });
 
   it("writes nothing when the frame is identical", () => {
