@@ -28,6 +28,30 @@ describe("store", () => {
     expect(getState().statusNote).toBe("ok");
   });
 
+  it("does not notify when a patch changes nothing", () => {
+    setState({ cursor: 3 });
+    let calls = 0;
+    subscribe(() => {
+      calls += 1;
+    });
+    setState({ cursor: 3 }); // identical value — no-op
+    setState({ statusNote: "" }); // equals the default — no-op
+    setState({}); // empty patch — no-op
+    expect(calls).toBe(0);
+    expect(getState().cursor).toBe(3);
+  });
+
+  it("notifies once per patch and drops only identical keys", () => {
+    let calls = 0;
+    subscribe(() => {
+      calls += 1;
+    });
+    setState({ cursor: 3, input: "x" });
+    setState({ cursor: 3, input: "xy" }); // input changed → one flush
+    expect(calls).toBe(2);
+    expect(getState().input).toBe("xy");
+  });
+
   it("stops notifying after unsubscribe", () => {
     let calls = 0;
     const unsubscribe = subscribe(() => {

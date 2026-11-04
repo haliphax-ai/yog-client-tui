@@ -18,5 +18,5 @@ export {
 } from "./registry.ts";
 export { runPipeline, type RunOptions } from "./runner.ts";
 export { createScheduler, FRAME_MS, type Scheduler } from "./scheduler.ts";
-export { writeFrame } from "./emit.ts";
+export { resetFrameCache, writeFrame } from "./emit.ts";
 export { padFrame, padLine, type FrameLines } from "./lines.ts";
