@@ -8,10 +8,11 @@
  * completion selection) back via `setState`, so the render scheduler fires
  * through the normal store path.
  *
- * Geometry: the textarea grows and shrinks to fit its content, from one row
- * up to `MAX_LINES` rows; when content exceeds that, the widget scrolls
- * vertically (its internal viewport) — the input row count the pipeline sees
- * is capped at `MAX_LINES`.
+ * Geometry: the textarea's visible viewport stays between one row and
+ * `MAX_LINES` rows — beyond that the widget scrolls internally and keeps the
+ * cursor row in view. The *content* is bounded separately by
+ * `MAX_CONTENT_ROWS` (visual rows, a generous ceiling so single-line soft
+ * wraps and multi-line pastes both fit) and `MAX_INPUT_CHARS` characters.
  *
  * Key routing: the input is the "input" target of the top-level focus ring
  * (see `keyRouter`). While it holds the ring, it receives ALL keys: escape
@@ -50,11 +51,21 @@ import {
 } from "../../core/commands.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 
-/** The input grows to this many rows before it scrolls vertically. */
+/** Rows the input's visible viewport grows to before it scrolls internally. */
 export const MAX_LINES = 10;
 
 /** Hard cap on the input's character content (the textarea truncates beyond it). */
 export const MAX_INPUT_CHARS = 5000;
+
+/**
+ * Hard cap on the input's *content* rows (visual rows, soft-wrapped). The
+ * visible viewport is `MAX_LINES`; this is how much text the buffer itself
+ * may hold past that. Without it the textarea's legacy guard would stop
+ * inserts at `MAX_LINES` logical lines. It can never bind before
+ * `MAX_INPUT_CHARS` does — every visual row costs at least one character —
+ * so it is simply derived from the character cap.
+ */
+export const MAX_CONTENT_ROWS = MAX_INPUT_CHARS;
 
 /** Maximum rows the slash autocomplete menu shows (candidates in ranked order). */
 export const MAX_MENU_ROWS = 5;
@@ -262,6 +273,7 @@ export class InputComponent extends BaseComponent {
     ta.dynamicHeight = true;
     ta.minHeight = 1;
     ta.maxHeight = MAX_LINES;
+    ta.maxContentHeight = MAX_CONTENT_ROWS;
     ta.charLimit = MAX_INPUT_CHARS;
     ta.keyMap.insertNewline = newBinding(
       withKeys("shift+enter"),
