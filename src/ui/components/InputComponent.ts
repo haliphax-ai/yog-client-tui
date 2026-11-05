@@ -410,26 +410,26 @@ export class InputComponent extends BaseComponent {
   }
 
   /**
-   * Tab inside a slash line: advance the completion selection and apply it
-   * (replaces the typed token; anything after a space is preserved). Returns
-   * false when autocomplete is not active so Tab stays with the input ring
-   * (dropped) instead of leaking into the log.
+   * Tab inside a slash line: apply the highlighted completion (the first
+   * ranked match by default) — Tab accepts the selection, it does not cycle.
+   * Anything after the token is preserved. Returns false when autocomplete is
+   * not active so Tab stays with the input ring (dropped) instead of leaking
+   * into the log.
    */
   private completeTab(): boolean {
     const state = getState();
     const candidates = completeSlash(state.input);
     if (candidates.length === 0) return false;
-    const next = (state.commandSel + 1) % candidates.length;
-    const candidate = candidates[next];
+    const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
+    const candidate = candidates[sel];
     if (candidate === undefined) return false;
     const end = slashTokenEnd(state.input);
     const replaced = candidate + state.input.slice(end);
     this.textarea.setValue(replaced);
     this.textarea.setCursorColumn(candidate.length);
-    setState({ input: replaced, commandSel: next });
+    setState({ input: replaced, commandSel: sel });
     return true;
   }
-
   override handleKey(seq: string): KeyResult {
     if (SHIFT_ENTER_SEQS.has(seq)) {
       this.feed({ code: KeyCode.Enter, mod: KeyMod.Shift });
