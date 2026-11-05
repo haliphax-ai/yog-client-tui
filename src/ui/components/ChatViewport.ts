@@ -32,6 +32,13 @@ const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
   "\x1b[1;2B", // xterm-style
   "\x1b[66;2u", // CSI-u / Kitty
 ]);
+
+/** Shift+T encodings — cycle backward through the focused entry's tables. */
+const TABLE_CYCLE_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[84;2u", // Kitty/CSI-u
+  "\x1b[1;2T", // xterm modifyOtherKeys
+  "\x1bT", // legacy
+]);
 /**
  * Scroll geometry of the focused table at the log's width: the viewport-body
  * width and the table's total rendered width. Same `resolveTableLayout` the
@@ -155,6 +162,8 @@ export class ChatViewport extends ChatLogComponent {
       setState({}); // notify the scheduler so the input un-blurs
       return "handled";
     }
+    // Shift+T cycles backward through the focused entry's tables.
+    if (TABLE_CYCLE_SEQS.has(seq)) return this.cycleTable(-1);
     const focused = this.focusedTable();
     if (focused === null) return "unhandled";
     // Fast path: skip the expensive parse for keys that can't scroll
@@ -174,6 +183,8 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   override handleChar(ch: string): "handled" | "unhandled" {
+    // T: cycle forward through the focused prose entry's tables.
+    if (ch === "t") return this.cycleTable(1);
     if (ch === "h" || ch === "l") {
       const focused = this.focusedTable();
       if (focused === null) return "unhandled";
@@ -211,6 +222,38 @@ export class ChatViewport extends ChatLogComponent {
       return "handled";
     }
     return "unhandled";
+  }
+
+  /**
+   * T / Shift+T: cycle through the tables of the focused prose entry.
+   * Handled only while a prose entry is focused (`table >= 0` or the entry
+   * itself with at least one table — the entry-level focus targets the
+   * entry, so cycling moves into/out of its tables). Enter stays with the
+   * table's expand/collapse; Esc unfocuses back to the log ring as usual.
+   */
+  private cycleTable(dir: 1 | -1): "handled" | "unhandled" {
+    this.syncFromStore();
+    const entry = this.entries[this.focusTarget.entry];
+    if (entry === undefined) return "unhandled";
+    if (entry.kind !== "user" && entry.kind !== "assistant") return "unhandled";
+    const tableCount = splitTableSections(entry.lines.join("\n")).filter(
+      (s) => s.kind === "table",
+    ).length;
+    if (tableCount === 0) return "unhandled";
+    // Cycle at entry level: entry → table 0 → … → table N-1 → entry.
+    const current = this.focusTarget.table;
+    let next: number;
+    if (current < 0) {
+      next = dir === 1 ? 0 : tableCount - 1; // entering the tables
+    } else {
+      next = current + dir;
+      if (next < 0) next = -1; // wrap back to the entry itself
+      if (next >= tableCount) next = -1;
+    }
+    this.focusTarget = { entry: this.focusTarget.entry, table: next };
+    this.commit();
+    this.reveal();
+    return "handled";
   }
 
   /** Tab / Shift-Tab: move the focus ring and keep the target visible. */

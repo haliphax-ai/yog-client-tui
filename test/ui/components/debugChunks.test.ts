@@ -24,8 +24,11 @@ describe("debug chunks — focus / collapse / expand", () => {
       { kind: "assistant", lines: ["hi"] },
       debugEntry(3),
     ];
+    // The assistant prose entry is now focusable too (for copy/branching
+    // groundwork), so it contributes one unit between the two chunks.
     expect(focusUnits(entries)).toEqual([
       { entry: 1, table: -1 },
+      { entry: 2, table: -1 },
       { entry: 3, table: -1 },
     ]);
   });

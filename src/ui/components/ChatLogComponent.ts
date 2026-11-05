@@ -48,6 +48,49 @@ function entryBounds(
   return { top, height };
 }
 
+/**
+ * The unit to enter the focus ring at when nothing is focused, picked from
+ * what is visible: the first (dir=1) or last (dir=-1) focusable unit whose
+ * entry is AT LEAST PARTIALLY visible in the [offset, offset + rows) window.
+ * When nothing is visible, the next-closest unit wins: the first unit at or
+ * after the window for Tab, the last at or before it for Shift+Tab. A
+ * viewport holding a single unit resolves to it from both directions.
+ * Returns undefined when the log has no focusable units.
+ */
+function visibleFocusUnit(
+  entries: LogEntry[],
+  units: readonly FocusTarget[],
+  cols: number,
+  scrollOffset: number,
+  rows: number,
+  dir: 1 | -1,
+): FocusTarget | undefined {
+  if (units.length === 0) return undefined;
+  const windowBottom = scrollOffset + Math.max(1, rows);
+  const visible: FocusTarget[] = [];
+  for (const unit of units) {
+    const { top, height } = entryBounds(entries, cols, unit.entry);
+    if (top < windowBottom && top + height > scrollOffset) visible.push(unit);
+  }
+  if (dir === 1) {
+    if (visible.length > 0) return visible[0] as FocusTarget;
+    // Nothing visible in the window: the next closest is the first unit at
+    // or after the window top; when the window is past every unit, the last.
+    for (const unit of units) {
+      if (entryBounds(entries, cols, unit.entry).top >= scrollOffset) return unit;
+    }
+    return units[units.length - 1] as FocusTarget;
+  }
+  if (visible.length > 0) return visible[visible.length - 1] as FocusTarget;
+  // Nothing visible: the last unit at or before the window bottom; when the
+  // window is before every unit, the first.
+  for (let i = units.length - 1; i >= 0; i--) {
+    const bounds = entryBounds(entries, cols, (units[i] as FocusTarget).entry);
+    if (bounds.top + bounds.height <= windowBottom) return units[i] as FocusTarget;
+  }
+  return units[0] as FocusTarget;
+}
+
 export abstract class ChatLogComponent extends ViewportComponent {
   /** The log's entries (shared with the store in the current wiring). */
   protected entries: LogEntry[];
@@ -110,9 +153,18 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * the last lands on none, and the next press re-enters from that end).
    * The ring is a flat list of targets — tables inside one entry are
    * independently focusable, so Tab walks through them before moving on.
+   *
+   * When nothing is focused, the entry point is viewport-aware: the first
+   * (dir=1) or last (dir=-1) unit at least partially visible in the
+   * current window; the next-closest unit when the window holds none.
    */
-  moveFocus(dir: 1 | -1): void {
-    this.focusTarget = moveFocus(focusUnits(this.entries), this.focusTarget, dir);
+  moveFocus(dir: 1 | -1, viewportRows: number = this.effectiveViewportRows(this.cols)): void {
+    const units = focusUnits(this.entries);
+    const enterAt =
+      this.focusTarget.entry < 0
+        ? visibleFocusUnit(this.entries, units, this.cols, this.scrollOffset, viewportRows, dir)
+        : undefined;
+    this.focusTarget = moveFocus(units, this.focusTarget, dir, enterAt);
   }
 
   /**

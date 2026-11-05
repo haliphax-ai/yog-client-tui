@@ -118,6 +118,9 @@ describe("ChatViewport — Tab / Shift-Tab entry focus ring", () => {
     expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // tool
 
     viewport.cycleFocus(1);
+    expect(getState().focusTarget).toEqual({ entry: 3, table: -1 }); // assistant prose
+
+    viewport.cycleFocus(1);
     expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET); // wrap through none
 
     viewport.cycleFocus(1);
@@ -128,7 +131,10 @@ describe("ChatViewport — Tab / Shift-Tab entry focus ring", () => {
     const viewport = new ChatViewport();
 
     viewport.cycleFocus(-1);
-    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // enters at the last focusable
+    expect(getState().focusTarget).toEqual({ entry: 3, table: -1 }); // enters at the last focusable (assistant)
+
+    viewport.cycleFocus(-1);
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 });
 
     viewport.cycleFocus(-1);
     expect(getState().focusTarget).toEqual({ entry: 1, table: -1 });
@@ -137,7 +143,7 @@ describe("ChatViewport — Tab / Shift-Tab entry focus ring", () => {
     expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
 
     viewport.cycleFocus(-1);
-    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 }); // re-enters from the end
+    expect(getState().focusTarget).toEqual({ entry: 3, table: -1 }); // re-enters from the end
   });
 
   it("keeps the store as the source of truth across cycles", () => {

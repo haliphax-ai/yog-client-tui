@@ -168,7 +168,12 @@ describe("ChatViewport — table focus interactions", () => {
     expect(getState().focusTarget).toEqual({ entry: 0, table: -1 }); // chunk first
 
     viewport.cycleFocus(1);
-    expect(getState().focusTarget).toEqual({ entry: 1, table: 0 }); // table prose
+    // The prose entry itself is now focusable (user/assistant ring work) —
+    // it comes first, then its tables.
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 });
+
+    viewport.cycleFocus(1); // → the table inside the prose entry
+    expect(getState().focusTarget).toEqual({ entry: 1, table: 0 });
 
     // Render once so the component sees the terminal width (as the live
     // render loop does before any key routing).
@@ -198,6 +203,7 @@ describe("ChatViewport — table focus interactions", () => {
     });
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
+    viewport.cycleFocus(1); // → the prose entry
     viewport.cycleFocus(1); // → the table
     viewport.render({ cols: 40 });
     expect(viewport.handleChar("l")).toBe("unhandled");
@@ -221,8 +227,9 @@ describe("ChatViewport — table focus interactions", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.cycleFocus(1);
-    // No focusable entries → ring stays at none; Enter falls through.
-    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
+    // The prose entry itself is focused; a prose entry with no tables has
+    // nothing to toggle, so Enter falls through to submit.
+    expect(getState().focusTarget).toEqual({ entry: 0, table: -1 });
     expect(viewport.handleChar("\r")).toBe("unhandled");
   });
 
@@ -232,7 +239,9 @@ describe("ChatViewport — table focus interactions", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.render({ cols: 40 });
-    viewport.cycleFocus(1); // → the table entry (index 0)
+    viewport.cycleFocus(1); // → the prose entry itself (now focusable)
+    expect(getState().focusTarget).toEqual({ entry: 0, table: -1 });
+    viewport.cycleFocus(1); // → the table inside it
     expect(getState().focusTarget).toEqual({ entry: 0, table: 0 });
     viewport.handleChar("\r"); // expand
     expect(viewport.handleKey("\x1b[C")).toBe("handled");
@@ -256,6 +265,8 @@ describe("ChatViewport — per-table state is independent", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.render({ cols: 40 });
+    viewport.cycleFocus(1); // → the entry unit
+    expect(getState().focusTarget).toEqual({ entry: 0, table: -1 });
     viewport.cycleFocus(1); // → table 0
     expect(getState().focusTarget).toEqual({ entry: 0, table: 0 });
     viewport.cycleFocus(1); // → table 1
@@ -271,6 +282,7 @@ describe("ChatViewport — per-table state is independent", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.render({ cols: 40 });
+    viewport.cycleFocus(1); // → the entry unit
     viewport.cycleFocus(1); // → table 0
     viewport.cycleFocus(1); // → table 1
     viewport.handleChar("\r"); // expand table 1 so it can scroll
@@ -286,6 +298,7 @@ describe("ChatViewport — per-table state is independent", () => {
     const viewport = new ChatViewport();
     viewport.setViewportRows(24);
     viewport.render({ cols: 40 });
+    viewport.cycleFocus(1); // → the entry unit
     viewport.cycleFocus(1); // → table 0
     viewport.cycleFocus(1); // → table 1
     viewport.handleChar("\r"); // expand table 1
@@ -301,5 +314,59 @@ describe("ChatViewport — per-table state is independent", () => {
       tableRowWidth(resolveTableLayout([45, 4], 38, true).widths),
     );
     expect(sections).toContain("Second");
+  });
+});
+
+describe("ChatViewport — T / Shift+T table cycling", () => {
+  beforeEach(() => {
+    resetForTests();
+    setState({ entries: fixture() });
+  });
+
+  it("t enters the focused prose entry's tables and wraps back to the entry", () => {
+    const viewport = new ChatViewport();
+    viewport.setViewportRows(24);
+    viewport.cycleFocus(1); // chunk
+    viewport.cycleFocus(1); // prose entry (entry-level focus)
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 });
+
+    expect(viewport.handleChar("t")).toBe("handled");
+    expect(getState().focusTarget).toEqual({ entry: 1, table: 0 });
+
+    expect(viewport.handleChar("t")).toBe("handled");
+    expect(getState().focusTarget).toEqual({ entry: 1, table: -1 }); // wraps back
+  });
+
+  it("Shift+T cycles backward; Enter/Esc still work while a table is focused", () => {
+    const viewport = new ChatViewport();
+    viewport.setViewportRows(24);
+    viewport.cycleFocus(1); // chunk
+    viewport.cycleFocus(1); // prose entry
+
+    expect(viewport.handleKey("\x1b[84;2u")).toBe("handled"); // Shift+T → last table
+    expect(getState().focusTarget).toEqual({ entry: 1, table: 0 });
+
+    // Enter toggles the focused table (existing behavior preserved).
+    viewport.render({ cols: 40 }); // narrow → the table is expandable
+    expect(viewport.handleChar("\r")).toBe("handled");
+    expect(tableState(getState().entries[1]!, 0).expanded).toBe(true);
+
+    // Esc unfocuses back to the log ring (nothing focused).
+    expect(viewport.handleChar("\x1b")).toBe("handled");
+    expect(getState().focusTarget).toEqual(FOCUS_NONE_TARGET);
+  });
+
+  it("t is unhandled for prose entries without tables and while nothing is focused", () => {
+    const viewport = new ChatViewport();
+    viewport.setViewportRows(24);
+    expect(viewport.handleChar("t")).toBe("unhandled"); // nothing focused
+
+    viewport.cycleFocus(1);
+    viewport.cycleFocus(1);
+    viewport.cycleFocus(1); // → the prose entry's table unit
+    expect(getState().focusTarget).toEqual({ entry: 1, table: 0 });
+    viewport.cycleFocus(1); // → "just prose" entry (no tables)
+    expect(getState().focusTarget).toEqual({ entry: 2, table: -1 });
+    expect(viewport.handleChar("t")).toBe("unhandled");
   });
 });

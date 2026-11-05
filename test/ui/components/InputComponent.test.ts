@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
-import { InputComponent, MAX_LINES } from "../../../src/ui/components/InputComponent.ts";
+import {
+  InputComponent,
+  MAX_INPUT_CHARS,
+  MAX_LINES,
+} from "../../../src/ui/components/InputComponent.ts";
 import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
 import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
@@ -363,5 +367,25 @@ describe("InputComponent — blurred input styling", () => {
     expect(text).not.toContain("↹");
     expect(component.handleChar("\t")).toBe("handled");
     expect(getState().input).toBe("/handoff g");
+  });
+});
+
+describe("InputComponent — 5000-character cap", () => {
+  beforeEach(() => resetForTests());
+
+  it("accepts up to 5000 characters and truncates the rest", () => {
+    const component = new InputComponent();
+    component.paste("a".repeat(MAX_INPUT_CHARS));
+    expect(component.textLength()).toBe(MAX_INPUT_CHARS);
+    component.paste("b".repeat(50)); // beyond the cap — truncated
+    expect(component.textLength()).toBe(MAX_INPUT_CHARS);
+    expect(getState().input.length).toBe(MAX_INPUT_CHARS);
+  });
+
+  it("keeps the viewport capped at MAX_LINES rows regardless of length", () => {
+    const component = new InputComponent();
+    component.paste("x".repeat(MAX_INPUT_CHARS));
+    expect(component.measure(80)).toBe(MAX_LINES);
+    expect(component.render({ cols: 80 }).split("\n").length).toBe(MAX_LINES);
   });
 });

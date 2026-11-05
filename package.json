@@ -35,9 +35,9 @@
     "vitest": "^5.0.5"
   },
   "nano-staged": {
-    "**/*.ts": [
-      "oxfmt",
-      "oxlint --fix"
+    "**/*": [
+      "oxfmt --no-error-on-unmatched-pattern",
+      "oxlint --fix --no-error-on-unmatched-pattern"
     ]
   },
   "engines": {

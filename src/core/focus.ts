@@ -29,9 +29,11 @@ export const FOCUS_NONE_TARGET: FocusTarget = { entry: FOCUS_NONE, table: FOCUS_
 /**
  * Next focus target after pressing Tab (+1) or Shift-Tab (-1).
  *
- * When nothing is focused, the ring enters from the nearest end (first
- * unit going forward, last unit going backward). With no focusable units
- * it stays at none.
+ * When nothing is focused, the ring enters from the caller's viewport-aware
+ * entry point when one is supplied (e.g. "the first unit partially visible
+ * on screen" — see the log viewport's `visibleFocusUnit`); otherwise it
+ * enters from the nearest end (first unit going forward, last unit going
+ * backward). With no focusable units it stays at none.
  *
  * A target that is no longer in the ring (entries changed underneath — a
  * streaming entry's table count shifted, or the focused entry was
@@ -44,12 +46,15 @@ export function moveFocus(
   units: readonly FocusTarget[],
   current: FocusTarget,
   dir: 1 | -1,
+  enterAt?: FocusTarget,
 ): FocusTarget {
   if (units.length === 0) return FOCUS_NONE_TARGET;
   const idx = units.findIndex((t) => t.entry === current.entry && t.table === current.table);
 
-  // Nothing focused → enter from the nearest end.
+  // Nothing focused → the caller's viewport-aware entry point, else the
+  // nearest end of the ring.
   if (current.entry < 0) {
+    if (enterAt !== undefined) return enterAt;
     return dir === 1 ? (units[0] as FocusTarget) : (units[units.length - 1] as FocusTarget);
   }
 
