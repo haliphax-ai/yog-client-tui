@@ -333,10 +333,16 @@ export class InputComponent extends BaseComponent {
       candidate.startsWith("/") ? candidate.slice(1) : candidate,
     );
     const labelW = Math.max(...labels.map((label) => displayWidth(label)));
+    const line = getState().input.trim();
     const body: string[] = [];
     for (let index = 0; index < labels.length; index++) {
       const command = byName.get(candidates[index] as string);
-      const description = command === undefined ? "" : command.summary;
+      const description =
+        command === undefined
+          ? ""
+          : line === "/" + command.name && command.args !== undefined
+            ? command.args
+            : command.summary;
       const label = labels[index] as string;
       const lead = index === 0 ? "↹ " : "  ";
       const labelPadded = label + " ".repeat(labelW - displayWidth(label) + 2);
