@@ -331,6 +331,8 @@ export interface ShakeResult {
   ok: boolean;
   argsTruncated: number;
   resultsTruncated: number;
+  /** Estimated post-shake transcript size in tokens (server chars/4). */
+  contextSize: number;
 }
 /** The yog contract client. One instance per session. */
 export class YogClient {
@@ -751,9 +753,9 @@ export class YogClient {
       ok: true,
       argsTruncated: typeof body.argsTruncated === "number" ? body.argsTruncated : 0,
       resultsTruncated: typeof body.resultsTruncated === "number" ? body.resultsTruncated : 0,
+      contextSize: typeof body.contextSize === "number" ? body.contextSize : 0,
     };
   }
-
   /**
    * Recovery path: `GET /v1/sessions/{id}/turns/{turnId}` and replay its
    * stored `{ type, data }` rows through the same handler.

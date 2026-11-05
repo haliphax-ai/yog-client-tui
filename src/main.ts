@@ -381,8 +381,7 @@ async function run(argv: readonly string[]): Promise<void> {
           try {
             if (kind === "shake") {
               const outcome = await client.shake();
-              const dump = await client.getTranscript();
-              const weight = finalContextTotal(dump.turns);
+              const weight = outcome.contextSize;
               setState({
                 tokenTotals: { prompt: 0, completion: 0, total: weight },
               });
@@ -399,15 +398,9 @@ async function run(argv: readonly string[]): Promise<void> {
                   : await client.handoff(guidance || undefined);
               // compact and handoff both start a fresh server session — adopt it
               // so a restart resumes the new session, not the archived one.
-              const freshId =
-                typeof result.sessionId === "string"
-                  ? result.sessionId
-                  : typeof (result.session as { id?: unknown } | undefined)?.id === "string"
-                    ? (result.session as { id: string }).id
-                    : undefined;
-              if (freshId !== undefined) {
-                client.sessionId = freshId;
-                await saveState(stateFilePath(), { lastSessionId: freshId });
+              if (typeof result.sessionId === "string") {
+                client.sessionId = result.sessionId;
+                await saveState(stateFilePath(), { lastSessionId: result.sessionId });
               }
               const dump = await client.getTranscript();
               const cols = process.stdout.columns ?? 80;

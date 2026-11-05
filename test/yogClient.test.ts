@@ -1160,16 +1160,15 @@ describe("YogClient shake", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-
   it("POSTs /shake and parses truncation counts", async () => {
     const client = new YogClient("http://test");
     client.sessionId = "s1";
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ ok: true, argsTruncated: 2, resultsTruncated: 1 }, 200),
+      jsonResponse({ ok: true, argsTruncated: 2, resultsTruncated: 1, contextSize: 9500 }, 200),
     );
     vi.stubGlobal("fetch", fetchMock);
     const result = await client.shake();
-    expect(result).toEqual({ ok: true, argsTruncated: 2, resultsTruncated: 1 });
+    expect(result).toEqual({ ok: true, argsTruncated: 2, resultsTruncated: 1, contextSize: 9500 });
     expect(fetchMock).toHaveBeenCalledWith(
       "http://test/v1/sessions/s1/shake",
       expect.objectContaining({ method: "POST" }),
