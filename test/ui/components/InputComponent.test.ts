@@ -186,11 +186,11 @@ describe("InputComponent slash autocomplete", () => {
     expect(getState().commandSel).toBe(0); // single candidate — selection stays put
   });
 
-  it("Tab on a bare slash completes to '/quit'", () => {
+  it("Tab on a bare slash advances to the second registry candidate", () => {
     const component = new InputComponent();
     component.handleChar("/");
     expect(component.handleChar("\t")).toBe("handled");
-    expect(getState().input).toBe("/quit");
+    expect(getState().input).toBe("/compact");
   });
 
   it("Tab preserves text after the token", () => {

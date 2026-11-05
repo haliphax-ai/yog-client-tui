@@ -311,6 +311,17 @@ export async function readSseStream(
   return streamError;
 }
 
+/** Result of a server-side compaction/handoff run. */
+export interface CompactionResult {
+  ok: boolean;
+  kind: string;
+  /** The markdown artifact, which now leads the fresh transcript. */
+  summary: string;
+  /** The model that produced the artifact. */
+  model?: string;
+  session?: unknown;
+}
+
 /** The yog contract client. One instance per session. */
 export class YogClient {
   /** Server origin, trailing slashes stripped. */
@@ -655,6 +666,50 @@ export class YogClient {
       requested,
       status: requested ? "aborted" : "idle",
       ...(activeToolCall !== undefined ? { activeToolCall } : {}),
+    };
+  }
+
+  /**
+   * Compact the session: the server runs a throwaway summary turn (no tools,
+   * a second copy of the model or a configured compaction model) and resets
+   * the transcript to a fresh one containing the artifact.
+   */
+  async compact(): Promise<CompactionResult> {
+    return this.runCompaction("compact");
+  }
+
+  /**
+   * Prepare a handoff document: same mechanism as {@link compact}, but with
+   * the full session history in view for a thorough handoff artifact.
+   */
+  async handoff(): Promise<CompactionResult> {
+    return this.runCompaction("handoff");
+  }
+
+  /** Shared implementation for the compaction/handoff endpoints. */
+  private async runCompaction(kind: "compact" | "handoff"): Promise<CompactionResult> {
+    if (!this.sessionId) throw new Error(`runCompaction called before open()`);
+    const sessionId = this.sessionId;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/${kind}`, {
+        method: "POST",
+        headers: this.headers(),
+      });
+    } catch (err) {
+      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+    }
+    if (!res.ok) throw await toYogError(res, `${kind} failed`);
+    const body = (await res.json()) as Record<string, unknown>;
+    if (body.ok !== true || typeof body.summary !== "string") {
+      throw new Error(`${kind} failed: malformed response from server`);
+    }
+    return {
+      ok: true,
+      kind,
+      summary: body.summary as string,
+      ...(typeof body.model === "string" ? { model: body.model } : {}),
+      ...(body.session !== undefined ? { session: body.session } : {}),
     };
   }
 

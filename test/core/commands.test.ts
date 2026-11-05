@@ -52,11 +52,13 @@ describe("completeSlash", () => {
   });
 
   it("lists every command for a bare slash, in registry order", () => {
-    expect(completeSlash("/")).toEqual(["/new", "/quit"]);
+    expect(completeSlash("/")).toEqual(["/new", "/compact", "/handoff", "/quit"]);
   });
 
   it("matches case-insensitive prefixes", () => {
     expect(completeSlash("/q")).toEqual(["/quit"]);
+    expect(completeSlash("/c")).toEqual(["/compact"]);
+    expect(completeSlash("/h")).toEqual(["/handoff"]);
     expect(completeSlash("/QUIT")).toEqual(["/quit"]);
   });
 
@@ -65,7 +67,8 @@ describe("completeSlash", () => {
   });
 
   it("fuzzy-matches the new command", () => {
-    expect(completeSlash("/n")).toEqual(["/new"]);
+    // "n" also subsequence-matches handoff; new ranks first (start bonus).
+    expect(completeSlash("/n")).toEqual(["/new", "/handoff"]);
     expect(completeSlash("/ne")).toEqual(["/new"]);
   });
 
@@ -85,6 +88,8 @@ describe("resolveSlash", () => {
     expect(resolveSlash("/Quit")?.name).toBe("quit");
     expect(resolveSlash("/quit now")?.name).toBe("quit");
     expect(resolveSlash("/new")?.name).toBe("new");
+    expect(resolveSlash("/compact")?.name).toBe("compact");
+    expect(resolveSlash("/handoff")?.name).toBe("handoff");
   });
 
   it("returns undefined for non-commands, bare slashes, and unknown names", () => {
@@ -95,6 +100,6 @@ describe("resolveSlash", () => {
   });
 
   it("registers the new and quit commands", () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "quit"]);
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "compact", "handoff", "quit"]);
   });
 });

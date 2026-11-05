@@ -1076,3 +1076,56 @@ describe("YogClient.abortTurn", () => {
     await expect(client.abortTurn()).rejects.toThrow(/cannot reach yog server/);
   });
 });
+
+describe("YogClient compaction/handoff", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function clientWithSession(): YogClient {
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    return client;
+  }
+
+  function jsonResponse(body: unknown, status = 200): Response {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  }
+
+  it("POSTs /compact and parses the result", async () => {
+    const client = clientWithSession();
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ ok: true, kind: "compact", summary: "# S", model: "m" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await client.compact();
+    expect(result.summary).toBe("# S");
+    expect(result.model).toBe("m");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://test/v1/sessions/s1/compact",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("POSTs /handoff and surfaces server errors", async () => {
+    const client = clientWithSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "unknown_session", message: "gone" } }, 404)),
+    );
+    await expect(client.handoff()).rejects.toMatchObject({ code: "unknown_session" });
+  });
+
+  it("rejects malformed success responses", async () => {
+    const client = clientWithSession();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ ok: true })),
+    );
+    await expect(client.compact()).rejects.toThrow(/malformed/);
+  });
+});

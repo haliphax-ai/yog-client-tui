@@ -358,6 +358,52 @@ async function run(argv: readonly string[]): Promise<void> {
         })();
         return;
       }
+      if (command !== undefined && (command.name === "compact" || command.name === "handoff")) {
+        if (getState().busy) {
+          pushLines("system", [`wait for the current turn, then /${command.name}`]);
+          input.reset();
+          return;
+        }
+        const kind = command.name;
+        if (!(client.capabilities?.features ?? []).includes(kind)) {
+          pushLines("error", [`server does not support /${kind}`]);
+          input.reset();
+          return;
+        }
+        void (async () => {
+          startSpinner();
+          try {
+            const result = kind === "compact" ? await client.compact() : await client.handoff();
+            // Rehydrate the fresh transcript (it now leads with the artifact).
+            const dump = await client.getTranscript();
+            const cols = process.stdout.columns ?? 80;
+            const entries = transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
+              turns: perTurnDeltas(dump.turns),
+            });
+            setState({
+              entries,
+              scrollOffset: 0,
+              follow: true,
+              focusTarget: FOCUS_NONE_TARGET,
+              statusNote: "",
+              tokenTotals: { prompt: 0, completion: 0, total: 0 },
+            });
+            pushLines("system", [
+              `${kind}: fresh transcript started (model ${result.model}, ` +
+                `summary ${result.summary.length} chars)`,
+            ]);
+          } catch (err) {
+            pushLines("error", [
+              `${kind} failed: ${err instanceof Error ? err.message : String(err)}`,
+            ]);
+          } finally {
+            stopSpinner();
+            input.reset();
+          }
+        })();
+        return;
+      }
+
       const token = slashToken(prompt) ?? "";
       const available = SLASH_COMMANDS.map((c) => "/" + c.name).join(", ");
       pushLines("system", [`unknown command: /${token} — available: ${available}`]);
