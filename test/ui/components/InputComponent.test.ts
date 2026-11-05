@@ -286,12 +286,12 @@ describe("InputComponent — blurred input styling", () => {
     expect(out).toContain("38;2;124;58;237"); // #7c3aed cursor
   });
 
-  it("replaces the summary with the arg syntax on an exact command match", () => {
+  it("shows the arg syntax and the full description on an exact match", () => {
     const component = new InputComponent();
     typeText(component, "/handoff");
     const menu = stripAnsi(component.render({ cols: 80 }).split("\n").slice(1).join("\n"));
     expect(menu).toContain("[guidance]");
-    expect(menu).not.toContain("prepare a handoff document");
+    expect(menu).toContain("prepare a handoff document");
   });
 
   it("keeps the summary while the token is only a prefix", () => {
@@ -300,6 +300,14 @@ describe("InputComponent — blurred input styling", () => {
     const menu = stripAnsi(component.render({ cols: 80 }).split("\n").slice(1).join("\n"));
     expect(menu).toContain("prepare a handoff document");
     expect(menu).not.toContain("[guidance]");
+  });
+
+  it("wraps an exact match description onto multiple lines when narrow", () => {
+    const component = new InputComponent();
+    typeText(component, "/handoff");
+    const line = component.render({ cols: 24 }).split("\n");
+    expect(line.length).toBeGreaterThan(2); // header + wrapped description rows
+    for (const row of line) expect(displayWidth(stripAnsi(row))).toBeLessThanOrEqual(24);
   });
 
   it("Tab on a partial match completes the first ranked candidate", () => {
