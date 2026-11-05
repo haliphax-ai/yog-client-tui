@@ -303,6 +303,9 @@ describe("InputComponent — blurred input styling", () => {
     const descriptionRow = rows[1] ?? "";
     expect(stripAnsi(rows.join("\n"))).toContain("[guidance]");
     expect(stripAnsi(rows.join("\n"))).toContain("prepare a handoff document");
+    const headerText = stripAnsi(header);
+    expect(headerText).toContain("handoff [guidance]");
+    expect(headerText).not.toContain("handoff  [guidance]");
     // Only the header row is highlighted; description lines stay dim with no
     // background, like unselected matches.
     expect(header).toContain("48;2;124;58;237"); // selected background
