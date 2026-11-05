@@ -53,7 +53,7 @@ function splitCells(line: string): string[] {
   for (let i = start; i < end; i++) {
     result.push(
       (parts[i] ?? "")
-// eslint-disable-next-line no-control-regex
+        // eslint-disable-next-line no-control-regex
         .replace(/\x00/g, "|")
         .trim()
         .replace(/<br\s*\/?>/gi, "\n"),

@@ -70,10 +70,7 @@ export async function loadState(filePath: string): Promise<PersistedState> {
   return parseState(raw);
 }
 
-export async function saveState(
-  filePath: string,
-  state: PersistedState,
-): Promise<void> {
+export async function saveState(filePath: string, state: PersistedState): Promise<void> {
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }

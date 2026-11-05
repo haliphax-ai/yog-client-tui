@@ -19,15 +19,15 @@ with `@oakoliver/glamour` markdown rendering.
 The code is split into responsibility domains with enforced dependency rules
 (dependency-cruiser checks them in `npm run depcruise`):
 
-| Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                            |
-| `config`         | `src/config.ts`    | Config parsing and validation: `model` and `baseUrl` (both required); config/state file locations resolved from `XDG_CONFIG_HOME` → `HOME` → `PWD`. |
+| Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                               |
+| `config`         | `src/config.ts`    | Config parsing and validation: `model` and `baseUrl` (both required); config/state file locations resolved from `XDG_CONFIG_HOME` → `HOME` → `PWD`.                                                                                                                                                                                                                                         |
 | `core`           | `src/core/`        | The domain: the log-entry shape (`core/entries`), the tiny state store (`getState` / `setState` / `subscribe`), the focus ring (`core/focus`), scroll math, tool-argument/result formatting (`core/toolFormat`), transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering). Never imports the presentation layer. |
-| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → prompt-only `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → transcript rehydration (`GET /v1/sessions/{id}/transcript`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem. |
-| `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, the table engine — parse / layout / render / scroll, the memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem. |
-| `util`           | `src/util/`        | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain.                                                                                                                                                                                                                                                                                              |
-| `ui/pipeline`    | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer.                                                                                                                                                                                                                                                             |
+| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → prompt-only `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → transcript rehydration (`GET /v1/sessions/{id}/transcript`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem.    |
+| `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, the table engine — parse / layout / render / scroll, the memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem.                                           |
+| `util`           | `src/util/`        | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain.                                                                                                                                                                                                                                                                                                 |
+| `ui/pipeline`    | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer.                                                                                                                                                                                                                                                                |
 
 `client/` never touches the terminal and `ui/` never touches the transport, so
 presentation can change without affecting transport logic (and vice versa).
@@ -41,7 +41,7 @@ Every redraw runs through a fixed sequence of stages — the order is data (the
 | --------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
 | `layout`  | Measure terminal geometry (cols/rows/viewport rows) into components.                       | —                                                   |
 | `paint`   | Each component renders its rows.                                                           | components + overlays that draw into the paint pass |
-| `compose` | Pass-through — paint already joined the rows; compose hooks rewrite the frame. | —                                                   |
+| `compose` | Pass-through — paint already joined the rows; compose hooks rewrite the frame.             | —                                                   |
 | `post`    | Pad/truncate every ANSI line to the terminal width.                                        | overlays, status widgets, banners                   |
 | `emit`    | Write the finished frame to stdout — a single owner (`writeFrame`); nothing runs after it. | —                                                   |
 
@@ -83,10 +83,10 @@ The client looks for `config.json` in the first existing location of:
 See `config.example.json` for the committed template — a real `config.json` is
 git-ignored. Session state lives alongside it in `state.json`.
 
-| Key       | Required | Description                                                            |
-| --------- | -------- | ---------------------------------------------------------------------- |
-| `model`   | yes      | Model id sent with every turn.                                         |
-| `baseUrl` | yes      | Server base URL (e.g. `http://127.0.0.1:8111` for a local daemon).     |
+| Key       | Required | Description                                                        |
+| --------- | -------- | ------------------------------------------------------------------ |
+| `model`   | yes      | Model id sent with every turn.                                     |
+| `baseUrl` | yes      | Server base URL (e.g. `http://127.0.0.1:8111` for a local daemon). |
 
 The session to resume comes from `--session <id>` (CLI), else the
 `lastSessionId` persisted in `state.json`, else a fresh session; `--new`
@@ -102,18 +102,18 @@ While the log holds the ring, the input is visually blurred (dark grey text,
 the cursor is a darker shade of purple) so it is obvious where keypresses
 will land.
 
-| Key | Action |
-| --- | --- |
-| `Shift+Up` | While in the input: move focus to the log |
-| `Shift+Down` | While in the log: return focus to the input |
-| `Enter` | In the input: send the current input. In the log: expand/collapse the focused unit (tool call / output chunk / debug chunk / table) |
-| `Shift+Enter` | Insert a newline in the input (without sending) |
-| `/quit` | Quit via the slash command (`/` as the first input character, Tab completes) |
+| Key                                                 | Action                                                                                                                                                                                                                                                            |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Shift+Up`                                          | While in the input: move focus to the log                                                                                                                                                                                                                         |
+| `Shift+Down`                                        | While in the log: return focus to the input                                                                                                                                                                                                                       |
+| `Enter`                                             | In the input: send the current input. In the log: expand/collapse the focused unit (tool call / output chunk / debug chunk / table)                                                                                                                               |
+| `Shift+Enter`                                       | Insert a newline in the input (without sending)                                                                                                                                                                                                                   |
+| `/quit`                                             | Quit via the slash command (`/` as the first input character, Tab completes)                                                                                                                                                                                      |
 | `←` `→` `↑` `↓`, `Home` `End`, `Backspace` `Delete` | In the input: the textarea's full editing keymap — arrows, word navigation (Alt/Ctrl+arrows), line start/end, delete; ↑/↓ move the caret between lines in a multi-line input. In the log: ↑/↓ scroll one row; on a focused expanded table, ←/→ scroll its columns |
-| `PageUp` / `PageDown` | In the log: scroll the viewport by one page. In a multi-line input: page the caret |
-| `Ctrl+Home` / `Ctrl+End` | In the log: jump to the top/bottom of the log. In the input: move to the start/end of the buffer |
-| `Tab` / `Shift+Tab` | In the log: cycle forward/backward through focusable units (tool calls, output/debug chunks, tables; wraps through "none"). In the input: `Tab` completes a slash command |
-| `Esc` | In the log with an entry focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op) |
+| `PageUp` / `PageDown`                               | In the log: scroll the viewport by one page. In a multi-line input: page the caret                                                                                                                                                                                |
+| `Ctrl+Home` / `Ctrl+End`                            | In the log: jump to the top/bottom of the log. In the input: move to the start/end of the buffer                                                                                                                                                                  |
+| `Tab` / `Shift+Tab`                                 | In the log: cycle forward/backward through focusable units (tool calls, output/debug chunks, tables; wraps through "none"). In the input: `Tab` completes a slash command                                                                                         |
+| `Esc`                                               | In the log with an entry focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op)                                                                                                   |
 
 While a turn is in flight, Enter is ignored (one turn at a time); input editing
 continues. The status line shows a spinner and key hints — including `Esc abort`
@@ -152,18 +152,19 @@ autocomplete menu; it stays closed for slashes anywhere else. `Tab` cycles
 through and applies the highlighted match, `Enter` runs the completed command.
 Commands run even while a turn is in flight.
 
-| Command    | Action |
-| ---------- | ------ |
-| `/quit`    | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it. `Ctrl+C` itself is now unbound / inert. |
-| `/new`     | Start a fresh session with an empty chat log (current turn must be idle). |
+| Command | Action                                                                                                                                                                 |
+| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/quit` | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it. `Ctrl+C` itself is now unbound / inert. |
+| `/new`  | Start a fresh session with an empty chat log (current turn must be idle).                                                                                              |
 
 **Fuzzy shortcut:** pressing Enter on a slash line that is not an exact command
-name but *does* have at least one fuzzy-finder match runs the best match with no
+name but _does_ have at least one fuzzy-finder match runs the best match with no
 arguments — so `/q` is equivalent to `/quit`. The fuzzy list is the same one the
 autocomplete menu uses. When the line contains arguments (text after the token)
 the shortcut is disabled — use Tab completion instead — so argument text is never
 silently dropped. When there are no matches the old "unknown command" message is
 shown.
+
 ### Tables
 
 A message containing a GFM pipe table is focusable, and every table in the
