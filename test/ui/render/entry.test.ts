@@ -142,6 +142,16 @@ describe("terminal-state notice", () => {
     // of the detail visible under the same width cap).
     expect(stripAnsi(rows[0] ?? "").endsWith("a very lon")).toBe(true);
   });
+
+  it("styles wait notices (⚠️) yellow instead of the info blue", () => {
+    const rows = cachedRows(
+      { kind: "notice", lines: ["⚠️ warning", "wait for the current turn, then /new"] },
+      60,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
+    expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
+  });
 });
 
 describe("height summary", () => {
