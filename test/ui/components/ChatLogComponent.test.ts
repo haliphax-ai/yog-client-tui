@@ -160,10 +160,14 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
     expect(log.getFocusIndex()).toBe(1); // chunk
     log.moveFocus(1);
     expect(log.getFocusIndex()).toBe(2); // tool
+    log.moveFocus(1);
+    expect(log.getFocusIndex()).toBe(3); // assistant prose
   });
 
   it("enters at the last focusable entry going backward", () => {
     const log = new Log(fixture());
+    log.moveFocus(-1);
+    expect(log.getFocusIndex()).toBe(3); // assistant prose
     log.moveFocus(-1);
     expect(log.getFocusIndex()).toBe(2);
     log.moveFocus(-1);
@@ -172,7 +176,7 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
 
   it("wraps through none at the end of the ring", () => {
     const log = new Log(fixture());
-    log.setFocus(T(2));
+    log.setFocus(T(3)); // last focusable (assistant prose)
     log.moveFocus(1);
     expect(log.getFocusIndex()).toBe(-1);
     log.moveFocus(1); // next press re-enters from the start
@@ -185,7 +189,7 @@ describe("ChatLogComponent — focus ring (wrap through none)", () => {
     log.moveFocus(-1);
     expect(log.getFocusIndex()).toBe(-1);
     log.moveFocus(-1); // next press re-enters from the end
-    expect(log.getFocusIndex()).toBe(2);
+    expect(log.getFocusIndex()).toBe(3);
   });
 
   it("stays at none when there is nothing focusable", () => {
