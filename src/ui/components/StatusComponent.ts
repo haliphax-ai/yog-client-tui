@@ -5,7 +5,7 @@
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, type UiState } from "../../core/store.ts";
 import { formatTokenTotal } from "../../core/toolFormat.ts";
-import { ST } from "../theme.ts";
+import { ST, C, CONTEXT_WINDOW } from "../theme.ts";
 import { displayWidth, stripAnsi } from "../../util/ansi.ts";
 import type { LogEntry } from "../../core/entries.ts";
 import { MiniDot } from "@oakoliver/bubbles";
@@ -44,6 +44,16 @@ export function sessionStats(entries: readonly LogEntry[]): {
 /** Abbreviate a token total for the status-bar stat (K/M with one decimal). */
 export { formatTokenTotal };
 
+/** Color code for context window fill percentage — uses theme colors. */
+function contextWindowColor(percentage: number): string {
+  if (percentage >= 50) return CONTEXT_WINDOW.red;
+  if (percentage >= 25) return CONTEXT_WINDOW.yellow;
+  if (percentage >= 10) return CONTEXT_WINDOW.green;
+  return CONTEXT_WINDOW.blue;
+}
+
+const RESET = CONTEXT_WINDOW.reset;
+
 /** Session stats segment: turns · tools, plus token totals once nonzero. */
 export function statsSegment(
   state: Readonly<UiState>,
@@ -53,7 +63,17 @@ export function statsSegment(
   const totals = state.tokenTotals;
   if (totals.total > 0 || totals.prompt > 0 || totals.completion > 0) {
     const total = totals.total > 0 ? totals.total : totals.prompt + totals.completion;
-    parts.push(`${TOKENS_EMOJI} ${formatTokenTotal(total)}`);
+    const tokenPart = `${TOKENS_EMOJI} ${formatTokenTotal(total)}`;
+    // Add context window info if available
+    if (state.contextWindow && state.contextWindow > 0) {
+      const percentage = (total / state.contextWindow) * 100;
+      const pctStr = percentage.toFixed(1);
+      const winStr = formatTokenTotal(state.contextWindow);
+      const color = contextWindowColor(percentage);
+      parts.push(`${tokenPart} (${color}${pctStr}%${RESET}/${winStr})`);
+    } else {
+      parts.push(tokenPart);
+    }
   }
   return parts.join("  ");
 }

@@ -92,6 +92,45 @@ describe("statusBody", () => {
     expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K");
   });
 
+  it("appends a color-coded context-window fill once the window is known", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(1, 0),
+      tokenTotals: { prompt: 1200, completion: 1800, total: 3000 },
+      contextWindow: 20000,
+    });
+    // 3000 / 20000 = 15% → green band; window abbreviates to 20.0K.
+    expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K (15.0%/20.0K)");
+    expect(out).toContain("38;2;0;255;0"); // CONTEXT_WINDOW.green
+  });
+
+  it("uses red for high context-window fill", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(1, 0),
+      tokenTotals: { prompt: 0, completion: 0, total: 60000 },
+      contextWindow: 100000,
+    });
+    expect(stripAnsi(out)).toContain("🪙 60.0K (60.0%/100.0K)");
+    expect(out).toContain("38;2;255;0;0"); // CONTEXT_WINDOW.red
+  });
+
+  it("omits the context-window segment when it is unknown or zero", () => {
+    const totals = { prompt: 1200, completion: 1800, total: 3000 };
+    const base = {
+      model: "m-1",
+      connection: "connected" as const,
+      entries: fixture(1, 0),
+      tokenTotals: totals,
+    };
+    expect(stripAnsi(body(base))).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K");
+    expect(stripAnsi(body({ ...base, contextWindow: 0 }))).toBe(
+      "👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K",
+    );
+  });
+
   it("removes the key legend segment", () => {
     const out = body({ busy: true, model: "m-1", connection: "connected" });
     expect(out).not.toContain("Shift+Up/Down focus");
