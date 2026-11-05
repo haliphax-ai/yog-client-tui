@@ -93,11 +93,14 @@ export const CHUNK_HEADER = {
   fail: "\x1b[38;2;255;0;0m", // bright red
 } as const;
 
-/** Context window fill colors (truecolor foregrounds). */
+/** Context window fill colors (truecolor foregrounds), low → high fill. */
 export const CONTEXT_WINDOW = {
-  red: "\x1b[38;2;255;0;0m", // >= 50%
-  yellow: "\x1b[38;2;255;165;0m", // >= 25%
-  green: "\x1b[38;2;0;255;0m", // >= 10%
-  blue: "\x1b[38;2;0;128;255m", // < 10%
-  reset: "\x1b[39m",
+  brightGreen: "\x1b[38;2;0;255;0m", // <= 10%
+  green: "\x1b[38;2;0;200;0m", // <= 25%
+  yellow: "\x1b[38;2;255;255;0m", // <= 50%
+  orange: "\x1b[38;2;255;165;0m", // <= 75%
+  red: "\x1b[38;2;255;0;0m", // > 75%
+  // Back to the status bar's foreground (black) — a default-fg reset would
+  // punch a white hole into the bar's dark backing.
+  reset: "\x1b[38;2;0;0;0m",
 } as const;
