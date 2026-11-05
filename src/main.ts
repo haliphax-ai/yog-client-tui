@@ -166,7 +166,7 @@ async function run(argv: readonly string[]): Promise<void> {
   //    all before the screen is taken over, so startup failures print
   //    plainly and exit non-zero.
   const client = new YogClient(baseUrl);
-  const caps = await client.probe();
+  const caps = await client.probe(config.model);
   // Extract context window size for the configured model from capabilities
   const contextWindow = caps.contextWindowSizes?.[config.model];
   if (!caps.features.includes("transcript")) {
