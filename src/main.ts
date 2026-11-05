@@ -379,12 +379,19 @@ async function run(argv: readonly string[]): Promise<void> {
           try {
             if (kind === "shake") {
               const outcome = await client.shake();
-              // Reset the running totals so the fill gauge restarts from the
-              // shaked context; leave the displayed log untouched.
-              setState({ tokenTotals: { prompt: 0, completion: 0, total: 0 } });
-              pushLines("system", [
-                `shake: truncated ${outcome.argsTruncated} arg(s), ` +
-                  `${outcome.resultsTruncated} result(s); totals reset`,
+              // Recompute the authoritative current context total from the
+              // server so the fill gauge reflects the shaked transcript now,
+              // without touching the displayed log.
+              const dump = await client.getTranscript();
+              const weight = finalContextTotal(dump.turns);
+              setState({
+                tokenTotals: { prompt: 0, completion: 0, total: weight },
+              });
+              pushLines("notice", [
+                "🧹 shake",
+                `${outcome.argsTruncated} arg(s), ` +
+                  `${outcome.resultsTruncated} result(s) truncated; ` +
+                  `totals reset to ~${formatTokenTotal(weight)}`,
               ]);
             } else {
               const result =
@@ -403,15 +410,13 @@ async function run(argv: readonly string[]): Promise<void> {
               });
               setState({
                 entries,
-                scrollOffset: 0,
-                follow: true,
-                focusTarget: FOCUS_NONE_TARGET,
-                statusNote: "",
                 tokenTotals: { prompt: 0, completion: 0, total: 0 },
               });
               const truncatedNote = result.truncated ? " (input was middle-truncated)" : "";
-              pushLines("system", [
-                `${kind}: fresh transcript started (model ${result.model}, ` +
+              const noticeLabel = kind === "compact" ? "🗑️ compact" : "🤝 handoff";
+              pushLines("notice", [
+                noticeLabel,
+                `fresh transcript started (model ${result.model}, ` +
                   `summary ${result.summary.length} chars${truncatedNote})`,
               ]);
             }
