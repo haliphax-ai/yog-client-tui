@@ -379,9 +379,12 @@ async function run(argv: readonly string[]): Promise<void> {
           try {
             if (kind === "shake") {
               const outcome = await client.shake();
+              // Reset the running totals so the fill gauge restarts from the
+              // shaked context; leave the displayed log untouched.
+              setState({ tokenTotals: { prompt: 0, completion: 0, total: 0 } });
               pushLines("system", [
                 `shake: truncated ${outcome.argsTruncated} arg(s), ` +
-                  `${outcome.resultsTruncated} result(s) in the transcript`,
+                  `${outcome.resultsTruncated} result(s); totals reset`,
               ]);
             } else {
               const result =
