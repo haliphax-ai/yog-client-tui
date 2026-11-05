@@ -305,9 +305,14 @@ describe("InputComponent — blurred input styling", () => {
   it("wraps an exact match description onto multiple lines when narrow", () => {
     const component = new InputComponent();
     typeText(component, "/handoff");
-    const line = component.render({ cols: 24 }).split("\n");
-    expect(line.length).toBeGreaterThan(2); // header + wrapped description rows
-    for (const row of line) expect(displayWidth(stripAnsi(row))).toBeLessThanOrEqual(24);
+    const lines = component.render({ cols: 24 }).split("\n");
+    expect(lines.length).toBeGreaterThan(2); // header + wrapped description rows
+    const menu = lines.slice(1).map((row) => stripAnsi(row));
+    const descriptionRows = menu.slice(1);
+    expect(descriptionRows.length).toBeGreaterThan(1);
+    const indents = descriptionRows.map((row) => row.length - row.trimStart().length);
+    for (const indent of indents) expect(indent).toBe(indents[0]!);
+    for (const row of menu) expect(displayWidth(row)).toBeLessThanOrEqual(24);
   });
 
   it("Tab on a partial match completes the first ranked candidate", () => {
