@@ -75,7 +75,14 @@ import {
   runPipeline,
   writeFrame,
 } from "./ui/pipeline/index.ts";
-import { isSlash, resolveSlash, slashToken, slashTokenEnd, SLASH_COMMANDS, completeSlash } from "./core/commands.ts";
+import {
+  isSlash,
+  resolveSlash,
+  slashToken,
+  slashTokenEnd,
+  SLASH_COMMANDS,
+  completeSlash,
+} from "./core/commands.ts";
 
 /** Terminal state shared with error paths (module scope, always in sync). */
 let terminalActive = false;
@@ -159,6 +166,8 @@ async function run(argv: readonly string[]): Promise<void> {
   //    plainly and exit non-zero.
   const client = new YogClient(baseUrl);
   const caps = await client.probe();
+  // Extract context window size for the configured model from capabilities
+  const contextWindow = caps.contextWindowSizes?.[config.model];
   if (!caps.features.includes("transcript")) {
     throw new Error("server does not advertise the transcript feature; run the current yog");
   }
@@ -557,6 +566,7 @@ async function run(argv: readonly string[]): Promise<void> {
       ...seedEntries,
     ],
     model: config.model,
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
     focusTarget: FOCUS_NONE_TARGET,
     // Seed the status-bar total with the restored context so the first live
     // turn after a resume shows only its own incremental tokens.

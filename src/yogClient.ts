@@ -19,6 +19,8 @@ export interface Capabilities {
   models: string[];
   tools: string[];
   features: string[];
+  /** Context window sizes for advertised models, keyed by model id. */
+  contextWindowSizes?: Record<string, number>;
 }
 
 /** One canonical transcript row, verbatim from the wire (§5.1 of PLAN.md).
