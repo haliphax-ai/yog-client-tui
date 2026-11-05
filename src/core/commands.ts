@@ -19,6 +19,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "new", summary: "start a fresh session with an empty chat log" },
   { name: "compact", summary: "compact the session into a fresh summary transcript" },
   { name: "handoff", summary: "prepare a handoff document and start a fresh transcript" },
+  { name: "shake", summary: "truncate oversized tool args/results in the transcript" },
   { name: "quit", summary: "exit the client (session stays on the server)" },
 ]);
 

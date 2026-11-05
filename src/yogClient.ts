@@ -319,9 +319,19 @@ export interface CompactionResult {
   summary: string;
   /** The model that produced the artifact. */
   model?: string;
+  /** Session whose transcript now leads with the artifact (compact may differ). */
+  sessionId?: string;
+  /** True when the input transcript was middle-truncated to fit the window. */
+  truncated?: boolean;
   session?: unknown;
 }
 
+/** Result of a /shake transcript rewrite. */
+export interface ShakeResult {
+  ok: boolean;
+  argsTruncated: number;
+  resultsTruncated: number;
+}
 /** The yog contract client. One instance per session. */
 export class YogClient {
   /** Server origin, trailing slashes stripped. */
@@ -669,32 +679,35 @@ export class YogClient {
     };
   }
 
-  /**
-   * Compact the session: the server runs a throwaway summary turn (no tools,
-   * a second copy of the model or a configured compaction model) and resets
-   * the transcript to a fresh one containing the artifact.
-   */
-  async compact(): Promise<CompactionResult> {
-    return this.runCompaction("compact");
+  async compact(guidance?: string): Promise<CompactionResult> {
+    return this.runCompaction("compact", guidance);
   }
 
   /**
    * Prepare a handoff document: same mechanism as {@link compact}, but with
    * the full session history in view for a thorough handoff artifact.
    */
-  async handoff(): Promise<CompactionResult> {
-    return this.runCompaction("handoff");
+  async handoff(guidance?: string): Promise<CompactionResult> {
+    return this.runCompaction("handoff", guidance);
   }
 
   /** Shared implementation for the compaction/handoff endpoints. */
-  private async runCompaction(kind: "compact" | "handoff"): Promise<CompactionResult> {
+  private async runCompaction(
+    kind: "compact" | "handoff",
+    guidance?: string,
+  ): Promise<CompactionResult> {
     if (!this.sessionId) throw new Error(`runCompaction called before open()`);
     const sessionId = this.sessionId;
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/${kind}`, {
         method: "POST",
-        headers: this.headers(),
+        headers: this.headers({ "content-type": "application/json" }),
+        body: JSON.stringify({
+          ...(guidance !== undefined && guidance.trim() !== ""
+            ? { guidance: guidance.trim() }
+            : {}),
+        }),
       });
     } catch (err) {
       throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
@@ -709,7 +722,37 @@ export class YogClient {
       kind,
       summary: body.summary as string,
       ...(typeof body.model === "string" ? { model: body.model } : {}),
+      ...(typeof body.sessionId === "string" ? { sessionId: body.sessionId } : {}),
+      ...(body.truncated === true ? { truncated: true } : {}),
       ...(body.session !== undefined ? { session: body.session } : {}),
+    };
+  }
+
+  /**
+   * /shake — truncate oversized tool args/results in the current session's
+   * transcript (server-side, no model call).
+   */
+  async shake(): Promise<ShakeResult> {
+    if (!this.sessionId) throw new Error("shake called before open()");
+    const sessionId = this.sessionId;
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/shake`, {
+        method: "POST",
+        headers: this.headers(),
+      });
+    } catch (err) {
+      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+    }
+    if (!res.ok) throw await toYogError(res, "shake failed");
+    const body = (await res.json()) as Record<string, unknown>;
+    if (body.ok !== true) {
+      throw new Error("shake failed: malformed response from server");
+    }
+    return {
+      ok: true,
+      argsTruncated: typeof body.argsTruncated === "number" ? body.argsTruncated : 0,
+      resultsTruncated: typeof body.resultsTruncated === "number" ? body.resultsTruncated : 0,
     };
   }
 

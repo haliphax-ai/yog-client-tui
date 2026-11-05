@@ -1098,16 +1098,29 @@ describe("YogClient compaction/handoff", () => {
   it("POSTs /compact and parses the result", async () => {
     const client = clientWithSession();
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ ok: true, kind: "compact", summary: "# S", model: "m" }),
+      jsonResponse({
+        ok: true,
+        kind: "compact",
+        summary: "# S",
+        model: "m",
+        sessionId: "fresh",
+        truncated: true,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await client.compact();
+    const result = await client.compact("focus on x");
     expect(result.summary).toBe("# S");
     expect(result.model).toBe("m");
+    expect(result.sessionId).toBe("fresh");
+    expect(result.truncated).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "http://test/v1/sessions/s1/compact",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "content-type": "application/json" }),
+        body: JSON.stringify({ guidance: "focus on x" }),
+      }),
     );
   });
 
@@ -1127,5 +1140,49 @@ describe("YogClient compaction/handoff", () => {
       vi.fn(async () => jsonResponse({ ok: true })),
     );
     await expect(client.compact()).rejects.toThrow(/malformed/);
+  });
+
+  it("sends an empty body when no guidance is given", async () => {
+    const client = clientWithSession();
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ ok: true, kind: "handoff", summary: "# H" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await client.handoff(undefined);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/handoff"),
+      expect.objectContaining({ body: JSON.stringify({}) }),
+    );
+  });
+});
+
+describe("YogClient shake", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs /shake and parses truncation counts", async () => {
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ ok: true, argsTruncated: 2, resultsTruncated: 1 }, 200),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await client.shake();
+    expect(result).toEqual({ ok: true, argsTruncated: 2, resultsTruncated: 1 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://test/v1/sessions/s1/shake",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("surfaces server errors", async () => {
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ error: { code: "unknown_session", message: "gone" } }, 404)),
+    );
+    await expect(client.shake()).rejects.toMatchObject({ code: "unknown_session" });
   });
 });

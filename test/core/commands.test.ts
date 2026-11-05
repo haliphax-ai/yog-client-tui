@@ -52,13 +52,13 @@ describe("completeSlash", () => {
   });
 
   it("lists every command for a bare slash, in registry order", () => {
-    expect(completeSlash("/")).toEqual(["/new", "/compact", "/handoff", "/quit"]);
+    expect(completeSlash("/")).toEqual(["/new", "/compact", "/handoff", "/shake", "/quit"]);
   });
 
   it("matches case-insensitive prefixes", () => {
     expect(completeSlash("/q")).toEqual(["/quit"]);
     expect(completeSlash("/c")).toEqual(["/compact"]);
-    expect(completeSlash("/h")).toEqual(["/handoff"]);
+    expect(completeSlash("/h")).toEqual(["/handoff", "/shake"]);
     expect(completeSlash("/QUIT")).toEqual(["/quit"]);
   });
 
@@ -100,6 +100,12 @@ describe("resolveSlash", () => {
   });
 
   it("registers the new and quit commands", () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "compact", "handoff", "quit"]);
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual([
+      "new",
+      "compact",
+      "handoff",
+      "shake",
+      "quit",
+    ]);
   });
 });

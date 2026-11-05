@@ -358,7 +358,10 @@ async function run(argv: readonly string[]): Promise<void> {
         })();
         return;
       }
-      if (command !== undefined && (command.name === "compact" || command.name === "handoff")) {
+      if (
+        command !== undefined &&
+        (command.name === "compact" || command.name === "handoff" || command.name === "shake")
+      ) {
         if (getState().busy) {
           pushLines("system", [`wait for the current turn, then /${command.name}`]);
           input.reset();
@@ -370,28 +373,45 @@ async function run(argv: readonly string[]): Promise<void> {
           input.reset();
           return;
         }
+        const guidance = prompt.slice(slashTokenEnd(prompt)).trim();
         void (async () => {
           startSpinner();
           try {
-            const result = kind === "compact" ? await client.compact() : await client.handoff();
-            // Rehydrate the fresh transcript (it now leads with the artifact).
-            const dump = await client.getTranscript();
-            const cols = process.stdout.columns ?? 80;
-            const entries = transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
-              turns: perTurnDeltas(dump.turns),
-            });
-            setState({
-              entries,
-              scrollOffset: 0,
-              follow: true,
-              focusTarget: FOCUS_NONE_TARGET,
-              statusNote: "",
-              tokenTotals: { prompt: 0, completion: 0, total: 0 },
-            });
-            pushLines("system", [
-              `${kind}: fresh transcript started (model ${result.model}, ` +
-                `summary ${result.summary.length} chars)`,
-            ]);
+            if (kind === "shake") {
+              const outcome = await client.shake();
+              pushLines("system", [
+                `shake: truncated ${outcome.argsTruncated} arg(s), ` +
+                  `${outcome.resultsTruncated} result(s) in the transcript`,
+              ]);
+            } else {
+              const result =
+                kind === "compact"
+                  ? await client.compact(guidance || undefined)
+                  : await client.handoff(guidance || undefined);
+              // compact runs in a fresh server session — adopt it.
+              if (kind === "compact" && typeof result.sessionId === "string") {
+                client.sessionId = result.sessionId;
+                await saveState(stateFilePath(), { lastSessionId: result.sessionId });
+              }
+              const dump = await client.getTranscript();
+              const cols = process.stdout.columns ?? 80;
+              const entries = transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
+                turns: perTurnDeltas(dump.turns),
+              });
+              setState({
+                entries,
+                scrollOffset: 0,
+                follow: true,
+                focusTarget: FOCUS_NONE_TARGET,
+                statusNote: "",
+                tokenTotals: { prompt: 0, completion: 0, total: 0 },
+              });
+              const truncatedNote = result.truncated ? " (input was middle-truncated)" : "";
+              pushLines("system", [
+                `${kind}: fresh transcript started (model ${result.model}, ` +
+                  `summary ${result.summary.length} chars${truncatedNote})`,
+              ]);
+            }
           } catch (err) {
             pushLines("error", [
               `${kind} failed: ${err instanceof Error ? err.message : String(err)}`,
