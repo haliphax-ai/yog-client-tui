@@ -13,7 +13,8 @@
     "depcruise": "dependency-cruiser src test --config .dependency-cruiser.cjs",
     "depcruise:graph": "dependency-cruiser src --output-type mermaid",
     "commitlint": "commitlint",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@oakoliver/bubbles": "^1.2.2",
@@ -31,6 +32,7 @@
     "nano-staged": "^1.0.2",
     "oxfmt": "^0.74.0",
     "oxlint": "^1.89.0",
+    "patch-package": "^8.0.1",
     "typescript": "^6.0.3",
     "vitest": "^5.0.5"
   },
