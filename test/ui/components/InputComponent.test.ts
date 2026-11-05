@@ -186,11 +186,11 @@ describe("InputComponent slash autocomplete", () => {
     expect(getState().commandSel).toBe(0); // single candidate — selection stays put
   });
 
-  it("Tab on a bare slash advances to the second registry candidate", () => {
+  it("Tab on a bare slash completes the first registry candidate", () => {
     const component = new InputComponent();
     component.handleChar("/");
     expect(component.handleChar("\t")).toBe("handled");
-    expect(getState().input).toBe("/compact");
+    expect(getState().input).toBe("/new");
   });
 
   it("Tab preserves text after the token", () => {
@@ -300,5 +300,12 @@ describe("InputComponent — blurred input styling", () => {
     const menu = stripAnsi(component.render({ cols: 80 }).split("\n").slice(1).join("\n"));
     expect(menu).toContain("prepare a handoff document");
     expect(menu).not.toContain("[guidance]");
+  });
+
+  it("Tab on a partial match completes the first ranked candidate", () => {
+    const component = new InputComponent();
+    typeText(component, "/h");
+    expect(component.handleChar("\t")).toBe("handled");
+    expect(getState().input).toBe("/handoff");
   });
 });
