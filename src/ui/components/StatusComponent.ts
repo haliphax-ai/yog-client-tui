@@ -46,10 +46,11 @@ export { formatTokenTotal };
 
 /** Color code for context window fill percentage — uses theme colors. */
 function contextWindowColor(percentage: number): string {
-  if (percentage >= 50) return CONTEXT_WINDOW.red;
-  if (percentage >= 25) return CONTEXT_WINDOW.yellow;
-  if (percentage >= 10) return CONTEXT_WINDOW.green;
-  return CONTEXT_WINDOW.blue;
+  if (percentage > 75) return CONTEXT_WINDOW.red;
+  if (percentage > 50) return CONTEXT_WINDOW.orange;
+  if (percentage > 25) return CONTEXT_WINDOW.yellow;
+  if (percentage > 10) return CONTEXT_WINDOW.green;
+  return CONTEXT_WINDOW.brightGreen;
 }
 
 const RESET = CONTEXT_WINDOW.reset;

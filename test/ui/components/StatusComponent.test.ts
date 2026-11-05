@@ -92,7 +92,20 @@ describe("statusBody", () => {
     expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K");
   });
 
-  it("appends a color-coded context-window fill once the window is known", () => {
+  it("uses bright green for very low fill (<=10%)", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(1, 0),
+      tokenTotals: { prompt: 1000, completion: 0, total: 1000 },
+      contextWindow: 20000,
+    });
+    expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 5.0%/20.0K");
+    expect(out).toContain("38;2;0;255;0"); // CONTEXT_WINDOW.brightGreen
+    expect(out).toContain("38;2;0;0;0"); // restored status-bar black
+  });
+
+  it("uses green for low fill (<=25%)", () => {
     const out = body({
       model: "m-1",
       connection: "connected",
@@ -102,11 +115,24 @@ describe("statusBody", () => {
     });
     // 3000 / 20000 = 15% → green band; window abbreviates to 20.0K.
     expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 15.0%/20.0K");
-    expect(out).toContain("38;2;0;255;0"); // CONTEXT_WINDOW.green
+    expect(out).toContain("38;2;0;200;0"); // CONTEXT_WINDOW.green
     expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
 
-  it("uses red for high context-window fill", () => {
+  it("uses yellow for mid fill (<=50%)", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(1, 0),
+      tokenTotals: { prompt: 0, completion: 0, total: 40000 },
+      contextWindow: 100000,
+    });
+    expect(stripAnsi(out)).toContain("🪙 40.0%/100.0K");
+    expect(out).toContain("38;2;255;255;0"); // CONTEXT_WINDOW.yellow
+    expect(out).toContain("38;2;0;0;0"); // restored status-bar black
+  });
+
+  it("uses orange for high fill (<=75%)", () => {
     const out = body({
       model: "m-1",
       connection: "connected",
@@ -115,6 +141,19 @@ describe("statusBody", () => {
       contextWindow: 100000,
     });
     expect(stripAnsi(out)).toContain("🪙 60.0%/100.0K");
+    expect(out).toContain("38;2;255;165;0"); // CONTEXT_WINDOW.orange
+    expect(out).toContain("38;2;0;0;0"); // restored status-bar black
+  });
+
+  it("uses red for critical fill (>75%)", () => {
+    const out = body({
+      model: "m-1",
+      connection: "connected",
+      entries: fixture(1, 0),
+      tokenTotals: { prompt: 0, completion: 0, total: 80000 },
+      contextWindow: 100000,
+    });
+    expect(stripAnsi(out)).toContain("🪙 80.0%/100.0K");
     expect(out).toContain("38;2;255;0;0"); // CONTEXT_WINDOW.red
     expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
