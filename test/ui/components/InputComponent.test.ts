@@ -89,7 +89,7 @@ describe("InputComponent — bubbletea TextArea input bar", () => {
     expect(getState().input).toBe("a\nb");
   });
 
-  it("grows to fit content, up to MAX_LINES rows", () => {
+  it("grows to fit content, up to MAX_LINES viewport rows", () => {
     const component = new InputComponent();
     typeText(component, "x".repeat(80)); // soft-wraps to many visual rows
     const tall = component.render({ cols: 30 }).split("\n");
@@ -97,7 +97,7 @@ describe("InputComponent — bubbletea TextArea input bar", () => {
     expect(tall.length).toBeLessThanOrEqual(MAX_LINES);
   });
 
-  it("caps height at MAX_LINES and scrolls vertically on overflow", () => {
+  it("viewport caps at MAX_LINES and scrolls internally on overflow", () => {
     const component = new InputComponent();
     const lines = Array.from({ length: MAX_LINES + 2 }, (_, i) => `line${i}`);
     component.paste(lines.join("\n"));
@@ -108,6 +108,42 @@ describe("InputComponent — bubbletea TextArea input bar", () => {
     // Cursor sits at the end, so the overflow scrolls the top lines out.
     expect(text).toContain(`line${MAX_LINES + 1}`);
     expect(text).not.toContain("line0");
+  });
+
+  it("viewport stays at MAX_LINES while the buffer holds far more lines", () => {
+    const component = new InputComponent();
+    const lines = Array.from({ length: 60 }, (_, i) => `line${i}`);
+    component.paste(lines.join("\n"));
+    expect(component.measure(80)).toBe(MAX_LINES);
+    const out = component.render({ cols: 80 }).split("\n");
+    expect(out).toHaveLength(MAX_LINES);
+    const text = out.map((line) => stripAnsi(line)).join("\n");
+    // Cursor is at the end: the internal viewport tracks it.
+    expect(text).toContain("line59");
+    expect(text).not.toContain("line0");
+  });
+
+  it("Shift+Enter keeps inserting newlines past MAX_LINES (content budget, not viewport)", () => {
+    const component = new InputComponent();
+    component.handleChar("L0");
+    for (let i = 1; i < 30; i++) {
+      expect(component.handleKey("\x1b[13;2u")).toBe("handled");
+      component.handleChar(`L${i}`);
+    }
+    expect(getState().input.split("\n")).toHaveLength(30);
+    // …while the visible viewport stays capped.
+    expect(component.measure(80)).toBe(MAX_LINES);
+  });
+
+  it("Up/Down scroll the internal viewport through a 60-line buffer", () => {
+    const component = new InputComponent();
+    component.paste(Array.from({ length: 60 }, (_, i) => `line${i}`).join("\n"));
+    for (let i = 0; i < 60; i++) component.handleKey("\x1b[A"); // Up to the top
+    component.handleChar("X"); // type at the first line
+    expect(getState().input.startsWith("line0X")).toBe(true);
+    const out = component.render({ cols: 80 }).split("\n");
+    const text = out.map((line) => stripAnsi(line)).join("\n");
+    expect(text).toContain("line0X"); // cursor row is in view at the top
   });
 
   it("Left/Right/Home/End are handled; Up/Down bubble on a single line", () => {
