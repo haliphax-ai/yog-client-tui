@@ -289,9 +289,16 @@ describe("InputComponent — blurred input styling", () => {
   it("shows the arg syntax and the full description on an exact match", () => {
     const component = new InputComponent();
     typeText(component, "/handoff");
-    const menu = stripAnsi(component.render({ cols: 80 }).split("\n").slice(1).join("\n"));
-    expect(menu).toContain("[guidance]");
-    expect(menu).toContain("prepare a handoff document");
+    const rows = component.render({ cols: 80 }).split("\n").slice(1);
+    const header = rows[0] ?? "";
+    const descriptionRow = rows[1] ?? "";
+    expect(stripAnsi(rows.join("\n"))).toContain("[guidance]");
+    expect(stripAnsi(rows.join("\n"))).toContain("prepare a handoff document");
+    // Only the header row is highlighted; description lines stay dim with no
+    // background, like unselected matches.
+    expect(header).toContain("48;2;124;58;237"); // selected background
+    expect(descriptionRow).toContain("38;2;148;163;184"); // dim foreground
+    expect(descriptionRow).not.toContain("48;2"); // no background
   });
 
   it("keeps the summary while the token is only a prefix", () => {
