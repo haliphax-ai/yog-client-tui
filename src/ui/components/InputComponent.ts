@@ -349,9 +349,12 @@ export class InputComponent extends BaseComponent {
         // own line(s), wrapped to the available width.
         const indent = " ".repeat(displayWidth(head));
         const inner = Math.max(1, cols - displayWidth(indent));
-        body.push(style.render(head + command!.args!));
+        const headerStyle = index === sel ? ST.suggestionSel : ST.suggestion;
+        body.push(headerStyle.render(head + command!.args!));
+        // Description lines stay dim with no background, like unselected
+        // matches, even when this candidate is the highlighted one.
         for (const wline of wrapText(command!.summary, inner)) {
-          body.push(style.render(indent + wline));
+          body.push(ST.suggestion.render(indent + wline));
         }
       } else {
         const room = Math.max(0, cols - displayWidth(head));
