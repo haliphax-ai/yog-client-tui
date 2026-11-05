@@ -113,6 +113,7 @@ will land.
 | `PageUp` / `PageDown`                               | In the log: scroll the viewport by one page. In a multi-line input: page the caret                                                                                                                                                                                |
 | `Ctrl+Home` / `Ctrl+End`                            | In the log: jump to the top/bottom of the log. In the input: move to the start/end of the buffer                                                                                                                                                                  |
 | `Tab` / `Shift+Tab`                                 | In the log: cycle forward/backward through focusable units (tool calls, output/debug chunks, tables; wraps through "none"). In the input: `Tab` completes a slash command                                                                                         |
+| `T` / `Shift+T`                                     | While a user/assistant message with tables is focused: cycle forward/backward through its tables (wraps back to the entry)                                                                                                                                        |
 | `Esc`                                               | In the log with an entry focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op)                                                                                                   |
 
 While a turn is in flight, Enter is ignored (one turn at a time); input editing
@@ -124,7 +125,8 @@ the server's `POST /v1/sessions/{id}/abort` endpoint, which kills the tool call
 in flight, closes the model stream, heals the transcript, and settles the turn
 (the TUI logs a `⏹ turn aborted` line).
 The input bar is a multi-line textarea: it grows and shrinks to fit its
-content up to ten lines and scrolls vertically beyond that. `Enter` submits;
+content up to ten lines and scrolls vertically beyond that (content is
+capped at 5000 characters). `Enter` submits;
 `Shift+Enter` inserts a line break. Pasted text (bracketed paste) is inserted
 verbatim — including newlines — and never submits.
 

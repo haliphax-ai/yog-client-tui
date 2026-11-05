@@ -157,8 +157,12 @@ export function cacheOf(entry: LogEntry): RowCache | undefined {
 /**
  * The focusable units of the given entries, in document order.
  *
- * A chunk or tool entry contributes one unit (`{entry, table: -1}`); a
- * prose entry with N tables contributes N units (`{entry, table: 0..N-1}`).
+ * A chunk, tool, user, or assistant entry contributes one unit
+ * (`{entry, table: -1}`); a prose entry with N tables contributes N table
+ * units (`{entry, table: 0..N-1}`) IN ADDITION to the entry itself. The
+ * entry unit comes first, then its tables — Tab walks a prose entry's
+ * tables after selecting the entry, mirroring the document order.
+ *
  * The units come from the same sections the renderer draws, so every table
  * that renders is a table that can be focused.
  */
@@ -170,10 +174,11 @@ export function focusUnits(entries: readonly LogEntry[]): FocusTarget[] {
       entry.kind === "chunk" ||
       entry.kind === "tool" ||
       entry.kind === "toolResult" ||
-      entry.kind === "debug"
+      entry.kind === "debug" ||
+      entry.kind === "user" ||
+      entry.kind === "assistant"
     ) {
       units.push({ entry: i, table: -1 });
-      continue;
     }
     let table = 0;
     for (const section of sectionsOf(entry)) {

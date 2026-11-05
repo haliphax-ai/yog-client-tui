@@ -53,6 +53,9 @@ import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 /** The input grows to this many rows before it scrolls vertically. */
 export const MAX_LINES = 10;
 
+/** Hard cap on the input's character content (the textarea truncates beyond it). */
+export const MAX_INPUT_CHARS = 5000;
+
 /** Maximum rows the slash autocomplete menu shows (candidates in ranked order). */
 export const MAX_MENU_ROWS = 5;
 
@@ -259,6 +262,7 @@ export class InputComponent extends BaseComponent {
     ta.dynamicHeight = true;
     ta.minHeight = 1;
     ta.maxHeight = MAX_LINES;
+    ta.charLimit = MAX_INPUT_CHARS;
     ta.keyMap.insertNewline = newBinding(
       withKeys("shift+enter"),
       withHelp("Shift+Enter", "insert newline"),
@@ -312,6 +316,10 @@ export class InputComponent extends BaseComponent {
     const inputView = this.textarea.view();
     const menu = this.renderMenu(ctx.cols);
     return menu === "" ? inputView : `${inputView}\n${menu}`;
+  }
+  /** Total characters currently in the input. */
+  textLength(): number {
+    return this.textarea.length();
   }
 
   /**
