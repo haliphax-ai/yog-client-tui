@@ -285,4 +285,20 @@ describe("InputComponent — blurred input styling", () => {
     const out = component.render({ cols: 80 });
     expect(out).toContain("38;2;124;58;237"); // #7c3aed cursor
   });
+
+  it("replaces the summary with the arg syntax on an exact command match", () => {
+    const component = new InputComponent();
+    typeText(component, "/handoff");
+    const menu = stripAnsi(component.render({ cols: 80 }).split("\n").slice(1).join("\n"));
+    expect(menu).toContain("[guidance]");
+    expect(menu).not.toContain("prepare a handoff document");
+  });
+
+  it("keeps the summary while the token is only a prefix", () => {
+    const component = new InputComponent();
+    typeText(component, "/h");
+    const menu = stripAnsi(component.render({ cols: 80 }).split("\n").slice(1).join("\n"));
+    expect(menu).toContain("prepare a handoff document");
+    expect(menu).not.toContain("[guidance]");
+  });
 });
