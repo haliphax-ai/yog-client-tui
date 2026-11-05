@@ -193,6 +193,15 @@ describe("InputComponent slash autocomplete", () => {
     expect(getState().input).toBe("/new");
   });
 
+  it("extends the highlight to the viewport edge", () => {
+    const component = new InputComponent();
+    typeText(component, "/");
+    const rows = component.render({ cols: 80 }).split("\n").slice(1);
+    const selected = rows[0] ?? "";
+    expect(selected).toContain("48;2;124;58;237"); // selection background
+    expect(displayWidth(stripAnsi(selected))).toBe(80);
+  });
+
   it("Tab preserves text after the token", () => {
     const component = new InputComponent();
     typeText(component, "/q args");
@@ -317,8 +326,7 @@ describe("InputComponent — blurred input styling", () => {
     const menu = lines.slice(1).map((row) => stripAnsi(row));
     const descriptionRows = menu.slice(1);
     expect(descriptionRows.length).toBeGreaterThan(1);
-    const indents = descriptionRows.map((row) => row.length - row.trimStart().length);
-    for (const indent of indents) expect(indent).toBe(indents[0]!);
+    for (const row of descriptionRows) expect(row.startsWith(" ")).toBe(false);
     for (const row of menu) expect(displayWidth(row)).toBeLessThanOrEqual(24);
   });
 
