@@ -43,4 +43,4 @@ jobs:
     steps:
       - uses: haliphax-ai/yog-client-tui/.github@main
       - name: oxfmt
-        run: npx oxfmt --no-error-on-unmatched-pattern .
+        run: npx oxfmt --check --no-error-on-unmatched-pattern .
