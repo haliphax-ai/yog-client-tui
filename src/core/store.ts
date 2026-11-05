@@ -24,6 +24,8 @@ export interface UiState {
   focusTarget: FocusTarget;
   /** Running session token totals (reset on /new). */
   tokenTotals: { prompt: number; completion: number; total: number };
+  /** Context window size for the session model (from server capabilities). */
+  contextWindow?: number;
 }
 
 let state: UiState = initialState();
@@ -43,6 +45,7 @@ function initialState(): UiState {
     model: "",
     statusNote: "",
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
+    contextWindow: undefined,
     focusTarget: FOCUS_NONE_TARGET,
   };
 }

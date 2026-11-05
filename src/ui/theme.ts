@@ -92,3 +92,12 @@ export const CHUNK_HEADER = {
   ok: "\x1b[38;2;0;255;0m", // bright green
   fail: "\x1b[38;2;255;0;0m", // bright red
 } as const;
+
+/** Context window fill colors (truecolor foregrounds). */
+export const CONTEXT_WINDOW = {
+  red: "\x1b[38;2;255;0;0m", // >= 50%
+  yellow: "\x1b[38;2;255;165;0m", // >= 25%
+  green: "\x1b[38;2;0;255;0m", // >= 10%
+  blue: "\x1b[38;2;0;128;255m", // < 10%
+  reset: "\x1b[39m",
+} as const;
