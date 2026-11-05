@@ -358,7 +358,7 @@ export class InputComponent extends BaseComponent {
 
   /** Single-command view: highlighted header + dim flush-left description. */
   private renderExactMenu(command: SlashCommand, cols: number): string {
-    const head = "↹ " + command.name + " ";
+    const head = command.name + " ";
     const body: string[] = [ST.suggestionSel.width(cols).render(head + (command.args ?? ""))];
     for (const wline of wrapText(command.summary, cols)) {
       body.push(ST.suggestion.render(wline));
@@ -387,7 +387,11 @@ export class InputComponent extends BaseComponent {
 
   override handleChar(ch: string): KeyResult {
     if (ch === "\r" || ch === "\n") return "unhandled"; // submit → globals
-    if (ch === "\t") return this.completeTab() ? "handled" : "unhandled";
+    if (ch === "\t") {
+      // The args view has nothing to complete — Tab is a no-op there.
+      if (resolveSlash(getState().input) !== undefined) return "handled";
+      return this.completeTab() ? "handled" : "unhandled";
+    }
     if (ch === "\x1b") return "unhandled"; // Esc → viewport or globals
     if (ch === "\x03") return "unhandled"; // Ctrl+C is intentionally unbound
     if (ch === "\x7f") {

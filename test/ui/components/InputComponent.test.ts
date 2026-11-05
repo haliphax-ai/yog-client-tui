@@ -355,4 +355,13 @@ describe("InputComponent — blurred input styling", () => {
     expect(text).not.toContain("[guidance]");
     expect(text).toContain("prepare a handoff document");
   });
+
+  it("omits the tab marker and ignores Tab in the args view", () => {
+    const component = new InputComponent();
+    typeText(component, "/handoff g");
+    const text = stripAnsi(component.render({ cols: 80 }));
+    expect(text).not.toContain("↹");
+    expect(component.handleChar("\t")).toBe("handled");
+    expect(getState().input).toBe("/handoff g");
+  });
 });
