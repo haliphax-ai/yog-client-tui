@@ -339,4 +339,20 @@ describe("InputComponent — blurred input styling", () => {
     expect(component.handleChar("\t")).toBe("handled");
     expect(getState().input).toBe("/handoff");
   });
+
+  it("keeps the args view once a space has been typed", () => {
+    const component = new InputComponent();
+    typeText(component, "/handoff g");
+    const text = stripAnsi(component.render({ cols: 80 }));
+    expect(text).toContain("[guidance]");
+    expect(text).toContain("prepare a handoff document");
+  });
+
+  it("returns to the fuzzy list when the token stops matching", () => {
+    const component = new InputComponent();
+    typeText(component, "/h g");
+    const text = stripAnsi(component.render({ cols: 80 }));
+    expect(text).not.toContain("[guidance]");
+    expect(text).toContain("prepare a handoff document");
+  });
 });

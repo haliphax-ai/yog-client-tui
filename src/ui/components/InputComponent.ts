@@ -44,6 +44,7 @@ import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
 import {
   SLASH_COMMANDS,
   completeSlash,
+  resolveSlash,
   slashTokenEnd,
   type SlashCommand,
 } from "../../core/commands.ts";
@@ -319,13 +320,17 @@ export class InputComponent extends BaseComponent {
    * candidate is highlighted; Tab cycles through and applies the selection.
    */
   private renderMenu(cols: number): string {
-    const candidates = completeSlash(getState().input);
-    if (candidates.length === 0) return "";
     const state = getState();
+    const resolved = resolveSlash(state.input);
+    // Once the command token resolves — typed exactly or with args — show the
+    // args view instead of the fuzzy list. The list only returns when the
+    // input no longer matches up (partial/unknown token).
+    if (resolved !== undefined) {
+      return this.renderExactMenu(resolved, cols);
+    }
+    const candidates = completeSlash(state.input);
+    if (candidates.length === 0) return "";
     const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
-    // Ranked order up to the cap; the leading "/" is implied by the trigger
-    // and is not shown. Each candidate is one row: label + summary with a
-    // two-space gap, truncated with an ellipsis when it would overflow.
     const shown = candidates.slice(0, MAX_MENU_ROWS);
     const byName = new Map<string, SlashCommand>();
     for (const command of SLASH_COMMANDS) byName.set("/" + command.name, command);
@@ -333,38 +338,33 @@ export class InputComponent extends BaseComponent {
       candidate.startsWith("/") ? candidate.slice(1) : candidate,
     );
     const labelW = Math.max(...labels.map((label) => displayWidth(label)));
-    const line = getState().input.trim();
     const body: string[] = [];
     for (let index = 0; index < labels.length; index++) {
       const command = byName.get(candidates[index] as string);
-      const exact =
-        command !== undefined && line === "/" + command.name && command.args !== undefined;
       const label = labels[index] as string;
       const lead = index === 0 ? "↹ " : "  ";
       const labelPadded = label + " ".repeat(labelW - displayWidth(label) + 2);
-      // Exact matches have nothing to align with: one space, as typed.
-      const head = exact ? lead + label + " " : lead + labelPadded;
-      const style = index === sel ? ST.suggestionSel : ST.suggestion;
-      if (exact) {
-        // Header row shows the arg syntax; the full description follows flush
-        // left, dim, and background-free.
-        const headerStyle = index === sel ? ST.suggestionSel : ST.suggestion;
-        body.push(headerStyle.width(cols).render(head + command!.args!));
-        for (const wline of wrapText(command!.summary, cols)) {
-          body.push(ST.suggestion.render(wline));
-        }
-      } else {
-        const room = Math.max(0, cols - displayWidth(head));
-        let desc = command?.summary ?? "";
-        if (displayWidth(desc) > room) {
-          desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
-        }
-        body.push(style.width(cols).render(head + desc));
+      const head = lead + labelPadded;
+      const room = Math.max(0, cols - displayWidth(head));
+      let desc = command?.summary ?? "";
+      if (displayWidth(desc) > room) {
+        desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
       }
+      const style = index === sel ? ST.suggestionSel : ST.suggestion;
+      body.push(style.width(cols).render(head + desc));
     }
     return body.join("\n");
   }
 
+  /** Single-command view: highlighted header + dim flush-left description. */
+  private renderExactMenu(command: SlashCommand, cols: number): string {
+    const head = "↹ " + command.name + " ";
+    const body: string[] = [ST.suggestionSel.width(cols).render(head + (command.args ?? ""))];
+    for (const wline of wrapText(command.summary, cols)) {
+      body.push(ST.suggestion.render(wline));
+    }
+    return body.join("\n");
+  }
   /** Insert pasted text verbatim (newlines included) — never submits. */
   paste(content: string): void {
     const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
