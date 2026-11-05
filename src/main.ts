@@ -39,11 +39,12 @@
  *                   the next launch can resume it.
  *   Input editing   the TextArea keymap is fully reachable while the input
  *                   holds the ring (arrows, Alt/Ctrl+arrows word nav,
- *                   Home/End, PgUp/PgDn, Ctrl+A/E/K/U/W, selection, copy).
- *   Log navigation  Home/End jump to top/bottom; PgUp/PgDn scroll by page;
- *                   Up/Down scroll by one row; Tab/Shift-Tab cycle the entry
- *                   focus ring; Esc leaves focus mode (unhandled keys drop).
- *   Esc             (input) abort the in-flight turn via the abort endpoint;
+              // compact and handoff both start a fresh server session — adopt it
+              // so a restart resumes the new session, not the archived one.
+              if (typeof result.sessionId === "string") {
+                client.sessionId = result.sessionId;
+                await saveState(stateFilePath(), { lastSessionId: result.sessionId });
+              }
  *                   (log, nothing focused) return to the input.
  */
 import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from "./config.ts";
@@ -64,10 +65,6 @@ import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
-import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
-import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
-import { createInputDecoder } from "./ui/components/inputDecode.ts";
-import { appendFileSync } from "node:fs";
 import {
   composeMainPane,
   createScheduler,
@@ -83,6 +80,10 @@ import {
   SLASH_COMMANDS,
   completeSlash,
 } from "./core/commands.ts";
+import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
+import { createInputDecoder } from "./ui/components/inputDecode.ts";
+import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
+import { appendFileSync } from "node:fs";
 
 /** Terminal state shared with error paths (module scope, always in sync). */
 let terminalActive = false;
@@ -425,8 +426,8 @@ async function run(argv: readonly string[]): Promise<void> {
               `${kind} failed: ${err instanceof Error ? err.message : String(err)}`,
             ]);
           } finally {
-            stopSpinner();
             input.reset();
+            stopSpinner();
           }
         })();
         return;
