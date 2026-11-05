@@ -317,8 +317,7 @@ describe("InputComponent — blurred input styling", () => {
     const menu = lines.slice(1).map((row) => stripAnsi(row));
     const descriptionRows = menu.slice(1);
     expect(descriptionRows.length).toBeGreaterThan(1);
-    const indents = descriptionRows.map((row) => row.length - row.trimStart().length);
-    for (const indent of indents) expect(indent).toBe(indents[0]!);
+    for (const row of descriptionRows) expect(row.startsWith(" ")).toBe(false);
     for (const row of menu) expect(displayWidth(row)).toBeLessThanOrEqual(24);
   });
 

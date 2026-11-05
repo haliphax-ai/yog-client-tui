@@ -345,16 +345,12 @@ export class InputComponent extends BaseComponent {
       const head = lead + labelPadded;
       const style = index === sel ? ST.suggestionSel : ST.suggestion;
       if (exact) {
-        // Header row shows the arg syntax; the full description follows on its
-        // own line(s), wrapped to the available width.
-        const indent = " ".repeat(displayWidth(head));
-        const inner = Math.max(1, cols - displayWidth(indent));
+        // Header row shows the arg syntax; the full description follows flush
+        // left, dim, and background-free.
         const headerStyle = index === sel ? ST.suggestionSel : ST.suggestion;
         body.push(headerStyle.render(head + command!.args!));
-        // Description lines stay dim with no background, like unselected
-        // matches, even when this candidate is the highlighted one.
-        for (const wline of wrapText(command!.summary, inner)) {
-          body.push(ST.suggestion.render(indent + wline));
+        for (const wline of wrapText(command!.summary, cols)) {
+          body.push(ST.suggestion.render(wline));
         }
       } else {
         const room = Math.max(0, cols - displayWidth(head));
