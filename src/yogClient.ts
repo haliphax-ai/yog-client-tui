@@ -353,13 +353,17 @@ export class YogClient {
   }
 
   /**
-   * Probe `GET /v1/capabilities` to establish reachability with a friendly
-   * error before any session exists. Stores the result on `capabilities`.
+   * Probe `GET /v1/capabilities?model={model}` to establish reachability with
+   * a friendly error before any session exists. The model names the session
+   * model so the server can resolve its context window. Stores the result on
+   * `capabilities`.
    */
-  async probe(): Promise<Capabilities> {
+  async probe(model?: string): Promise<Capabilities> {
     let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}/v1/capabilities`, { headers: this.headers() });
+      const qs =
+        typeof model === "string" && model !== "" ? `?model=${encodeURIComponent(model)}` : "";
+      res = await fetch(`${this.baseUrl}/v1/capabilities${qs}`, { headers: this.headers() });
     } catch (err) {
       throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
     }
