@@ -3,7 +3,7 @@
  *
  * Dependency-cruiser has no native "match file contents" rule type (its rule
  * conditions only match module paths, dependency attributes and reachability),
- * so the two content-based rules (6 and 9) are enforced here by scanning the
+ * so the three content-based rules (6, 9 and 10) are enforced here by scanning the
  * TypeScript sources under src/ when this config is loaded and failing the run
  * when a violation is found. Everything else is expressed as regular
  * forbidden rules.
@@ -133,14 +133,28 @@ module.exports = {
       to: { path: "^src/ui/components/" },
     },
 
-    // 5c. The domain layer must not depend on the presentation layer.
-    // The log-entry shape lives in core/; the renderer draws it.
+    // 5c. The domain layer must not depend on the presentation layer:
+    // core owns the domain model (entries, focus, scroll state); ui draws,
+    // routes keys, and renders. The focus-ring work (#52) made this seam
+    // load-bearing — FocusTarget flows core -> ui, never the reverse.
     {
-      name: "core-no-render-imports",
+      name: "core-no-ui-imports",
       severity: "error",
-      comment: "core owns the domain; ui/render draws it",
+      comment: "core owns the domain; ui presents it",
       from: { path: "^src/core/" },
-      to: { path: "^src/ui/render/" },
+      to: { path: "^src/ui/" },
+    },
+
+    // 5d. The filesystem is touched only by the composition root: config.ts
+    // (load/save) and main.ts (debug keylog). The transport, the core domain
+    // and the ui stay pure data — the client-side mirror of the server's
+    // fs-only-via-host philosophy.
+    {
+      name: "fs-only-in-config-and-main",
+      severity: "error",
+      comment: "node:fs only in config.ts and main.ts",
+      from: { path: "^src/(?!main\\.ts$|config\\.ts$)" },
+      to: { path: "^(node:)?fs(/promises)?$" },
     },
 
     // 7. Only the composition root may import config/.
@@ -170,6 +184,17 @@ module.exports = {
       comment: "styling primitives stay in ui/ (and the util wrappers around them)",
       from: { pathNot: "^(src/ui/|src/util/)" },
       to: { path: "@oakoliver/lipgloss" },
+    },
+
+    // 8c. The terminal protocol library (bubbletea) and its widget pack
+    // (bubbles) are implementation details of the component layer; nothing
+    // outside ui/ may drive keys or reuse their primitives.
+    {
+      name: "terminal-protocol-only-in-ui",
+      severity: "error",
+      comment: "key/terminal plumbing stays inside ui/",
+      from: { pathNot: "^src/ui/" },
+      to: { path: "@oakoliver/(bubbletea|bubbles)" },
     },
   ],
   options: {
