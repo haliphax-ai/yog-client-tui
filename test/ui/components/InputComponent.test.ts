@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getState, resetForTests, setState } from "../../../src/core/store.ts";
-import {
-  InputComponent,
-  MAX_INPUT_CHARS,
-  MAX_LINES,
-} from "../../../src/ui/components/InputComponent.ts";
+import { InputComponent, MAX_INPUT_CHARS } from "../../../src/ui/components/InputComponent.ts";
 import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
 import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
@@ -89,25 +85,36 @@ describe("InputComponent — bubbletea TextArea input bar", () => {
     expect(getState().input).toBe("a\nb");
   });
 
-  it("grows to fit content, up to MAX_LINES rows", () => {
+  it("grows to fit content without a row cap", () => {
     const component = new InputComponent();
     typeText(component, "x".repeat(80)); // soft-wraps to many visual rows
     const tall = component.render({ cols: 30 }).split("\n");
     expect(tall.length).toBeGreaterThan(1);
-    expect(tall.length).toBeLessThanOrEqual(MAX_LINES);
   });
 
-  it("caps height at MAX_LINES and scrolls vertically on overflow", () => {
+  it("grows past the old 10-row cap: every pasted line renders", () => {
     const component = new InputComponent();
-    const lines = Array.from({ length: MAX_LINES + 2 }, (_, i) => `line${i}`);
+    const lines = Array.from({ length: 40 }, (_, i) => `line${i}`);
     component.paste(lines.join("\n"));
-    expect(component.measure(80)).toBe(MAX_LINES);
+    expect(component.measure(80)).toBe(40);
     const out = component.render({ cols: 80 }).split("\n");
-    expect(out).toHaveLength(MAX_LINES);
+    expect(out).toHaveLength(40);
     const text = out.map((line) => stripAnsi(line)).join("\n");
-    // Cursor sits at the end, so the overflow scrolls the top lines out.
-    expect(text).toContain(`line${MAX_LINES + 1}`);
-    expect(text).not.toContain("line0");
+    // The internal viewport keeps the whole buffer visible while it fits the
+    // terminal-sized frame the tests use (no hard cap on rows).
+    expect(text).toContain("line0");
+    expect(text).toContain("line39");
+  });
+
+  it("keeps the cursor row visible when content exceeds the frame (internal scroll)", () => {
+    const component = new InputComponent();
+    const lines = Array.from({ length: 60 }, (_, i) => `line${i}`);
+    component.paste(lines.join("\n"));
+    // The frame is small (40 rows); the textarea still renders cursor-visible.
+    const out = component.render({ cols: 80 }).split("\n");
+    const text = out.map((line) => stripAnsi(line)).join("\n");
+    expect(text).toContain("line59"); // cursor is at the end
+    expect(text).not.toContain("line0\n"); // top scrolled out of the widget viewport
   });
 
   it("Left/Right/Home/End are handled; Up/Down bubble on a single line", () => {
@@ -382,10 +389,13 @@ describe("InputComponent — 5000-character cap", () => {
     expect(getState().input.length).toBe(MAX_INPUT_CHARS);
   });
 
-  it("keeps the viewport capped at MAX_LINES rows regardless of length", () => {
+  it("renders every wrapped row of a full 5000-char input", () => {
     const component = new InputComponent();
-    component.paste("x".repeat(MAX_INPUT_CHARS));
-    expect(component.measure(80)).toBe(MAX_LINES);
-    expect(component.render({ cols: 80 }).split("\n").length).toBe(MAX_LINES);
+    // 50 logical lines of 99 chars each: at 80 cols each wraps to 2 rows.
+    const line = "x".repeat(99);
+    component.paste(Array.from({ length: 50 }, () => line).join("\n"));
+    const rows = component.render({ cols: 80 }).split("\n");
+    expect(component.measure(80)).toBe(rows.length);
+    expect(rows.length).toBeGreaterThan(50);
   });
 });

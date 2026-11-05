@@ -9,9 +9,9 @@
  * through the normal store path.
  *
  * Geometry: the textarea grows and shrinks to fit its content, from one row
- * up to `MAX_LINES` rows; when content exceeds that, the widget scrolls
- * vertically (its internal viewport) — the input row count the pipeline sees
- * is capped at `MAX_LINES`.
+ * up to as many rows as the content needs (only the `MAX_INPUT_CHARS` cap
+ * bounds it); the widget's internal viewport keeps the cursor row visible as
+ * the buffer grows, and the log viewport shrinks to the remainder.
  *
  * Key routing: the input is the "input" target of the top-level focus ring
  * (see `keyRouter`). While it holds the ring, it receives ALL keys: escape
@@ -49,9 +49,6 @@ import {
   type SlashCommand,
 } from "../../core/commands.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
-
-/** The input grows to this many rows before it scrolls vertically. */
-export const MAX_LINES = 10;
 
 /** Hard cap on the input's character content (the textarea truncates beyond it). */
 export const MAX_INPUT_CHARS = 5000;
@@ -261,7 +258,7 @@ export class InputComponent extends BaseComponent {
     ta.showLineNumbers = false;
     ta.dynamicHeight = true;
     ta.minHeight = 1;
-    ta.maxHeight = MAX_LINES;
+    ta.maxHeight = 0; // unlimited — grow with content (MAX_INPUT_CHARS bounds it)
     ta.charLimit = MAX_INPUT_CHARS;
     ta.keyMap.insertNewline = newBinding(
       withKeys("shift+enter"),
