@@ -410,7 +410,6 @@ export class InputComponent extends BaseComponent {
   }
 
   /**
-  /**
    * Tab inside a slash line: apply the highlighted completion (the first
    * ranked match by default) — Tab accepts the selection, it does not cycle.
    * Anything after the token is preserved. Returns false when autocomplete is
