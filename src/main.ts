@@ -375,16 +375,13 @@ async function run(argv: readonly string[]): Promise<void> {
           return;
         }
         const guidance = prompt.slice(slashTokenEnd(prompt)).trim();
+        input.reset(); // clear immediately on submit, before the command starts
         void (async () => {
           startSpinner();
           try {
             if (kind === "shake") {
               const outcome = await client.shake();
-              // Recompute the authoritative current context total from the
-              // server so the fill gauge reflects the shaked transcript now,
-              // without touching the displayed log.
-              const dump = await client.getTranscript();
-              const weight = finalContextTotal(dump.turns);
+              const weight = outcome.contextSize;
               setState({
                 tokenTotals: { prompt: 0, completion: 0, total: weight },
               });
@@ -399,8 +396,9 @@ async function run(argv: readonly string[]): Promise<void> {
                 kind === "compact"
                   ? await client.compact(guidance || undefined)
                   : await client.handoff(guidance || undefined);
-              // compact runs in a fresh server session — adopt it.
-              if (kind === "compact" && typeof result.sessionId === "string") {
+              // compact and handoff both start a fresh server session — adopt it
+              // so a restart resumes the new session, not the archived one.
+              if (typeof result.sessionId === "string") {
                 client.sessionId = result.sessionId;
                 await saveState(stateFilePath(), { lastSessionId: result.sessionId });
               }
@@ -426,7 +424,6 @@ async function run(argv: readonly string[]): Promise<void> {
               `${kind} failed: ${err instanceof Error ? err.message : String(err)}`,
             ]);
           } finally {
-            input.reset();
             stopSpinner();
           }
         })();
