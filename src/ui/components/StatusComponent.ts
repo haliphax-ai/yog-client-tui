@@ -5,7 +5,7 @@
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, type UiState } from "../../core/store.ts";
 import { formatTokenTotal } from "../../core/toolFormat.ts";
-import { ST, C, CONTEXT_WINDOW } from "../theme.ts";
+import { ST, CONTEXT_WINDOW } from "../theme.ts";
 import { displayWidth, stripAnsi } from "../../util/ansi.ts";
 import type { LogEntry } from "../../core/entries.ts";
 import { MiniDot } from "@oakoliver/bubbles";
