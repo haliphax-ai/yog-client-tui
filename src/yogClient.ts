@@ -703,11 +703,9 @@ export class YogClient {
       res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/${kind}`, {
         method: "POST",
         headers: this.headers({ "content-type": "application/json" }),
-        body: JSON.stringify({
-          ...(guidance !== undefined && guidance.trim() !== ""
-            ? { guidance: guidance.trim() }
-            : {}),
-        }),
+        body: JSON.stringify(
+          guidance !== undefined && guidance.trim() !== "" ? { guidance: guidance.trim() } : {},
+        ),
       });
     } catch (err) {
       throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
