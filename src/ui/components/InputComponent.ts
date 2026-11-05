@@ -39,7 +39,7 @@ import type { TextareaModel, TextareaStyles } from "@oakoliver/bubbles";
 import { newStyle } from "@oakoliver/lipgloss";
 import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
-import { displayWidth, truncateAnsi } from "../../util/ansi.ts";
+import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
 import {
   SLASH_COMMANDS,
@@ -337,24 +337,30 @@ export class InputComponent extends BaseComponent {
     const body: string[] = [];
     for (let index = 0; index < labels.length; index++) {
       const command = byName.get(candidates[index] as string);
-      const description =
-        command === undefined
-          ? ""
-          : line === "/" + command.name && command.args !== undefined
-            ? command.args
-            : command.summary;
+      const exact =
+        command !== undefined && line === "/" + command.name && command.args !== undefined;
       const label = labels[index] as string;
       const lead = index === 0 ? "↹ " : "  ";
       const labelPadded = label + " ".repeat(labelW - displayWidth(label) + 2);
       const head = lead + labelPadded;
-      let desc = description;
-      const room = Math.max(0, cols - displayWidth(head));
-      if (displayWidth(desc) > room) {
-        desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
+      const style = index === sel ? ST.suggestionSel : ST.suggestion;
+      if (exact) {
+        // Header row shows the arg syntax; the full description follows on its
+        // own line(s), wrapped to the available width.
+        const indent = " ".repeat(displayWidth(head));
+        const inner = Math.max(1, cols - displayWidth(indent));
+        body.push(style.render(head + command!.args!));
+        for (const wline of wrapText(command!.summary, inner)) {
+          body.push(style.render(indent + wline));
+        }
+      } else {
+        const room = Math.max(0, cols - displayWidth(head));
+        let desc = command?.summary ?? "";
+        if (displayWidth(desc) > room) {
+          desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
+        }
+        body.push(style.render(head + desc));
       }
-      const text = head + desc;
-      const styled = index === sel ? ST.suggestionSel.render(text) : ST.suggestion.render(text);
-      body.push(styled);
     }
     return body.join("\n");
   }
