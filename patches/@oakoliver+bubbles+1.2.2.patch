@@ -1,0 +1,24 @@
+diff --git a/node_modules/@oakoliver/bubbles/dist/index.cjs b/node_modules/@oakoliver/bubbles/dist/index.cjs
+index 3ebb165..f3b493f 100644
+--- a/node_modules/@oakoliver/bubbles/dist/index.cjs
++++ b/node_modules/@oakoliver/bubbles/dist/index.cjs
+@@ -3803,6 +3803,7 @@ var DEFAULT_MAX_WIDTH = 500;
+ var MAX_LINES = 1e4;
+ function runeWidth2(ch) {
+   if (ch.length === 0) return 0;
++  if (/\p{Emoji_Presentation}/u.test(ch)) return 2;
+   const code = ch.codePointAt(0);
+   if (code >= 4352 && code <= 4447 || code >= 11904 && code <= 12350 || code >= 12353 && code <= 13247 || code >= 13312 && code <= 19903 || code >= 19968 && code <= 40959 || code >= 40960 && code <= 42191 || code >= 43360 && code <= 43391 || code >= 44032 && code <= 55295 || code >= 63744 && code <= 64255 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 126976 && code <= 130047 || code >= 131072 && code <= 196607 || code >= 196608 && code <= 262143) {
+     return 2;
+diff --git a/node_modules/@oakoliver/bubbles/dist/index.js b/node_modules/@oakoliver/bubbles/dist/index.js
+index ac01ffa..cc78746 100644
+--- a/node_modules/@oakoliver/bubbles/dist/index.js
++++ b/node_modules/@oakoliver/bubbles/dist/index.js
+@@ -3647,6 +3647,7 @@ var DEFAULT_MAX_WIDTH = 500;
+ var MAX_LINES = 1e4;
+ function runeWidth2(ch) {
+   if (ch.length === 0) return 0;
++  if (/\p{Emoji_Presentation}/u.test(ch)) return 2;
+   const code = ch.codePointAt(0);
+   if (code >= 4352 && code <= 4447 || code >= 11904 && code <= 12350 || code >= 12353 && code <= 13247 || code >= 13312 && code <= 19903 || code >= 19968 && code <= 40959 || code >= 40960 && code <= 42191 || code >= 43360 && code <= 43391 || code >= 44032 && code <= 55295 || code >= 63744 && code <= 64255 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 126976 && code <= 130047 || code >= 131072 && code <= 196607 || code >= 196608 && code <= 262143) {
+     return 2;
