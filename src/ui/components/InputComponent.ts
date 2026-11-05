@@ -348,7 +348,7 @@ export class InputComponent extends BaseComponent {
         // Header row shows the arg syntax; the full description follows flush
         // left, dim, and background-free.
         const headerStyle = index === sel ? ST.suggestionSel : ST.suggestion;
-        body.push(headerStyle.render(head + command!.args!));
+        body.push(headerStyle.width(cols).render(head + command!.args!));
         for (const wline of wrapText(command!.summary, cols)) {
           body.push(ST.suggestion.render(wline));
         }
@@ -358,7 +358,7 @@ export class InputComponent extends BaseComponent {
         if (displayWidth(desc) > room) {
           desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
         }
-        body.push(style.render(head + desc));
+        body.push(style.width(cols).render(head + desc));
       }
     }
     return body.join("\n");
