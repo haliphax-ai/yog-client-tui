@@ -99,5 +99,7 @@ export const CONTEXT_WINDOW = {
   yellow: "\x1b[38;2;255;165;0m", // >= 25%
   green: "\x1b[38;2;0;255;0m", // >= 10%
   blue: "\x1b[38;2;0;128;255m", // < 10%
-  reset: "\x1b[39m",
+  // Back to the status bar's foreground (black) — a default-fg reset would
+  // punch a white hole into the bar's dark backing.
+  reset: "\x1b[38;2;0;0;0m",
 } as const;

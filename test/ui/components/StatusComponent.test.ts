@@ -101,8 +101,9 @@ describe("statusBody", () => {
       contextWindow: 20000,
     });
     // 3000 / 20000 = 15% → green band; window abbreviates to 20.0K.
-    expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K (15.0%/20.0K)");
+    expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 15.0%/20.0K");
     expect(out).toContain("38;2;0;255;0"); // CONTEXT_WINDOW.green
+    expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
 
   it("uses red for high context-window fill", () => {
@@ -113,8 +114,9 @@ describe("statusBody", () => {
       tokenTotals: { prompt: 0, completion: 0, total: 60000 },
       contextWindow: 100000,
     });
-    expect(stripAnsi(out)).toContain("🪙 60.0K (60.0%/100.0K)");
+    expect(stripAnsi(out)).toContain("🪙 60.0%/100.0K");
     expect(out).toContain("38;2;255;0;0"); // CONTEXT_WINDOW.red
+    expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
 
   it("omits the context-window segment when it is unknown or zero", () => {

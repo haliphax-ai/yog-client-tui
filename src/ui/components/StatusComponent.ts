@@ -64,13 +64,14 @@ export function statsSegment(
   if (totals.total > 0 || totals.prompt > 0 || totals.completion > 0) {
     const total = totals.total > 0 ? totals.total : totals.prompt + totals.completion;
     const tokenPart = `${TOKENS_EMOJI} ${formatTokenTotal(total)}`;
-    // Add context window info if available
+    // Add context window info if available: fill % (color-coded) + window
+    // size — no raw token count, no parentheses.
     if (state.contextWindow && state.contextWindow > 0) {
       const percentage = (total / state.contextWindow) * 100;
       const pctStr = percentage.toFixed(1);
       const winStr = formatTokenTotal(state.contextWindow);
       const color = contextWindowColor(percentage);
-      parts.push(`${tokenPart} (${color}${pctStr}%${RESET}/${winStr})`);
+      parts.push(`${TOKENS_EMOJI} ${color}${pctStr}%${RESET}/${winStr}`);
     } else {
       parts.push(tokenPart);
     }
