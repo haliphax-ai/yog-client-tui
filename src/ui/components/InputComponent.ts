@@ -342,7 +342,8 @@ export class InputComponent extends BaseComponent {
       const label = labels[index] as string;
       const lead = index === 0 ? "↹ " : "  ";
       const labelPadded = label + " ".repeat(labelW - displayWidth(label) + 2);
-      const head = lead + labelPadded;
+      // Exact matches have nothing to align with: one space, as typed.
+      const head = exact ? lead + label + " " : lead + labelPadded;
       const style = index === sel ? ST.suggestionSel : ST.suggestion;
       if (exact) {
         // Header row shows the arg syntax; the full description follows flush
