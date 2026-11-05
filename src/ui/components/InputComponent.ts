@@ -60,10 +60,12 @@ export const MAX_INPUT_CHARS = 5000;
 /**
  * Hard cap on the input's *content* rows (visual rows, soft-wrapped). The
  * visible viewport is `MAX_LINES`; this is how much text the buffer itself
- * may hold past that. Generous, but not unbounded: without it the textarea's
- * legacy guard would stop inserts at `MAX_LINES` logical lines.
+ * may hold past that. Without it the textarea's legacy guard would stop
+ * inserts at `MAX_LINES` logical lines. It can never bind before
+ * `MAX_INPUT_CHARS` does — every visual row costs at least one character —
+ * so it is simply derived from the character cap.
  */
-export const MAX_CONTENT_ROWS = 10_000;
+export const MAX_CONTENT_ROWS = MAX_INPUT_CHARS;
 
 /** Maximum rows the slash autocomplete menu shows (candidates in ranked order). */
 export const MAX_MENU_ROWS = 5;
