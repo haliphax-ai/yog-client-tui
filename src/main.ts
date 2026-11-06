@@ -666,15 +666,16 @@ async function run(argv: readonly string[]): Promise<void> {
     entries: [
       {
         kind: "system",
-        lines: [
-          ...noticeLine(
-            "system",
-            "connected",
-            `${baseUrl} · contract ${caps.contractVersion} · ` +
-              `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
-          ),
-          ...noticeLine("system", "model", `${config.model} · /quit exits`),
-        ],
+        lines: noticeLine(
+          "system",
+          "connected",
+          `${baseUrl} · contract ${caps.contractVersion} · ` +
+            `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
+        ),
+      },
+      {
+        kind: "system",
+        lines: noticeLine("system", "model", `${config.model} · /quit exits`),
       },
       ...seedEntries,
     ],

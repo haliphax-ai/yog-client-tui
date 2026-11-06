@@ -25,6 +25,9 @@ export const ST = {
   noticeDetail: newStyle().foreground("#a1a1aa"),
   /** Wait notice: `⚠️` busy-gate refusals, yellow. Shares the notice layout. */
   noticeWait: newStyle().foreground("#fbbf24").padding(0, 1),
+  /** System notice: `🪧` client lifecycle chatter (connection banner, session
+   *  notes, recovery), blue-grey. Shares the notice layout. */
+  systemNotice: newStyle().foreground("#94a3b8").padding(0, 1),
   /** Per-turn summary line: very dark grey text on the normal background, 1-cell
    *  horizontal padding (unlike the session status bar, which has a backing). */
   statusLine: newStyle().foreground("#3f3f46").padding(0, 1),

@@ -348,18 +348,24 @@ function renderEntry(
     };
   }
 
-  if (entry.kind === "notice") {
+  if (entry.kind === "notice" || (entry.kind === "system" && entry.lines.length === 2)) {
     // One-line notice (like the status bar's dot-separated items): the
     // padded label in its themed color — light blue for info (ℹ️), yellow
-    // for wait notices (⚠️), picked by the label's leading emoji — the
+    // for wait notices (⚠️), blue-grey for system chatter (🪧) — the
     // mid-dot in the terminal's default foreground, and the detail dimmed;
-    // all capped to the terminal width.
+    // all capped to the terminal width. A `system` entry in the noticeLine
+    // shape (label + detail) is a client event notice; a one-row `system`
+    // entry is rehydrated transcript content and stays plain below.
     const label = entry.lines[0] ?? "";
     const detail = entry.lines[1] ?? "";
     // 1 pad + label + 3 (" · ") + detail; -4 when the dot is present so the
     // separator always survives the cap.
     const budget = Math.max(0, cols - 2 - (detail === "" ? 0 : 3));
-    const noticeStyle = label.startsWith("⚠️") ? ST.noticeWait : ST.notice;
+    const noticeStyle = label.startsWith("⚠️")
+      ? ST.noticeWait
+      : entry.kind === "system"
+        ? ST.systemNotice
+        : ST.notice;
     const head = noticeStyle.render(truncateAnsi(label, budget));
     const body =
       detail === ""

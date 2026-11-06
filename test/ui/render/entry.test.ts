@@ -152,6 +152,23 @@ describe("terminal-state notice", () => {
     expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
     expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
   });
+  it("styles system notices (🪧) in the blue-grey system tone", () => {
+    const rows = cachedRows(
+      { kind: "system", lines: ["🪧 recovered", "stream interrupted — resumed"] },
+      60,
+    );
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed");
+    expect(rows[0]).toContain(ST.systemNotice.render("🪧 recovered"));
+    expect(rows[0]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
+  });
+
+  it("keeps one-row system entries as plain transcript content", () => {
+    const rows = cachedRows({ kind: "system", lines: ["verbatim server row"] }, 60);
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe("verbatim server row");
+    expect(rows[0]).not.toContain(ST.systemNotice.render(""));
+  });
 });
 
 describe("height summary", () => {
@@ -175,8 +192,8 @@ describe("height summary", () => {
 
   it("reuses the cached total while nothing changes and rebuilds on mutation", () => {
     const entries: LogEntry[] = [
-      { kind: "system", lines: ["a"] },
-      { kind: "system", lines: ["b"] },
+      { kind: "error", lines: ["a"] },
+      { kind: "error", lines: ["b"] },
     ];
     const first = totalRows(entries, 40);
     expect(totalRows(entries, 40)).toBe(first); // short-circuit hit

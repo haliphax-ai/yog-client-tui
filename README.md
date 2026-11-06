@@ -237,7 +237,7 @@ On each turn the client then:
    tools run, and the terminal usage report later replaces those provisional
    totals with the authoritative full-context numbers.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
-   (a "⏹️ recovered · stream interrupted — resumed from turn status" note is
+   (a "🪧 recovered · stream interrupted — resumed from turn status" note is
    logged).
 8. Esc (with nothing focused) aborts the active turn via
    `POST /v1/sessions/{id}/abort` — a `⏹️ turn aborted` note is logged from
