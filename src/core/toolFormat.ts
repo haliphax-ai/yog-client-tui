@@ -47,17 +47,7 @@ export function resultStatus(result: unknown): string {
   const runtime = typeof obj["runtimeMs"] === "number" ? ` · ${obj["runtimeMs"]}ms` : "";
   return exit || runtime ? `${exit}${runtime}` : "";
 }
-/**
- * Token count for a tool result, when the payload carries one (`tokens` as
- * a finite non-negative integer). Returns undefined otherwise so callers can
- * omit the segment entirely — a call that failed validation and never ran
- * has no meaningful token count to display.
- */
-export function resultTokens(result: unknown): number | undefined {
-  if (result === null || typeof result !== "object" || Array.isArray(result)) return undefined;
-  const tokens = (result as Record<string, unknown>)["tokens"];
-  return typeof tokens === "number" && Number.isFinite(tokens) && tokens >= 0 ? tokens : undefined;
-}
+
 /**
  * Whether a tool result uses the bash-style output component (stdout/stderr
  * text fields). Tools without that shape get the generic tool-result

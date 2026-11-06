@@ -511,13 +511,13 @@ async function run(argv: readonly string[]): Promise<void> {
       if (usage !== undefined) applyUsageTotal(usage);
     };
     const baseOnToolResult = turn.events.onToolResult;
-    turn.events.onToolResult = (id, name, ok, result, error, tokens) => {
-      baseOnToolResult?.(id, name, ok, result, error, tokens);
-      // Live status-bar update: fold each tool call's attributed completion
-      // tokens into the session total immediately, so the 🪙 stat climbs as
-      // tools run. The terminal usage report later replaces these provisional
-      // totals with the authoritative full-context numbers.
-      addLiveCompletionTokens(tokens ?? 0);
+    turn.events.onToolResult = (id, name, ok, result, error, usage, promptDelta) => {
+      baseOnToolResult?.(id, name, ok, result, error, usage, promptDelta);
+      // Live status-bar update: the round's promptDelta is the honest
+      // context-growth number (this round's prompt_tokens minus the previous
+      // round's). Folding it in makes the 🪙 stat climb as tools run; the
+      // terminal usage report later replaces totals with authoritative numbers.
+      addLiveCompletionTokens(promptDelta ?? 0);
     };
     turn.begin(prompt);
     input.reset();

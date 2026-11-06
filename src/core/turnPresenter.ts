@@ -14,7 +14,6 @@ import {
   formatTokenTotal,
   prettyArgs,
   resultStatus,
-  resultTokens,
   isBashShaped,
 } from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
@@ -32,19 +31,6 @@ export interface TranscriptTurnMetrics {
 export interface TranscriptRehydrateOpts {
   /** Per-turn metrics, keyed by the transcript row's `turnId` (row id). */
   turns?: Map<number, TranscriptTurnMetrics>;
-}
-
-/**
- * Fold a per-call token count into a result payload the way the shared
- * builders expect it (they read `result.tokens`). Returns the original
- * value when there are no tokens so nothing is cloned/flagged.
- */
-function withTokens(result: unknown, tokens: number | undefined): unknown {
-  if (tokens === undefined) return result;
-  if (result !== null && typeof result === "object" && !Array.isArray(result)) {
-    return { ...(result as Record<string, unknown>), tokens };
-  }
-  return { tokens };
 }
 
 /** Turn-level total for a usage object (total field, else prompt+completion). */
@@ -98,6 +84,10 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
   // Tool calls announced during this turn (reset per presenter = per turn).
   let toolCallsThisTurn = 0;
+  // Calls announced since the last tool result drained the pending map: >0
+  // remaining pending calls at result time means this result belongs to a
+  // batched round.
+  let batchedRound = false;
 
   const events: TurnEvents = {
     onDelta: (text) => {
@@ -134,33 +124,55 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       }
       const entry = toolCallEntry(id, name, args, host.width());
       host.entries.push(entry);
+      if (pendingToolCalls.size > 0) batchedRound = true;
       pendingToolCalls.set(id, entry);
       host.requestRender();
     },
-    onToolResult: (id, name, ok, result, error, tokens) => {
+    onToolResult: (id, name, ok, result, error, usage, promptDelta) => {
       // Annotate the matching call line in place (no extra chat lines).
       const call = pendingToolCalls.get(id);
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
+        // Round-usage suffix on the call line: promptDelta is the honest
+        // context-growth number for this call's round; usage alone (first
+        // round) shows the round's completion. The number describes the
+        // whole round — call(s) + results + any streamed prose — so it is
+        // shown once, on the round's LAST result (pendingToolCalls drained).
+        // Every batched member gets a "(batch)" tag (so a batch tail is
+        // never mistaken for a single-call round); only the last one also
+        // carries the count.
+        const batched = batchedRound;
+        const lastOfRound = pendingToolCalls.size === 0;
+        const count =
+          promptDelta !== undefined
+            ? `+${formatTokenTotal(promptDelta)} ctx`
+            : usage?.completion_tokens !== undefined
+              ? `${formatTokenTotal(usage.completion_tokens)} tok`
+              : undefined;
+        const note = batched
+          ? lastOfRound
+            ? `${count} (batch)` // round complete: the count + the tag
+            : "(batch)" // earlier member: tag only, count comes later
+          : count; // single-call round: the count alone
+        if (note !== undefined) {
+          call.lines[0] = `${call.lines[0] ?? ""} · ${note}`;
+        }
+        if (lastOfRound) batchedRound = false;
         // Splice the result output right after its call entry so it stays
         // visually paired with the call that produced it, even when events
         // arrive batched (call1, call2, result1, result2).
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
-          host.entries.splice(
-            insertAt,
-            0,
-            ...toolResultEntries(name, withTokens(result, tokens), host.width()),
-          );
+          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width()));
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(...toolResultEntries(name, withTokens(result, tokens), host.width()));
+          host.entries.push(...toolResultEntries(name, result, host.width()));
         }
       }
       host.requestRender();
@@ -302,10 +314,7 @@ export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): v
  */
 export function toolResultChunk(name: string, result: unknown): LogEntry {
   const status = resultStatus(result);
-  const tokens = resultTokens(result);
-  const suffix =
-    tokens === undefined ? status : status === "" ? `${tokens} tok` : `${status} · ${tokens} tok`;
-  const arrow = suffix ? ` → ${suffix}` : " →";
+  const arrow = status ? ` → ${status}` : " →";
   return {
     kind: "chunk",
     lines: [`${name || "tool"}${arrow}`],
@@ -344,8 +353,6 @@ function toolResultSummary(result: unknown): string | undefined {
   if (typeof obj["runtimeMs"] === "number") {
     parts.push(`runtime ${formatRuntime(obj["runtimeMs"] as number)}`);
   }
-  const tokens = resultTokens(result);
-  if (tokens !== undefined) parts.push(`${formatTokenTotal(tokens)} tokens`);
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
@@ -443,11 +450,7 @@ export function transcriptLogEntries(
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           const idx = out.indexOf(call.entry);
           const insertAt = idx !== -1 ? idx + 1 : out.length;
-          out.splice(
-            insertAt,
-            0,
-            ...toolResultEntries(call.name, withTokens(decoded.value, next.raw.tokens), cols),
-          );
+          out.splice(insertAt, 0, ...toolResultEntries(call.name, decoded.value, cols));
         }
         i += 1;
       }
@@ -469,7 +472,7 @@ export function transcriptLogEntries(
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(...toolResultEntries(label, withTokens(decoded.value, e.raw.tokens), cols));
+        out.push(...toolResultEntries(label, decoded.value, cols));
       }
     } else {
       // Rehydrated server-transcript system rows (the session prompt): keep
