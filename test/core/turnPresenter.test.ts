@@ -688,22 +688,37 @@ describe("createTurnPresenter round-usage call-line suffix", () => {
     expect(call?.lines[0]).not.toContain("(batch)");
   });
 
-  it("shows the round count only on the batch's last result; earlier ones say (batch)", () => {
+  it("tags every batched member (batch); only the last also shows the count", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    // First result of a batched round: another call is still pending, so
-    // this line gets the bare marker — the count lands on the last one.
+    // First result of a batched round: tagged, no count — the count lands
+    // on the last result of the round.
     turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
     const call1 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("ls"));
-    expect(call1?.lines[0]).toContain("(batch)");
+    expect(call1?.lines[0]).toContain("· (batch)");
     expect(call1?.lines[0]).not.toContain("240");
-    // Last result: batch drained, the round figure lands here.
+    // Last result: still tagged (it IS a batch member) + the round count.
     turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
     const call2 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("pwd"));
-    expect(call2?.lines[0]).toContain("+240 ctx");
-    expect(call2?.lines[0]).not.toContain("(batch)");
+    expect(call2?.lines[0]).toContain("+240 ctx (batch)");
+  });
+
+  it("a single-call round after a batch shows the bare count (no tag)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    // Batched round first.
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    // Then a plain single-call round.
+    turn.events.onToolCall?.("c3", "bash", parseToolArgs('{"cmd":"date"}'));
+    turn.events.onToolResult?.("c3", "bash", true, { exitCode: 0 }, undefined, undefined, 30);
+    const call3 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("date"));
+    expect(call3?.lines[0]).toContain("+30 ctx");
+    expect(call3?.lines[0]).not.toContain("(batch)");
   });
 
   it("falls back to the round's completion tokens when there is no delta (first round)", () => {

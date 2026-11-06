@@ -84,6 +84,10 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
   // Tool calls announced during this turn (reset per presenter = per turn).
   let toolCallsThisTurn = 0;
+  // Calls announced since the last tool result drained the pending map: >0
+  // remaining pending calls at result time means this result belongs to a
+  // batched round.
+  let batchedRound = false;
 
   const events: TurnEvents = {
     onDelta: (text) => {
@@ -120,6 +124,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       }
       const entry = toolCallEntry(id, name, args, host.width());
       host.entries.push(entry);
+      if (pendingToolCalls.size > 0) batchedRound = true;
       pendingToolCalls.set(id, entry);
       host.requestRender();
     },
@@ -134,22 +139,26 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         // round) shows the round's completion. The number describes the
         // whole round — call(s) + results + any streamed prose — so it is
         // shown once, on the round's LAST result (pendingToolCalls drained).
-        // Earlier results of a still-pending batch get a bare "(batch)"
-        // marker pointing at the count that follows.
+        // Every batched member gets a "(batch)" tag (so a batch tail is
+        // never mistaken for a single-call round); only the last one also
+        // carries the count.
+        const batched = batchedRound;
         const lastOfRound = pendingToolCalls.size === 0;
-        const note =
+        const count =
           promptDelta !== undefined
-            ? lastOfRound
-              ? `+${formatTokenTotal(promptDelta)} ctx`
-              : "(batch)"
+            ? `+${formatTokenTotal(promptDelta)} ctx`
             : usage?.completion_tokens !== undefined
-              ? lastOfRound
-                ? `${formatTokenTotal(usage.completion_tokens)} tok`
-                : "(batch)"
+              ? `${formatTokenTotal(usage.completion_tokens)} tok`
               : undefined;
+        const note = batched
+          ? lastOfRound
+            ? `${count} (batch)` // round complete: the count + the tag
+            : "(batch)" // earlier member: tag only, count comes later
+          : count; // single-call round: the count alone
         if (note !== undefined) {
           call.lines[0] = `${call.lines[0] ?? ""} · ${note}`;
         }
+        if (lastOfRound) batchedRound = false;
         // Splice the result output right after its call entry so it stays
         // visually paired with the call that produced it, even when events
         // arrive batched (call1, call2, result1, result2).
