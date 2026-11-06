@@ -11,8 +11,26 @@
 /** The three one-line entry kinds this helper formats. */
 export type NoticeKind = "notice" | "error" | "system";
 
-/** Pick the severity emoji for a kind (used when an event name is generic). */
-function kindEmoji(kind: NoticeKind): string {
+/**
+ * Event-specific emoji: known events keep their identity even though they all
+ * share the generic `notice`/`system` kinds — ℹ️ (the kind fallback) stays a
+ * true fallback for anything unlisted. Keys are exact event names as passed
+ * to `noticeLine`; the map is the single source of truth, so adding an event
+ * here restores its emoji everywhere it is emitted.
+ */
+const EVENT_EMOJI: Record<string, string> = {
+  shake: "🧹",
+  compact: "📦",
+  handoff: "🤝",
+  "turn aborted": "⏹️",
+  "turn stopped": "⏹️",
+  warning: "⚠️",
+};
+
+/** Pick the emoji for a notice line: event-specific first, kind fallback. */
+function kindEmoji(kind: NoticeKind, event: string): string {
+  const known = EVENT_EMOJI[event];
+  if (known !== undefined) return known;
   switch (kind) {
     case "error":
       return "❌";
@@ -28,7 +46,7 @@ function kindEmoji(kind: NoticeKind): string {
  * ("shake", "turn aborted", "error", …); `detail` carries the specifics.
  */
 export function noticeLine(kind: NoticeKind, event: string, detail?: string): string[] {
-  const head = `${kindEmoji(kind)} ${event}`;
+  const head = `${kindEmoji(kind, event)} ${event}`;
   const trimmed = detail?.trim() ?? "";
   return trimmed === "" ? [head] : [head, trimmed];
 }
