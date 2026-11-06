@@ -30,3 +30,10 @@ The rule in practice:
 If a new feature renders user- or model-supplied text, add a regression
 test containing at least one emoji so a unit slip fails CI instead of
 shipping.
+
+## Dependencies
+
+`@oakoliver/bubbles` is patched via `patch-package` (see `patches/`):
+its width tables count BMP `Emoji_Presentation` emoji (❌ ✅ ⭐) as one
+cell; the patch makes all of its width functions count two, matching
+the terminal. Reapplied automatically on install.
