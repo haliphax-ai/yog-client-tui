@@ -83,17 +83,7 @@ describe("toolResultChunk", () => {
     // The body is the raw result; the renderer turns it into rows.
     expect(chunk.result).toEqual({ exitCode: 0, runtimeMs: 1 });
   });
-  it("appends the token count as a segment of the result header", () => {
-    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 42, tokens: 1234 });
-    expect(chunk.lines[0]).toBe("bash → exit 0 · 42ms · 1234 tok");
-  });
-
-  it("shows tokens alone when the result has no exit/runtime", () => {
-    const chunk = toolResultChunk("bash", { tokens: 77 });
-    expect(chunk.lines[0]).toBe("bash → 77 tok");
-  });
-
-  it("omits the token segment when the result carries none", () => {
+  it("keeps the header to execution facts (tokens were a fabricated per-call estimate)", () => {
     const chunk = toolResultChunk("bash", { stdout: "x", exitCode: 0 });
     expect(chunk.lines[0]).toBe("bash → exit 0");
   });
@@ -120,12 +110,12 @@ describe("toolResultEntry / toolResultEntries", () => {
   });
 
   it("attaches the call's own status line for non-bash results with stats", () => {
-    const entries = toolResultEntries("noop", { note: "ok", runtimeMs: 321, tokens: 1234 }, COLS);
+    const entries = toolResultEntries("noop", { note: "ok", runtimeMs: 321 }, COLS);
     expect(entries.map((e) => e.kind)).toEqual(["toolResult", "status"]);
-    expect(entries[1]?.lines[0]).toBe("runtime 321ms · 1.2K tokens");
+    expect(entries[1]?.lines[0]).toBe("runtime 321ms");
   });
 
-  it("attaches no status line when the non-bash result has no runtime/tokens", () => {
+  it("attaches no status line when the non-bash result has no stats", () => {
     const entries = toolResultEntries("noop", { note: "ok" }, COLS);
     expect(entries.map((e) => e.kind)).toEqual(["toolResult"]);
   });
@@ -178,12 +168,11 @@ describe("createTurnPresenter", () => {
     turn.events.onToolResult?.("c1", "noop", true, {
       note: "did nothing",
       runtimeMs: 42,
-      tokens: 77,
     });
     const callIdx = entries.findIndex((e) => e.kind === "tool");
     expect(entries[callIdx + 1]?.kind).toBe("toolResult");
     expect((entries[callIdx + 1] as LogEntry & { label?: string }).label).toBe("🔚 noop");
-    expect(entries[callIdx + 2]).toEqual({ kind: "status", lines: ["runtime 42ms · 77 tokens"] });
+    expect(entries[callIdx + 2]).toEqual({ kind: "status", lines: ["runtime 42ms"] });
   });
 
   it("logs an error event as an error entry", () => {
@@ -632,7 +621,7 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
     expect(status?.lines[0]).toBe("runtime 500ms · 1 tool call · 42 tokens");
   });
 
-  it("injects stored per-call tokens into bash-shaped result chunk headers", () => {
+  it("rehydrated chunk headers stay execution facts (no token segments)", () => {
     const out = transcriptLogEntries(
       toTranscriptEntries([
         row({
@@ -646,13 +635,12 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
           toolCallId: "c1",
           name: "bash",
           content: '{"exitCode":0,"stdout":"hi"}',
-          tokens: 7,
         }),
       ]),
       COLS,
     );
     const chunk = out.find((e) => e.kind === "chunk");
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
+    expect(chunk?.lines[0]).toBe("bash → exit 0");
   });
 
   it("omits per-turn status entries when no metrics are provided", () => {
@@ -679,16 +667,69 @@ describe("createTurnPresenter per-call tokens (live)", () => {
     };
     const presenter = createTurnPresenter(host);
     presenter.events.onToolCall?.("c1", "bash", "{}");
-    presenter.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "hi" },
-      undefined,
-      7,
-    );
+    presenter.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "hi" }, undefined, {
+      completion_tokens: 7,
+    });
     const chunk = host.entries.find((e) => e.kind === "chunk");
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
+    // The chunk header shows tool status only — round usage lives on the
+    // call-line suffix (promptDelta / round completion), not the body chunk.
+    expect(chunk?.lines[0]).toBe("bash → exit 0");
+  });
+});
+
+describe("createTurnPresenter round-usage call-line suffix", () => {
+  it("annotates a single-call round with +N ctx (no batch qualifier)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 120);
+    const call = entries.find((e) => e.kind === "tool");
+    expect(call?.lines[0]).toContain("+120 ctx");
+    expect(call?.lines[0]).not.toContain("(batch)");
+  });
+
+  it("tags every batched member (batch); only the last also shows the count", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
+    // First result of a batched round: tagged, no count — the count lands
+    // on the last result of the round.
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    const call1 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("ls"));
+    expect(call1?.lines[0]).toContain("· (batch)");
+    expect(call1?.lines[0]).not.toContain("240");
+    // Last result: still tagged (it IS a batch member) + the round count.
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    const call2 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("pwd"));
+    expect(call2?.lines[0]).toContain("+240 ctx (batch)");
+  });
+
+  it("a single-call round after a batch shows the bare count (no tag)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    // Batched round first.
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    // Then a plain single-call round.
+    turn.events.onToolCall?.("c3", "bash", parseToolArgs('{"cmd":"date"}'));
+    turn.events.onToolResult?.("c3", "bash", true, { exitCode: 0 }, undefined, undefined, 30);
+    const call3 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("date"));
+    expect(call3?.lines[0]).toContain("+30 ctx");
+    expect(call3?.lines[0]).not.toContain("(batch)");
+  });
+
+  it("falls back to the round's completion tokens when there is no delta (first round)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, {
+      completion_tokens: 55,
+    });
+    const call = entries.find((e) => e.kind === "tool");
+    expect(call?.lines[0]).toContain("55 tok");
   });
 });
 

@@ -837,28 +837,31 @@ describe("YogClient token usage", () => {
     ]);
   });
 
-  it("passes per-call tokens through tool.result on the direct path", async () => {
+  it("passes round usage through tool.result on the direct path", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
         sseResponse([
           'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
           'event: tool.call\ndata: {"id":"c1","name":"bash","args":"{}"}\n\n',
-          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"result":{"exitCode":0},"tokens":7}\n\n',
+          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"result":{"exitCode":0},"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}\n\n',
           'event: turn.finished\ndata: {"durationMs":1}\n\n',
         ]),
       ),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
-    const calls: Array<{ id: string; tokens?: number }> = [];
+    const calls: Array<{ id: string; usage?: TokenUsage; promptDelta?: number }> = [];
     const toolCalls: Array<{ id: string; name: string }> = [];
     const outcome = await client.runTurn("hello", "model-x", {
       onToolCall: (id, name) => toolCalls.push({ id, name }),
-      onToolResult: (id, _name, _ok, _result, _error, tokens) => calls.push({ id, tokens }),
+      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta) =>
+        calls.push({ id, usage, promptDelta }),
     });
     expect(outcome.ok).toBe(true);
-    expect(calls).toEqual([{ id: "c1", tokens: 7 }]);
+    expect(calls).toEqual([
+      { id: "c1", usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 } },
+    ]);
     expect(toolCalls).toEqual([{ id: "c1", name: "bash" }]);
   });
 
@@ -868,18 +871,19 @@ describe("YogClient token usage", () => {
       vi.fn(async () =>
         sseResponse([
           'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"tokens":"NaN"}\n\n',
+          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"usage":"NaN"}\n\n',
           'event: turn.finished\ndata: {"durationMs":1}\n\n',
         ]),
       ),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
-    const calls: Array<{ id: string; tokens?: number }> = [];
+    const calls: Array<{ id: string; usage?: TokenUsage; promptDelta?: number }> = [];
     await client.runTurn("hello", "model-x", {
-      onToolResult: (id, _name, _ok, _result, _error, tokens) => calls.push({ id, tokens }),
+      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta) =>
+        calls.push({ id, usage, promptDelta }),
     });
-    expect(calls).toEqual([{ id: "c1", tokens: undefined }]);
+    expect(calls).toEqual([{ id: "c1", usage: undefined, promptDelta: undefined }]);
   });
 
   it("carries per-call tokens through turn-status recovery", async () => {
@@ -898,7 +902,15 @@ describe("YogClient token usage", () => {
               events: [
                 { type: "turn.started", data: { turnId: "t1", model: "m" } },
                 { type: "tool.call", data: { id: "c1", name: "bash", args: "{}" } },
-                { type: "tool.result", data: { id: "c1", name: "bash", ok: true, tokens: 4 } },
+                {
+                  type: "tool.result",
+                  data: {
+                    id: "c1",
+                    name: "bash",
+                    ok: true,
+                    usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
+                  },
+                },
                 { type: "turn.finished", data: { durationMs: 5 } },
               ],
             },
@@ -909,13 +921,19 @@ describe("YogClient token usage", () => {
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
-    const calls: Array<{ id: string; tokens?: number }> = [];
+    const calls: Array<{ id: string; usage?: TokenUsage; promptDelta?: number }> = [];
     const outcome = await client.runTurn("hello", "model-x", {
-      onToolResult: (id, _name, _ok, _result, _error, tokens) => calls.push({ id, tokens }),
+      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta) =>
+        calls.push({ id, usage, promptDelta }),
     });
     expect(outcome.recovered).toBe(true);
     expect(outcome.ok).toBe(true);
-    expect(calls).toEqual([{ id: "c1", tokens: 4 }]);
+    expect(calls).toEqual([
+      {
+        id: "c1",
+        usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
+      },
+    ]);
   });
 
   it("passes cut-point usage through turn.aborted on the direct path", async () => {
