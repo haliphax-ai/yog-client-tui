@@ -359,7 +359,11 @@ function renderEntry(
     // 1 pad + label + 3 (" · ") + detail; -4 when the dot is present so the
     // separator always survives the cap.
     const budget = Math.max(0, cols - 2 - (detail === "" ? 0 : 3));
-    const noticeStyle = label.startsWith("⚠️") ? ST.noticeWait : ST.notice;
+    const noticeStyle = label.startsWith("⚠️")
+      ? ST.noticeWait
+      : label.startsWith("🪧")
+        ? ST.noticeSystem
+        : ST.notice;
     const head = noticeStyle.render(truncateAnsi(label, budget));
     const body =
       detail === ""
