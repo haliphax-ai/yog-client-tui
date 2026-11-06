@@ -53,6 +53,7 @@ import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { addLiveCompletionTokens, getState, setState } from "./core/store.ts";
 import { finalContextTotal, perTurnDeltas, toTranscriptEntries } from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
+import { noticeLine } from "./core/notices.ts";
 import { formatTokenTotal } from "./core/toolFormat.ts";
 import {
   YogClient,
@@ -175,8 +176,8 @@ async function run(argv: readonly string[]): Promise<void> {
 
   /** Startup notes and rehydrated conversation, seeded before the first frame. */
   const seedEntries: LogEntry[] = [];
-  const startupNote = (line: string): void => {
-    seedEntries.push({ kind: "system", lines: [line] });
+  const startupNote = (event: string, detail?: string): void => {
+    seedEntries.push({ kind: "system", lines: noticeLine("system", event, detail) });
   };
 
   /**
@@ -193,7 +194,7 @@ async function run(argv: readonly string[]): Promise<void> {
   const resolveSession = async (): Promise<void> => {
     if (requested === undefined) {
       const id = await client.open();
-      startupNote(`new session ${id} (nothing to resume)`);
+      startupNote("new session", id);
       return;
     }
     try {
@@ -205,7 +206,8 @@ async function run(argv: readonly string[]): Promise<void> {
       const tokenWeight = finalContextTotal(dump.turns);
       resumedTokenWeight = tokenWeight;
       startupNote(
-        `resumed session ${requested} · ${dump.messages.length} messages from server transcript` +
+        "session resumed",
+        `${requested} · ${dump.messages.length} messages from server transcript` +
           (tokenWeight > 0 ? ` · ~${formatTokenTotal(tokenWeight)} tokens in context` : ""),
       );
       const cols = process.stdout.columns ?? 80;
@@ -220,9 +222,9 @@ async function run(argv: readonly string[]): Promise<void> {
       if (!(err instanceof YogError) || err.code !== "unknown_session") throw err;
       // Stale id only: fall through to a fresh session below.
     }
-    startupNote(`session ${requested} is gone — started fresh`);
+    startupNote("session reset", `${requested} is gone — started fresh`);
     const id = await client.open();
-    startupNote(`new session ${id} (nothing to resume)`);
+    startupNote("new session", id);
   };
 
   await resolveSession();
@@ -290,8 +292,11 @@ async function run(argv: readonly string[]): Promise<void> {
       if (!(err instanceof YogError) || err.code !== "unknown_session") throw err;
       const staleId = client.sessionId;
       const freshId = await client.open();
-      pushLines("system", [`session ${staleId} is gone — started fresh`]);
-      pushLines("system", [`new session ${freshId} (nothing to resume)`]);
+      pushLines(
+        "system",
+        noticeLine("system", "session reset", `id ${staleId} is gone — started fresh`),
+      );
+      pushLines("system", noticeLine("system", "new session", freshId));
       await saveState(stateFilePath(), { lastSessionId: freshId });
       return await client.runTurn(prompt, config.model, events);
     }
@@ -330,7 +335,10 @@ async function run(argv: readonly string[]): Promise<void> {
         // Starting a fresh session while a turn is in flight would orphan
         // that turn's events, so require the current turn to finish first.
         if (getState().busy) {
-          pushLines("system", ["wait for the current turn, then /new"]);
+          pushLines(
+            "notice",
+            noticeLine("notice", "warning", "wait for the current turn, then /new"),
+          );
           input.reset();
           return;
         }
@@ -348,11 +356,16 @@ async function run(argv: readonly string[]): Promise<void> {
               tokenTotals: { prompt: 0, completion: 0, total: 0 },
             });
             await saveState(stateFilePath(), { lastSessionId: id });
-            pushLines("system", [`new session ${id} (nothing to resume)`]);
+            pushLines("system", noticeLine("system", "new session", id));
           } catch (err) {
-            pushLines("error", [
-              `failed to start a new session: ${err instanceof Error ? err.message : String(err)}`,
-            ]);
+            pushLines(
+              "error",
+              noticeLine(
+                "error",
+                "new session failed",
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
           } finally {
             input.reset();
           }
@@ -364,13 +377,19 @@ async function run(argv: readonly string[]): Promise<void> {
         (command.name === "compact" || command.name === "handoff" || command.name === "shake")
       ) {
         if (getState().busy) {
-          pushLines("system", [`wait for the current turn, then /${command.name}`]);
+          pushLines(
+            "notice",
+            noticeLine("notice", "warning", `wait for the current turn, then /${command.name}`),
+          );
           input.reset();
           return;
         }
         const kind = command.name;
         if (!(client.capabilities?.features ?? []).includes(kind)) {
-          pushLines("error", [`server does not support /${kind}`]);
+          pushLines(
+            "error",
+            noticeLine("error", "unsupported command", `/${kind} is not enabled on this server`),
+          );
           input.reset();
           return;
         }
@@ -385,12 +404,16 @@ async function run(argv: readonly string[]): Promise<void> {
               setState({
                 tokenTotals: { prompt: 0, completion: 0, total: weight },
               });
-              pushLines("notice", [
-                "🧹 shake",
-                `${outcome.argsTruncated} arg(s), ` +
-                  `${outcome.resultsTruncated} result(s) truncated; ` +
-                  `totals reset to ~${formatTokenTotal(weight)}`,
-              ]);
+              pushLines(
+                "notice",
+                noticeLine(
+                  "notice",
+                  "shake",
+                  `${outcome.argsTruncated} arg(s), ` +
+                    `${outcome.resultsTruncated} result(s) truncated; ` +
+                    `totals reset to ~${formatTokenTotal(weight)}`,
+                ),
+              );
             } else {
               const result =
                 kind === "compact"
@@ -412,17 +435,25 @@ async function run(argv: readonly string[]): Promise<void> {
                 tokenTotals: { prompt: 0, completion: 0, total: 0 },
               });
               const truncatedNote = result.truncated ? " (input was middle-truncated)" : "";
-              const noticeLabel = kind === "compact" ? "🗑️ compact" : "🤝 handoff";
-              pushLines("notice", [
-                noticeLabel,
-                `fresh transcript started (model ${result.model}, ` +
-                  `summary ${result.summary.length} chars${truncatedNote})`,
-              ]);
+              pushLines(
+                "notice",
+                noticeLine(
+                  "notice",
+                  kind,
+                  `fresh transcript started (model ${result.model}, ` +
+                    `summary ${result.summary.length} chars${truncatedNote})`,
+                ),
+              );
             }
           } catch (err) {
-            pushLines("error", [
-              `${kind} failed: ${err instanceof Error ? err.message : String(err)}`,
-            ]);
+            pushLines(
+              "error",
+              noticeLine(
+                "error",
+                `${kind} failed`,
+                err instanceof Error ? err.message : String(err),
+              ),
+            );
           } finally {
             stopSpinner();
           }
@@ -432,7 +463,10 @@ async function run(argv: readonly string[]): Promise<void> {
 
       const token = slashToken(prompt) ?? "";
       const available = SLASH_COMMANDS.map((c) => "/" + c.name).join(", ");
-      pushLines("system", [`unknown command: /${token} — available: ${available}`]);
+      pushLines(
+        "error",
+        noticeLine("error", "unknown command", `/${token} — available: ${available}`),
+      );
       input.reset();
       return;
     }
@@ -520,7 +554,10 @@ async function run(argv: readonly string[]): Promise<void> {
   const abortActiveTurn = (): void => {
     if (!getState().busy || client.sessionId === undefined) return;
     void client.abortTurn().catch((err: unknown) => {
-      pushLines("system", [`abort failed: ${err instanceof Error ? err.message : String(err)}`]);
+      pushLines(
+        "error",
+        noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
+      );
     });
   };
 
@@ -630,9 +667,13 @@ async function run(argv: readonly string[]): Promise<void> {
       {
         kind: "system",
         lines: [
-          `connected to ${baseUrl} · contract ${caps.contractVersion} · ` +
-            `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
-          `model ${config.model} · /quit exits`,
+          ...noticeLine(
+            "system",
+            "connected",
+            `${baseUrl} · contract ${caps.contractVersion} · ` +
+              `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
+          ),
+          ...noticeLine("system", "model", `${config.model} · /quit exits`),
         ],
       },
       ...seedEntries,

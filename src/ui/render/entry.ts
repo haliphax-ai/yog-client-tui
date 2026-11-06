@@ -349,16 +349,18 @@ function renderEntry(
   }
 
   if (entry.kind === "notice") {
-    // Terminal-state notice, one line (like the status bar's dot-separated
-    // items): the padded label in its themed color, the mid-dot in the
-    // terminal's default foreground, and the detail dimmed — all capped to
-    // the terminal width.
+    // One-line notice (like the status bar's dot-separated items): the
+    // padded label in its themed color — light blue for info (ℹ️), yellow
+    // for wait notices (⚠️), picked by the label's leading emoji — the
+    // mid-dot in the terminal's default foreground, and the detail dimmed;
+    // all capped to the terminal width.
     const label = entry.lines[0] ?? "";
     const detail = entry.lines[1] ?? "";
     // 1 pad + label + 3 (" · ") + detail; -4 when the dot is present so the
     // separator always survives the cap.
     const budget = Math.max(0, cols - 2 - (detail === "" ? 0 : 3));
-    const head = ST.notice.render(truncateAnsi(label, budget));
+    const noticeStyle = label.startsWith("⚠️") ? ST.noticeWait : ST.notice;
+    const head = noticeStyle.render(truncateAnsi(label, budget));
     const body =
       detail === ""
         ? head

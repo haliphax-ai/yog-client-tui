@@ -19,6 +19,7 @@ import {
 } from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
 import type { LogEntry } from "./entries.ts";
+import { noticeLine } from "./notices.ts";
 import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
 
 /** Per-turn metrics for a rehydrated turn (usage/duration as captured). */
@@ -173,7 +174,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       const tokenParts = usageTokenParts(usage);
       const detail =
         tokenParts.length > 0 ? `${trimmed} · tokens: ${tokenParts.join(" · ")}` : trimmed;
-      host.append("notice", [`⏹️ turn aborted`, detail]);
+      host.append("notice", noticeLine("notice", "turn aborted", detail));
       // Per-turn summary line for parity with the normal/max_rounds finish
       // paths (no runtime: the abort envelope carries none).
       const summary: string[] = [
@@ -192,10 +193,13 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       host.append("status", [summary.join(" · ")]);
     },
     onError: (code, message) => {
-      host.append("error", [`${code}: ${message}`]);
+      host.append("error", noticeLine("error", "turn error", `${code}: ${message}`));
     },
     onRecovered: () => {
-      host.append("system", ["stream interrupted — recovered from turn status"]);
+      host.append(
+        "system",
+        noticeLine("system", "recovered", "stream interrupted — resumed from turn status"),
+      );
     },
     onFinish: (durationMs, stopReason, usage) => {
       // The dark-grey per-turn summary below is the happy-path signal that the
@@ -205,10 +209,14 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       const tokenParts = usageTokenParts(usage);
       if (stopReason === "max_rounds") {
         const detail = `reached the tool-round cap after ${Math.max(1, Math.round(durationMs / 1000))}s`;
-        host.append("notice", [
-          "⏹️ turn stopped",
-          tokenParts.length > 0 ? `${detail} · tokens: ${tokenParts.join(" · ")}` : detail,
-        ]);
+        host.append(
+          "notice",
+          noticeLine(
+            "notice",
+            "turn stopped",
+            tokenParts.length > 0 ? `${detail} · tokens: ${tokenParts.join(" · ")}` : detail,
+          ),
+        );
       }
       // Per-turn summary line: runtime · tool calls · tokens (abbreviated).
       // The tool-call total is for THIS turn only — each presenter is created
@@ -243,7 +251,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       if (assistant.entry) assistant.entry.streaming = false;
     },
     fail: (detail) => {
-      host.append("error", [detail]);
+      host.append("error", noticeLine("error", "turn failed", detail));
     },
   };
 }
@@ -464,6 +472,9 @@ export function transcriptLogEntries(
         out.push(...toolResultEntries(label, withTokens(decoded.value, e.raw.tokens), cols));
       }
     } else {
+      // Rehydrated server-transcript system rows (the session prompt): keep
+      // the verbatim server text — it is transcript content, not a client
+      // event, so no notice decoration applies.
       out.push({ kind: "system", lines: [e.text] });
     }
     i += 1;

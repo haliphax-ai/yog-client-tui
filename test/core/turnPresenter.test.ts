@@ -190,7 +190,10 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onError?.("boom_code", "bad");
-    expect(entries.at(-1)).toEqual({ kind: "error", lines: ["boom_code: bad"] });
+    expect(entries.at(-1)).toEqual({
+      kind: "error",
+      lines: ["❌ turn error", "boom_code: bad"],
+    });
   });
 
   it("logs the abort as a notice entry with a shortened reason", () => {
@@ -199,7 +202,7 @@ describe("createTurnPresenter", () => {
     turn.events.onAborted?.("turn aborted by operator");
     expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
-      lines: ["⏹️ turn aborted", "by operator"],
+      lines: ["ℹ️ turn aborted", "by operator"],
     });
     // The per-turn summary line follows the notice (no usage → no token seg).
     expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
@@ -211,7 +214,7 @@ describe("createTurnPresenter", () => {
     turn.events.onAborted?.("worker pool exploded");
     expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
-      lines: ["⏹️ turn aborted", "worker pool exploded"],
+      lines: ["ℹ️ turn aborted", "worker pool exploded"],
     });
     expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
   });
@@ -220,7 +223,8 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onAborted?.("");
-    expect(entries.find((e) => e.kind === "notice")?.lines).toEqual(["⏹️ turn aborted", ""]);
+    // An empty reason drops the dot separator entirely (noticeLine trims it).
+    expect(entries.find((e) => e.kind === "notice")?.lines).toEqual(["ℹ️ turn aborted"]);
     expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
   });
 
@@ -238,7 +242,7 @@ describe("createTurnPresenter", () => {
     expect(notices.at(-1)).toEqual({
       kind: "notice",
       lines: [
-        "⏹️ turn aborted",
+        "ℹ️ turn aborted",
         "by operator · tokens: 1,000 prompt · 500 completion · 1,500 total",
       ],
     });
@@ -254,7 +258,7 @@ describe("createTurnPresenter", () => {
     turn.events.onFinish?.(9500, "max_rounds");
     expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
-      lines: ["⏹️ turn stopped", "reached the tool-round cap after 10s"],
+      lines: ["ℹ️ turn stopped", "reached the tool-round cap after 10s"],
     });
     expect(entries.at(-1)).toEqual({
       kind: "status",
@@ -295,7 +299,7 @@ describe("createTurnPresenter", () => {
     expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
       kind: "notice",
       lines: [
-        "⏹️ turn stopped",
+        "ℹ️ turn stopped",
         "reached the tool-round cap after 10s · tokens: 1,234 prompt · 567 completion · 1,801 total",
       ],
     });
