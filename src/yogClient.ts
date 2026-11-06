@@ -38,11 +38,6 @@ export interface TranscriptMessage {
   name?: string;
   toolCallId?: string;
   toolCalls?: unknown;
-  /**
-   * Legacy per-call token estimate (pre-round-usage servers). Tool rows only.
-   * Newer servers omit it — the field was a fabricated equal-split.
-   */
-  tokens?: number;
   /** The round's real provider usage (round attribution, not per-call). */
   usage?: TokenUsage;
   /** Context growth this round's call+result added (prompt_tokens diff). */
@@ -339,7 +334,7 @@ export interface ShakeResult {
   ok: boolean;
   argsTruncated: number;
   resultsTruncated: number;
-  /** Estimated post-shake transcript size in tokens (server chars/4). */
+  /** Estimated post-shake transcript size in tokens (server heuristic). */
   contextSize: number;
 }
 /** The yog contract client. One instance per session. */

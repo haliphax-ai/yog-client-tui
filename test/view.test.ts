@@ -7,7 +7,7 @@ import {
   resultPreview,
   totalRows,
 } from "../src/ui/render/index.ts";
-import { formatRuntime, prettyArgs, resultStatus, resultTokens } from "../src/core/toolFormat.ts";
+import { formatRuntime, prettyArgs, resultStatus } from "../src/core/toolFormat.ts";
 import { createTurnPresenter } from "../src/core/turnPresenter.ts";
 import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/store.ts";
 import { statusBody } from "../src/ui/components/StatusComponent.ts";
@@ -279,22 +279,6 @@ describe("resultStatus", () => {
     expect(resultStatus([1, 2])).toBe("");
   });
 });
-describe("resultTokens", () => {
-  it("reads a finite non-negative integer tokens field", () => {
-    expect(resultTokens({ tokens: 1234 })).toBe(1234);
-    expect(resultTokens({ tokens: 0 })).toBe(0);
-  });
-
-  it("returns undefined for missing or invalid token fields", () => {
-    expect(resultTokens({ exitCode: 0 })).toBeUndefined();
-    expect(resultTokens({ tokens: "1234" })).toBeUndefined();
-    expect(resultTokens({ tokens: NaN })).toBeUndefined();
-    expect(resultTokens({ tokens: -1 })).toBeUndefined();
-    expect(resultTokens(null)).toBeUndefined();
-    expect(resultTokens("str")).toBeUndefined();
-  });
-});
-
 describe("formatRuntime", () => {
   const cases: Array<[number, string]> = [
     [0, "0ms"],

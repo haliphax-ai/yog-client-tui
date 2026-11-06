@@ -14,7 +14,6 @@ import {
   formatTokenTotal,
   prettyArgs,
   resultStatus,
-  resultTokens,
   isBashShaped,
 } from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
@@ -32,19 +31,6 @@ export interface TranscriptTurnMetrics {
 export interface TranscriptRehydrateOpts {
   /** Per-turn metrics, keyed by the transcript row's `turnId` (row id). */
   turns?: Map<number, TranscriptTurnMetrics>;
-}
-
-/**
- * Fold a per-call token count into a result payload the way the shared
- * builders expect it (they read `result.tokens`). Returns the original
- * value when there are no tokens so nothing is cloned/flagged.
- */
-function withTokens(result: unknown, tokens: number | undefined): unknown {
-  if (tokens === undefined) return result;
-  if (result !== null && typeof result === "object" && !Array.isArray(result)) {
-    return { ...(result as Record<string, unknown>), tokens };
-  }
-  return { tokens };
 }
 
 /** Turn-level total for a usage object (total field, else prompt+completion). */
@@ -311,10 +297,7 @@ export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): v
  */
 export function toolResultChunk(name: string, result: unknown): LogEntry {
   const status = resultStatus(result);
-  const tokens = resultTokens(result);
-  const suffix =
-    tokens === undefined ? status : status === "" ? `${tokens} tok` : `${status} · ${tokens} tok`;
-  const arrow = suffix ? ` → ${suffix}` : " →";
+  const arrow = status ? ` → ${status}` : " →";
   return {
     kind: "chunk",
     lines: [`${name || "tool"}${arrow}`],
@@ -353,8 +336,6 @@ function toolResultSummary(result: unknown): string | undefined {
   if (typeof obj["runtimeMs"] === "number") {
     parts.push(`runtime ${formatRuntime(obj["runtimeMs"] as number)}`);
   }
-  const tokens = resultTokens(result);
-  if (tokens !== undefined) parts.push(`${formatTokenTotal(tokens)} tokens`);
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
@@ -452,11 +433,7 @@ export function transcriptLogEntries(
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           const idx = out.indexOf(call.entry);
           const insertAt = idx !== -1 ? idx + 1 : out.length;
-          out.splice(
-            insertAt,
-            0,
-            ...toolResultEntries(call.name, withTokens(decoded.value, next.raw.tokens), cols),
-          );
+          out.splice(insertAt, 0, ...toolResultEntries(call.name, decoded.value, cols));
         }
         i += 1;
       }
@@ -478,7 +455,7 @@ export function transcriptLogEntries(
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(...toolResultEntries(label, withTokens(decoded.value, e.raw.tokens), cols));
+        out.push(...toolResultEntries(label, decoded.value, cols));
       }
     } else {
       // Rehydrated server-transcript system rows (the session prompt): keep

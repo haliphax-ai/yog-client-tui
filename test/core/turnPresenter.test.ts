@@ -83,17 +83,7 @@ describe("toolResultChunk", () => {
     // The body is the raw result; the renderer turns it into rows.
     expect(chunk.result).toEqual({ exitCode: 0, runtimeMs: 1 });
   });
-  it("appends the token count as a segment of the result header", () => {
-    const chunk = toolResultChunk("bash", { exitCode: 0, runtimeMs: 42, tokens: 1234 });
-    expect(chunk.lines[0]).toBe("bash → exit 0 · 42ms · 1234 tok");
-  });
-
-  it("shows tokens alone when the result has no exit/runtime", () => {
-    const chunk = toolResultChunk("bash", { tokens: 77 });
-    expect(chunk.lines[0]).toBe("bash → 77 tok");
-  });
-
-  it("omits the token segment when the result carries none", () => {
+  it("keeps the header to execution facts (tokens were a fabricated per-call estimate)", () => {
     const chunk = toolResultChunk("bash", { stdout: "x", exitCode: 0 });
     expect(chunk.lines[0]).toBe("bash → exit 0");
   });
@@ -120,12 +110,12 @@ describe("toolResultEntry / toolResultEntries", () => {
   });
 
   it("attaches the call's own status line for non-bash results with stats", () => {
-    const entries = toolResultEntries("noop", { note: "ok", runtimeMs: 321, tokens: 1234 }, COLS);
+    const entries = toolResultEntries("noop", { note: "ok", runtimeMs: 321 }, COLS);
     expect(entries.map((e) => e.kind)).toEqual(["toolResult", "status"]);
-    expect(entries[1]?.lines[0]).toBe("runtime 321ms · 1.2K tokens");
+    expect(entries[1]?.lines[0]).toBe("runtime 321ms");
   });
 
-  it("attaches no status line when the non-bash result has no runtime/tokens", () => {
+  it("attaches no status line when the non-bash result has no stats", () => {
     const entries = toolResultEntries("noop", { note: "ok" }, COLS);
     expect(entries.map((e) => e.kind)).toEqual(["toolResult"]);
   });
@@ -178,12 +168,11 @@ describe("createTurnPresenter", () => {
     turn.events.onToolResult?.("c1", "noop", true, {
       note: "did nothing",
       runtimeMs: 42,
-      tokens: 77,
     });
     const callIdx = entries.findIndex((e) => e.kind === "tool");
     expect(entries[callIdx + 1]?.kind).toBe("toolResult");
     expect((entries[callIdx + 1] as LogEntry & { label?: string }).label).toBe("🔚 noop");
-    expect(entries[callIdx + 2]).toEqual({ kind: "status", lines: ["runtime 42ms · 77 tokens"] });
+    expect(entries[callIdx + 2]).toEqual({ kind: "status", lines: ["runtime 42ms"] });
   });
 
   it("logs an error event as an error entry", () => {
@@ -632,7 +621,7 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
     expect(status?.lines[0]).toBe("runtime 500ms · 1 tool call · 42 tokens");
   });
 
-  it("injects stored per-call tokens into bash-shaped result chunk headers", () => {
+  it("rehydrated chunk headers stay execution facts (no token segments)", () => {
     const out = transcriptLogEntries(
       toTranscriptEntries([
         row({
@@ -646,13 +635,12 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
           toolCallId: "c1",
           name: "bash",
           content: '{"exitCode":0,"stdout":"hi"}',
-          tokens: 7,
         }),
       ]),
       COLS,
     );
     const chunk = out.find((e) => e.kind === "chunk");
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
+    expect(chunk?.lines[0]).toBe("bash → exit 0");
   });
 
   it("omits per-turn status entries when no metrics are provided", () => {
