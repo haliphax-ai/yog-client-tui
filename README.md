@@ -123,7 +123,7 @@ while busy.
 The abort path lives on the input side of the ring: `Esc` while typing sends
 the server's `POST /v1/sessions/{id}/abort` endpoint, which kills the tool call
 in flight, closes the model stream, heals the transcript, and settles the turn
-(the TUI logs a `⏹ turn aborted` line).
+(the TUI logs a `⏹️ turn aborted` line).
 The input bar is a multi-line textarea: it grows and shrinks to fit its
 content up to ten lines and scrolls vertically beyond that (content is
 capped at 5000 characters). `Enter` submits;
@@ -237,9 +237,10 @@ On each turn the client then:
    tools run, and the terminal usage report later replaces those provisional
    totals with the authoritative full-context numbers.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
-   (a "stream interrupted — recovered from turn status" note is logged).
+   (a "⏹️ recovered · stream interrupted — resumed from turn status" note is
+   logged).
 8. Esc (with nothing focused) aborts the active turn via
-   `POST /v1/sessions/{id}/abort` — a `⏹ turn aborted` note is logged from
+   `POST /v1/sessions/{id}/abort` — a `⏹️ turn aborted` note is logged from
    the stream's terminal `turn.aborted` event, carrying the cut-point token
    counts and the per-turn summary line when the provider reported usage
    before the cut.
