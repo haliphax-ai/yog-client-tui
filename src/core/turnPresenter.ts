@@ -132,15 +132,20 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         // Round-usage suffix on the call line: promptDelta is the honest
         // context-growth number for this call's round; usage alone (first
         // round) shows the round's completion. The number describes the
-        // whole round — call(s) + results + any streamed prose — so a round
-        // with multiple calls is labeled "(batch)" to keep the suffix from
-        // reading as a per-call figure.
-        const batched = [...pendingToolCalls.keys()].length > 0;
+        // whole round — call(s) + results + any streamed prose — so it is
+        // shown once, on the round's LAST result (pendingToolCalls drained).
+        // Earlier results of a still-pending batch get a bare "(batch)"
+        // marker pointing at the count that follows.
+        const lastOfRound = pendingToolCalls.size === 0;
         const note =
           promptDelta !== undefined
-            ? `+${formatTokenTotal(promptDelta)} ctx${batched ? " (batch)" : ""}`
+            ? lastOfRound
+              ? `+${formatTokenTotal(promptDelta)} ctx`
+              : "(batch)"
             : usage?.completion_tokens !== undefined
-              ? `${formatTokenTotal(usage.completion_tokens)} tok${batched ? " (batch)" : ""}`
+              ? lastOfRound
+                ? `${formatTokenTotal(usage.completion_tokens)} tok`
+                : "(batch)"
               : undefined;
         if (note !== undefined) {
           call.lines[0] = `${call.lines[0] ?? ""} · ${note}`;

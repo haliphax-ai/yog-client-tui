@@ -688,16 +688,18 @@ describe("createTurnPresenter round-usage call-line suffix", () => {
     expect(call?.lines[0]).not.toContain("(batch)");
   });
 
-  it("annotates batched rounds with the (batch) qualifier", () => {
+  it("shows the round count only on the batch's last result; earlier ones say (batch)", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    // First result of a batched round: another call is still pending.
+    // First result of a batched round: another call is still pending, so
+    // this line gets the bare marker — the count lands on the last one.
     turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
     const call1 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("ls"));
-    expect(call1?.lines[0]).toContain("+240 ctx (batch)");
-    // Second result: batch already drained, so no qualifier needed.
+    expect(call1?.lines[0]).toContain("(batch)");
+    expect(call1?.lines[0]).not.toContain("240");
+    // Last result: batch drained, the round figure lands here.
     turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
     const call2 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("pwd"));
     expect(call2?.lines[0]).toContain("+240 ctx");
