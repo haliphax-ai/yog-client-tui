@@ -677,6 +677,45 @@ describe("createTurnPresenter per-call tokens (live)", () => {
   });
 });
 
+describe("createTurnPresenter round-usage call-line suffix", () => {
+  it("annotates a single-call round with +N ctx (no batch qualifier)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 120);
+    const call = entries.find((e) => e.kind === "tool");
+    expect(call?.lines[0]).toContain("+120 ctx");
+    expect(call?.lines[0]).not.toContain("(batch)");
+  });
+
+  it("annotates batched rounds with the (batch) qualifier", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
+    // First result of a batched round: another call is still pending.
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    const call1 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("ls"));
+    expect(call1?.lines[0]).toContain("+240 ctx (batch)");
+    // Second result: batch already drained, so no qualifier needed.
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    const call2 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("pwd"));
+    expect(call2?.lines[0]).toContain("+240 ctx");
+    expect(call2?.lines[0]).not.toContain("(batch)");
+  });
+
+  it("falls back to the round's completion tokens when there is no delta (first round)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, {
+      completion_tokens: 55,
+    });
+    const call = entries.find((e) => e.kind === "tool");
+    expect(call?.lines[0]).toContain("55 tok");
+  });
+});
+
 describe("createTurnPresenter incremental tokens", () => {
   it("shows the token delta against the session total before the turn ran", () => {
     const host = {

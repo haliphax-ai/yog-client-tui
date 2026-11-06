@@ -131,13 +131,16 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         annotateToolCall(call, ok, error);
         // Round-usage suffix on the call line: promptDelta is the honest
         // context-growth number for this call's round; usage alone (first
-        // round) shows the round's completion. Equal across a round's calls
-        // by construction — the API has no per-call segmentation.
+        // round) shows the round's completion. The number describes the
+        // whole round — call(s) + results + any streamed prose — so a round
+        // with multiple calls is labeled "(batch)" to keep the suffix from
+        // reading as a per-call figure.
+        const batched = [...pendingToolCalls.keys()].length > 0;
         const note =
           promptDelta !== undefined
-            ? `+${formatTokenTotal(promptDelta)} ctx`
+            ? `+${formatTokenTotal(promptDelta)} ctx${batched ? " (batch)" : ""}`
             : usage?.completion_tokens !== undefined
-              ? `${formatTokenTotal(usage.completion_tokens)} tok`
+              ? `${formatTokenTotal(usage.completion_tokens)} tok${batched ? " (batch)" : ""}`
               : undefined;
         if (note !== undefined) {
           call.lines[0] = `${call.lines[0] ?? ""} · ${note}`;
