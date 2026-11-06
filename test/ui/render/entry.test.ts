@@ -104,21 +104,21 @@ describe("user prompt — padded bubble", () => {
 
 describe("terminal-state notice", () => {
   it("renders one line: padded label, default-fg dot, dimmed detail", () => {
-    const rows = cachedRows({ kind: "notice", lines: ["ℹ️ turn aborted", "by operator"] }, 40);
+    const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", "by operator"] }, 40);
     expect(rows).toHaveLength(1);
     // Padding, label, mid-dot separator, dimmed detail — single line.
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ℹ️ turn aborted · by operator");
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted · by operator");
     // The label carries the themed style; the dot is a plain fg reset.
-    expect(rows[0]).toContain(ST.notice.render("ℹ️ turn aborted"));
+    expect(rows[0]).toContain(ST.notice.render("⏹️ turn aborted"));
     expect(rows[0]).toContain(`${ESC}[39m· `);
     // The detail carries the dim style.
     expect(rows[0]).toContain(ST.noticeDetail.render("by operator"));
   });
 
   it("omits the dot when there is no detail", () => {
-    const rows = cachedRows({ kind: "notice", lines: ["ℹ️ turn aborted", ""] }, 40);
+    const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", ""] }, 40);
     expect(rows).toHaveLength(1);
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ℹ️ turn aborted ");
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted ");
     expect(rows[0]).not.toContain(`${ESC}[39m`);
   });
 
@@ -127,7 +127,7 @@ describe("terminal-state notice", () => {
       {
         kind: "notice",
         lines: [
-          "ℹ️ turn aborted",
+          "⏹️ turn aborted",
           "a very long detail line that would overflow the terminal width",
         ],
       },
