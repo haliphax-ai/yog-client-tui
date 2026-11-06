@@ -13,7 +13,7 @@ describe("noticeLine", () => {
   it("keeps event-specific emoji for known events (all kinds)", () => {
     expect(noticeLine("notice", "shake", "3 arg(s) truncated")[0]).toBe("🧹 shake");
     expect(noticeLine("notice", "compact", "fresh transcript started")[0]).toBe("📦 compact");
-    expect(noticeLine("notice", "handoff", "fresh transcript started")[0]).toBe("📦 handoff");
+    expect(noticeLine("notice", "handoff", "fresh transcript started")[0]).toBe("🤝 handoff");
     expect(noticeLine("notice", "turn stopped", "reached the tool-round cap")[0]).toBe(
       "⏹️ turn stopped",
     );

@@ -21,7 +21,7 @@ export type NoticeKind = "notice" | "error" | "system";
 const EVENT_EMOJI: Record<string, string> = {
   shake: "🧹",
   compact: "📦",
-  handoff: "📦",
+  handoff: "🤝",
   "turn aborted": "⏹️",
   "turn stopped": "⏹️",
   warning: "⚠️",
