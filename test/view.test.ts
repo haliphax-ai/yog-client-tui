@@ -581,9 +581,9 @@ describe("turn usage reaches the session status bar", () => {
     // The exact main.ts wiring: the presenter's onToolResult first, then the
     // live store bridge that feeds the status-bar token totals.
     const base = turn.events.onToolResult;
-    turn.events.onToolResult = (id, name, ok, result, error, tokens) => {
-      base?.(id, name, ok, result, error, tokens);
-      addLiveCompletionTokens(tokens ?? 0);
+    turn.events.onToolResult = (id, name, ok, result, error, usage, promptDelta) => {
+      base?.(id, name, ok, result, error, usage, promptDelta);
+      addLiveCompletionTokens(promptDelta ?? 0);
     };
     turn.begin("hello");
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
@@ -593,9 +593,9 @@ describe("turn usage reaches the session status bar", () => {
     // each completed tool call's attributed completion tokens.
     // Both call lines exist before any result lands, so the tool-call counter
     // is already 2; what moves live is the 🪙 token stat.
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, 40);
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 40);
     expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 2  🪙 40");
-    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, 60);
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 60);
     expect(statusBody()).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 2  🪙 100");
   });
 });

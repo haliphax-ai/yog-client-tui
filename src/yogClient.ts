@@ -38,8 +38,15 @@ export interface TranscriptMessage {
   name?: string;
   toolCallId?: string;
   toolCalls?: unknown;
-  /** Per-call completion-token attribution (optional; tool rows only). */
+  /**
+   * Legacy per-call token estimate (pre-round-usage servers). Tool rows only.
+   * Newer servers omit it — the field was a fabricated equal-split.
+   */
   tokens?: number;
+  /** The round's real provider usage (round attribution, not per-call). */
+  usage?: TokenUsage;
+  /** Context growth this round's call+result added (prompt_tokens diff). */
+  promptDelta?: number;
 }
 
 /** Result of the transcript rehydration dump: the session plus its ordered
@@ -86,7 +93,8 @@ export interface TurnEvents {
     ok: boolean,
     result: unknown,
     error?: string,
-    tokens?: number,
+    usage?: TokenUsage,
+    promptDelta?: number,
   ): void;
   /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
   onFinish?(durationMs: number, stopReason?: string, usage?: TokenUsage): void;
@@ -526,7 +534,10 @@ export class YogClient {
             data["ok"] === true,
             data["result"],
             str(data["error"]) || undefined,
-            parseTokens(data["tokens"]),
+            parseUsage(data["usage"]),
+            typeof data["promptDelta"] === "number" && Number.isFinite(data["promptDelta"])
+              ? Math.max(0, data["promptDelta"])
+              : undefined,
           );
           return;
         }

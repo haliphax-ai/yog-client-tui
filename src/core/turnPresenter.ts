@@ -137,30 +137,39 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       pendingToolCalls.set(id, entry);
       host.requestRender();
     },
-    onToolResult: (id, name, ok, result, error, tokens) => {
+    onToolResult: (id, name, ok, result, error, usage, promptDelta) => {
       // Annotate the matching call line in place (no extra chat lines).
       const call = pendingToolCalls.get(id);
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
+        // Round-usage suffix on the call line: promptDelta is the honest
+        // context-growth number for this call's round; usage alone (first
+        // round) shows the round's completion. Equal across a round's calls
+        // by construction — the API has no per-call segmentation.
+        const note =
+          promptDelta !== undefined
+            ? `+${formatTokenTotal(promptDelta)} ctx`
+            : usage?.completion_tokens !== undefined
+              ? `${formatTokenTotal(usage.completion_tokens)} tok`
+              : undefined;
+        if (note !== undefined) {
+          call.lines[0] = `${call.lines[0] ?? ""} · ${note}`;
+        }
         // Splice the result output right after its call entry so it stays
         // visually paired with the call that produced it, even when events
         // arrive batched (call1, call2, result1, result2).
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
-          host.entries.splice(
-            insertAt,
-            0,
-            ...toolResultEntries(name, withTokens(result, tokens), host.width()),
-          );
+          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width()));
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(...toolResultEntries(name, withTokens(result, tokens), host.width()));
+          host.entries.push(...toolResultEntries(name, result, host.width()));
         }
       }
       host.requestRender();

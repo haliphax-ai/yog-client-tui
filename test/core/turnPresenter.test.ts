@@ -679,16 +679,13 @@ describe("createTurnPresenter per-call tokens (live)", () => {
     };
     const presenter = createTurnPresenter(host);
     presenter.events.onToolCall?.("c1", "bash", "{}");
-    presenter.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "hi" },
-      undefined,
-      7,
-    );
+    presenter.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "hi" }, undefined, {
+      completion_tokens: 7,
+    });
     const chunk = host.entries.find((e) => e.kind === "chunk");
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7 tok");
+    // The chunk header shows tool status only — round usage lives on the
+    // call-line suffix (promptDelta / round completion), not the body chunk.
+    expect(chunk?.lines[0]).toBe("bash → exit 0");
   });
 });
 
