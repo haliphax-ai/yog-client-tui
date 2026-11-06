@@ -209,8 +209,8 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
     },
     onRecovered: () => {
       host.append(
-        "system",
-        noticeLine("system", "recovered", "stream interrupted — resumed from turn status"),
+        "notice",
+        noticeLine("notice", "recovered", "stream interrupted — resumed from turn status"),
       );
     },
     onFinish: (durationMs, stopReason, usage) => {

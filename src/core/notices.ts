@@ -1,22 +1,22 @@
 /**
  * Notice formatting — the shared shape for every one-line chat-log signal
- * (`notice`, `error`, and `system` entries): `<emoji> <event> [· detail]`.
+ * (`notice` and `error` entries): `<emoji> <event> [· detail]`.
  *
- * The *renderer* owns color and padding (it styles the whole line by entry
- * kind); the emitter owns the emoji + wording, so the pattern is decided in
- * one place and every producer stays consistent. A `null` detail drops the
- * dot separator entirely.
+ * The *renderer* owns color and padding (it styles the line by entry kind and
+ * the label's leading emoji); the emitter owns the emoji + wording, so the
+ * pattern is decided in one place and every producer stays consistent.
  */
 
-/** The three one-line entry kinds this helper formats. */
-export type NoticeKind = "notice" | "error" | "system";
+/** The one-line entry kinds this helper formats. */
+export type NoticeKind = "notice" | "error";
 
 /**
  * Event-specific emoji: known events keep their identity even though they all
- * share the generic `notice`/`system` kinds — ℹ️ (the kind fallback) stays a
- * true fallback for anything unlisted. Keys are exact event names as passed
- * to `noticeLine`; the map is the single source of truth, so adding an event
- * here restores its emoji everywhere it is emitted.
+ * share the generic `notice`/`error` kinds — keys are exact event names as
+ * passed to `noticeLine`; the map is the single source of emoji identity.
+ * Client lifecycle chatter (connection banner, session notes, recovery) keeps
+ * the 🪧 tone; the rehydrated server-transcript system rows are transcript
+ * content and never pass through here.
  */
 const EVENT_EMOJI: Record<string, string> = {
   shake: "🧹",
@@ -25,19 +25,19 @@ const EVENT_EMOJI: Record<string, string> = {
   "turn aborted": "⏹️",
   "turn stopped": "⏹️",
   warning: "⚠️",
+  connected: "🪧",
+  model: "🪧",
+  "new session": "🪧",
+  "session resumed": "🪧",
+  "session reset": "🪧",
+  recovered: "🪧",
 };
 
 /** Pick the emoji for a notice line: event-specific first, kind fallback. */
 function kindEmoji(kind: NoticeKind, event: string): string {
   const known = EVENT_EMOJI[event];
   if (known !== undefined) return known;
-  switch (kind) {
-    case "error":
-      return "❌";
-    case "system":
-      return "🪧";
-  }
-  return "ℹ️";
+  return kind === "error" ? "❌" : "ℹ️";
 }
 
 /**

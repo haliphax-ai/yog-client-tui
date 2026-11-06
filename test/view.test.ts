@@ -17,7 +17,7 @@ import { displayWidth, stripAnsi, wrapText } from "../src/util/ansi.ts";
 
 /** Build a plain log entry with sensible defaults. */
 const entry = (over: Partial<LogEntry>): LogEntry => ({
-  kind: "system",
+  kind: "error",
   lines: ["x"],
   ...over,
 });

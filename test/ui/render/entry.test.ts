@@ -152,6 +152,16 @@ describe("terminal-state notice", () => {
     expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
     expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
   });
+  it("styles lifecycle notices (🪧) in the blue-grey tone", () => {
+    const rows = cachedRows(
+      { kind: "notice", lines: ["🪧 recovered", "stream interrupted — resumed"] },
+      60,
+    );
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed");
+    expect(rows[0]).toContain(ST.noticeSystem.render("🪧 recovered"));
+    expect(rows[0]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
+  });
 });
 
 describe("height summary", () => {
@@ -175,8 +185,8 @@ describe("height summary", () => {
 
   it("reuses the cached total while nothing changes and rebuilds on mutation", () => {
     const entries: LogEntry[] = [
-      { kind: "system", lines: ["a"] },
-      { kind: "system", lines: ["b"] },
+      { kind: "error", lines: ["a"] },
+      { kind: "error", lines: ["b"] },
     ];
     const first = totalRows(entries, 40);
     expect(totalRows(entries, 40)).toBe(first); // short-circuit hit
