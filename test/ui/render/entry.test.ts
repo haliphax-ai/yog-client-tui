@@ -152,22 +152,15 @@ describe("terminal-state notice", () => {
     expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
     expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
   });
-  it("styles system notices (🪧) in the blue-grey system tone", () => {
+  it("styles lifecycle notices (🪧) in the blue-grey tone", () => {
     const rows = cachedRows(
-      { kind: "system", lines: ["🪧 recovered", "stream interrupted — resumed"] },
+      { kind: "notice", lines: ["🪧 recovered", "stream interrupted — resumed"] },
       60,
     );
     expect(rows).toHaveLength(1);
     expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed");
-    expect(rows[0]).toContain(ST.systemNotice.render("🪧 recovered"));
+    expect(rows[0]).toContain(ST.noticeSystem.render("🪧 recovered"));
     expect(rows[0]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
-  });
-
-  it("keeps one-row system entries as plain transcript content", () => {
-    const rows = cachedRows({ kind: "system", lines: ["verbatim server row"] }, 60);
-    expect(rows).toHaveLength(1);
-    expect(stripAnsi(rows[0] ?? "")).toBe("verbatim server row");
-    expect(rows[0]).not.toContain(ST.systemNotice.render(""));
   });
 });
 

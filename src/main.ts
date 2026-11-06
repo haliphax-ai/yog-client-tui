@@ -177,7 +177,7 @@ async function run(argv: readonly string[]): Promise<void> {
   /** Startup notes and rehydrated conversation, seeded before the first frame. */
   const seedEntries: LogEntry[] = [];
   const startupNote = (event: string, detail?: string): void => {
-    seedEntries.push({ kind: "system", lines: noticeLine("system", event, detail) });
+    seedEntries.push({ kind: "notice", lines: noticeLine("notice", event, detail) });
   };
 
   /**
@@ -293,10 +293,10 @@ async function run(argv: readonly string[]): Promise<void> {
       const staleId = client.sessionId;
       const freshId = await client.open();
       pushLines(
-        "system",
-        noticeLine("system", "session reset", `id ${staleId} is gone — started fresh`),
+        "notice",
+        noticeLine("notice", "session reset", `id ${staleId} is gone — started fresh`),
       );
-      pushLines("system", noticeLine("system", "new session", freshId));
+      pushLines("notice", noticeLine("notice", "new session", freshId));
       await saveState(stateFilePath(), { lastSessionId: freshId });
       return await client.runTurn(prompt, config.model, events);
     }
@@ -356,7 +356,7 @@ async function run(argv: readonly string[]): Promise<void> {
               tokenTotals: { prompt: 0, completion: 0, total: 0 },
             });
             await saveState(stateFilePath(), { lastSessionId: id });
-            pushLines("system", noticeLine("system", "new session", id));
+            pushLines("notice", noticeLine("notice", "new session", id));
           } catch (err) {
             pushLines(
               "error",
@@ -665,17 +665,17 @@ async function run(argv: readonly string[]): Promise<void> {
   setState({
     entries: [
       {
-        kind: "system",
+        kind: "notice",
         lines: noticeLine(
-          "system",
+          "notice",
           "connected",
           `${baseUrl} · contract ${caps.contractVersion} · ` +
             `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
         ),
       },
       {
-        kind: "system",
-        lines: noticeLine("system", "model", `${config.model} · /quit exits`),
+        kind: "notice",
+        lines: noticeLine("notice", "model", `${config.model} · /quit exits`),
       },
       ...seedEntries,
     ],
