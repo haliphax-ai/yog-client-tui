@@ -31,7 +31,7 @@ export const TABLE_MAX_COL = 30;
 
 /**
  * Rendered width of a table row in cells: Σ(width + 2 padding) + (n+1)
- * border runes — │ c1 │ c2 │ has a separator between every pair of cells
+ * border runes — ╱ c1 ╱ c2 ╱ has a separator between every pair of cells
  * plus the two outer corners (Σw + 3n + 1).
  */
 export function tableRowWidth(colWidths: readonly number[]): number {

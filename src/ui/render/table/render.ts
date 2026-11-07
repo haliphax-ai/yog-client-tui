@@ -115,7 +115,7 @@ export function renderTable(
   const w = widths !== undefined ? [...widths] : table.columns.map((c) => c.width);
   const colWidths = w;
 
-  // Total table width: │ cell1 │ cell2 │ ... │ — Σ(w+2) per cell block plus
+  // Total table width: ╱ cell1 ╱ cell2 ╱ ... ╱ — Σ(w+2) per cell block plus
   // the (n+1) border runes (corners + one between every cell pair).
   const totalWidth = tableRowWidth(colWidths);
 
@@ -132,8 +132,8 @@ export function renderTable(
     ST.tableBorderUnfocused.render(rune).replace(/\x1b\[0?m$/, "");
   const border = focused
     ? // eslint-disable-next-line no-control-regex
-      ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "")
-    : whiteRune("│");
+      ST.tableBorderFocused.render("╱").replace(/\x1b\[0?m$/, "")
+    : whiteRune("╱");
   const hBorder = focused
     ? // eslint-disable-next-line no-control-regex
       ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "")
