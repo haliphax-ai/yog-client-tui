@@ -7,9 +7,9 @@
  * to the table engine's splitter — and its only consumer is entry.ts, so
  * no render-module cycle exists.
  */
-import { wrapText } from "../../util/ansi.ts";
-import { mdRender, normalizeLines } from "./markdown.ts";
+import { hangWrapRows, mdRender, normalizeLines } from "./markdown.ts";
 import { paragraphGroups, type ParagraphGroup } from "./table/parse.ts";
+import { wrapText } from "../../util/ansi.ts";
 
 /**
  * Flatten glamour's theme colors out of a rendered markdown row, keeping
@@ -93,10 +93,15 @@ export function renderMarkdownFlat(text: string, cols: number): string[] {
     if (gi > 0) out.push(""); // the paragraph break between groups
     const rows = renderGroup(group, cols, normalizeLines);
     if (rows === undefined) {
-      out.push(...group.lines.flatMap((l) => wrapText(l, cols)));
+      out.push(
+        ...hangWrapRows(
+          group.lines.flatMap((l) => wrapText(l, cols)),
+          cols,
+        ),
+      );
       continue;
     }
-    out.push(...rows);
+    out.push(...hangWrapRows(rows, cols));
   }
   return out;
 }
@@ -112,10 +117,15 @@ export function flattenMarkdownFlat(text: string, cols: number): string[] {
     if (gi > 0) out.push(""); // the paragraph break between groups
     const rows = renderGroup(group, cols, normalizeLines);
     if (rows === undefined) {
-      out.push(...group.lines.flatMap((l) => wrapText(l, cols)));
+      out.push(
+        ...hangWrapRows(
+          group.lines.flatMap((l) => wrapText(l, cols)),
+          cols,
+        ),
+      );
       continue;
     }
-    out.push(...rows.map((row) => flattenRow(row)));
+    out.push(...hangWrapRows(rows, cols).map((row) => flattenRow(row)));
   }
   return out;
 }
