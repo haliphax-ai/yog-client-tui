@@ -20,14 +20,21 @@ export const ST = {
   tool: newStyle().foreground("#a78bfa"),
   /** System chatter: connection notes, lifecycle messages. */
   system: newStyle().foreground("#94a3b8"),
-  /** Informational notice: `ℹ️` event label light blue, detail dim. */
-  notice: newStyle().foreground("#7dd3fc").padding(0, 1),
+  /** Informational notice: `ℹ️` event label light blue, detail dim. The
+   *  label carries no padding of its own: the notice BLOCK shape (one
+   *  pre-wrapped line) gets its true 1-cell padding from `noticeBlock`, so
+   *  the whole wrapped block — every row — is padded, not just the label. */
+  notice: newStyle().foreground("#7dd3fc"),
   noticeDetail: newStyle().foreground("#a1a1aa"),
+  /** The notice block shape: pre-wrapped content (one logical line, wrapped
+   *  at cols-2) wrapped in this style, which applies 1-cell horizontal
+   *  padding to EVERY row of the block. */
+  noticeBlock: newStyle().padding(0, 1),
   /** Wait notice: `⚠️` busy-gate refusals, yellow. Shares the notice layout. */
-  noticeWait: newStyle().foreground("#fbbf24").padding(0, 1),
+  noticeWait: newStyle().foreground("#fbbf24"),
   /** Lifecycle notice: `🪧` client chatter (connection banner, session notes,
    *  recovery), blue-grey. Shares the notice layout. */
-  noticeSystem: newStyle().foreground("#94a3b8").padding(0, 1),
+  noticeSystem: newStyle().foreground("#94a3b8"),
   /** Per-turn summary line: very dark grey text on the normal background, 1-cell
    *  horizontal padding (unlike the session status bar, which has a backing). */
   statusLine: newStyle().foreground("#3f3f46").padding(0, 1),

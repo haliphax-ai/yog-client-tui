@@ -385,10 +385,10 @@ function renderEntry(
   if (entry.kind === "notice" || entry.kind === "error") {
     // Notices and errors are never focusable, so collapsing them would hide
     // content forever: they render in FULL, as a SINGLE logical line — the
-    // padded label in its themed color (light blue for info, yellow for wait
-    // ⚠️, blue-grey for lifecycle 🪧 notices), a mid-dot separator, and the
-    // detail dimmed — WORD-WRAPPED at the body width so nothing is ever
-    // truncated and the block never soft-wraps past the terminal edge.
+    // label in its themed color (light blue for info, yellow for wait ⚠️,
+    // blue-grey for lifecycle 🪧 notices), a mid-dot separator, and the
+    // detail dimmed — WORD-WRAPPED so nothing is ever truncated and the
+    // block never soft-wraps past the terminal edge.
     const label = entry.lines[0] ?? "";
     const detail = entry.lines[1] ?? "";
     const noticeStyle = label.startsWith("⚠️")
@@ -399,11 +399,18 @@ function renderEntry(
     const line =
       detail === ""
         ? noticeStyle.render(label)
-        : `${noticeStyle.render(label)}\x1b[39m· ${ST.noticeDetail.render(detail)}`;
+        : `${noticeStyle.render(label)} \x1b[39m· ${ST.noticeDetail.render(detail)}`;
+    // The BLOCK shape carries the padding: the composed line is wrapped at
+    // cols-2 (leaving room for a 1-cell gutter on each side), and the whole
+    // wrapped block is then rendered through ST.noticeBlock — the theme's
+    // notice layout primitive — which applies true 1-cell horizontal padding
+    // to EVERY row of the block (label, continuation, label-only alike).
+    // No component-level padding logic: the style owns the padding, the
+    // component only shapes the content (one pre-wrapped line).
     const rows = wrapText(line, Math.max(1, cols - 2));
     if (rows.length === 0) rows.push("");
     return {
-      rendered: rows.join("\n"),
+      rendered: ST.noticeBlock.render(rows.join("\n")),
       rows: rows.length,
       tableOffsets: [],
     };

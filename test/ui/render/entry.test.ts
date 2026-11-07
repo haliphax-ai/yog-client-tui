@@ -159,7 +159,9 @@ describe("notice and error entries", () => {
     const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", "by operator"] }, 40);
     expect(rows).toHaveLength(1);
     // The padded label, mid-dot separator, and dimmed detail — one row.
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted · by operator");
+    // Padding is TRUE padding: a space on BOTH sides (the trailing space is
+    // the right pad, so the notice never butts against the viewport edge).
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted · by operator ");
     // The label carries the themed style; the detail carries the dim style.
     expect(rows[0]).toContain(ST.notice.render("⏹️ turn aborted"));
     expect(rows[0]).toContain(ST.noticeDetail.render("by operator"));
@@ -179,6 +181,14 @@ describe("notice and error entries", () => {
     expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
       expect(displayWidth(row)).toBeLessThanOrEqual(30);
+    }
+    // TRUE padding on the WHOLE block: every wrapped row — continuation rows
+    // included — carries a 1-cell pad on both sides, so the block never butts
+    // up against either edge of the viewport.
+    for (const row of rows) {
+      const plain = stripAnsi(row);
+      expect(plain.startsWith(" ")).toBe(true);
+      expect(plain.endsWith(" ")).toBe(true);
     }
     // Round-trip: the whole detail survives wrapping intact.
     const plain = stripAnsi(rows.join("\n"));
@@ -206,7 +216,7 @@ describe("notice and error entries", () => {
       60,
     );
     expect(rows).toHaveLength(1);
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ⚠️ warning · wait for the current turn, then /new");
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⚠️ warning · wait for the current turn, then /new ");
     expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
     expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
   });
@@ -217,7 +227,7 @@ describe("notice and error entries", () => {
       60,
     );
     expect(rows).toHaveLength(1);
-    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed");
+    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed ");
     expect(rows[0]).toContain(ST.noticeSystem.render("🪧 recovered"));
     expect(rows[0]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
   });
