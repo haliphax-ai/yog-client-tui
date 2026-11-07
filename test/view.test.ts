@@ -312,6 +312,75 @@ describe("renderMarkdown — nested sublists in prose (issue #63)", () => {
   });
 });
 
+describe("renderMarkdown — hanging indent on wrapped list items (issue #85)", () => {
+  const indentOf = (row: string) => row.match(/^ */)![0].length;
+
+  it("hangs a wrapped bullet's continuation at the marker's content column", () => {
+    const rows = renderMarkdown(
+      "- first item with a long run of text that definitely keeps going past the wrap edge of this narrow window\n- second",
+      40,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    // Row 0 carries the marker; rows 1..2 are continuations.
+    expect(rows[0]!.startsWith("• ")).toBe(true);
+    expect(rows[1]!.startsWith("  ")).toBe(true);
+    expect(rows[2]!.startsWith("  ")).toBe(true);
+    expect(indentOf(rows[1]!)).toBe(indentOf(rows[0]!) + 2);
+  });
+
+  it("hangs ordered items at their 3-cell marker width", () => {
+    const rows = renderMarkdown(
+      "1. numbered item that goes on and on well beyond the width so it must wrap somewhere around here\n2. two",
+      40,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    expect(rows[0]!.startsWith("1. ")).toBe(true);
+    expect(indentOf(rows[1]!)).toBe(3);
+  });
+
+  it("hangs wide markers (10.) at their 4-cell content column", () => {
+    const rows = renderMarkdown(
+      "10. item number ten with a whole lot of text that will absolutely need to wrap at this narrow width for sure\n11. next",
+      40,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    expect(rows[0]!.startsWith("10. ")).toBe(true);
+    expect(indentOf(rows[1]!)).toBe(4);
+  });
+
+  it("hangs nested items at their own deeper content column", () => {
+    const rows = renderMarkdown(
+      "- top\n  - nested item with plenty of text so that it wraps too when the terminal is narrow like this one\n- two",
+      44,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    const nestedRow = rows.findIndex((r) => r.includes("nested item"));
+    expect(nestedRow).toBeGreaterThan(0);
+    expect(indentOf(rows[nestedRow]!)).toBe(2);
+    expect(indentOf(rows[nestedRow + 1]!)).toBe(4);
+  });
+
+  it("keeps every hung row within the width budget (emoji = 2 cells)", () => {
+    const rows = renderMarkdown(
+      "- start with ✅ emoji then a very long description that keeps going and going until it must wrap hard",
+      36,
+    );
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(36);
+  });
+
+  it("does not hang plain paragraphs", () => {
+    const rows = renderMarkdown(
+      "just a plain paragraph with several words that wraps at this narrow width for sure",
+      24,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    for (const row of rows) expect(indentOf(row)).toBe(0);
+  });
+
+  it("leaves non-list groups untouched (code fences stay put)", () => {
+    const rows = renderMarkdown(
+      "Intro.\n\n```js\nconst x = 1;\n```\n\n- item one\n- item two",
+      40,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    expect(rows.some((r) => r.includes("const x = 1;"))).toBe(true);
+  });
+});
+
 describe("resultStatus", () => {
   it("joins exit code and runtime", () => {
     expect(resultStatus({ exitCode: 0, runtimeMs: 42 })).toBe("exit 0 · 42ms");

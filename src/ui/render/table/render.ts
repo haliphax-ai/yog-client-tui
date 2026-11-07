@@ -7,7 +7,7 @@
  */
 import { displayWidth, scrollLeft, stripAnsi, wrapText } from "../../../util/ansi.ts";
 import { ST } from "../../theme.ts";
-import { renderInlineMarkdown } from "../markdown.ts";
+import { hangWrapRows, renderInlineMarkdown } from "../markdown.ts";
 import { cellLines, type ParsedTable } from "./parse.ts";
 import { tableRowWidth } from "./layout.ts";
 
@@ -51,9 +51,17 @@ function styleCell(cell: string, maxCells: number): string[] {
         out.push(...wrapText(s, Math.max(1, maxCells)));
       }
     }
-    return out.length > 0 ? out : [""];
+    // Same hanging indent as prose: continuation rows of a wrapped item
+    // pad to the marker's content column instead of the cell's first
+    // column (hangWrapRows capping to maxCells replaces the per-row cap
+    // above, so every emitted row is within the pane budget).
+    return hangWrapRows(out, maxCells);
   }
-  return lines.flatMap((l) => styleCellLine(l, maxCells));
+  return lines.flatMap((l) =>
+    looksLikeList([l])
+      ? hangWrapRows(styleCellLine(l, maxCells), maxCells)
+      : styleCellLine(l, maxCells),
+  );
 }
 
 /** Render one break-line through glamour and cap it to `maxCells` visible
