@@ -573,7 +573,7 @@ describe("YogClient.runTurn payload", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts only { prompt, model } — history never rides along", async () => {
+  it("posts only { prompt, model, linger } — history never rides along", async () => {
     // A clean terminal stream: turn.started → turn.finished.
     vi.stubGlobal(
       "fetch",
@@ -590,7 +590,13 @@ describe("YogClient.runTurn payload", () => {
     expect(outcome.ok).toBe(true);
     const fetchMock = vi.mocked(fetch);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ prompt: "hello", model: "model-x" });
+    expect(JSON.parse(String(init.body))).toEqual({
+      prompt: "hello",
+      model: "model-x",
+      // Disconnect policy (yog contract): every turn asks the server to
+      // keep running to its terminal state if the client goes away.
+      linger: true,
+    });
   });
 
   it("reports aborted: true and fires onAborted on a turn.aborted event", async () => {

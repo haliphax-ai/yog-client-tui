@@ -164,10 +164,10 @@ autocomplete menu; it stays closed for slashes anywhere else. `Tab` cycles
 through and applies the highlighted match, `Enter` runs the completed command.
 Commands run even while a turn is in flight.
 
-| Command | Action                                                                                                                                                                 |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/quit` | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it. `Ctrl+C` itself is now unbound / inert. |
-| `/new`  | Start a fresh session with an empty chat log (current turn must be idle).                                                                                              |
+| Command | Action                                                                                                                                                                                                                                                                                                               |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/quit` | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it; an in-flight turn keeps running server-side (`linger` disconnect policy — see the yog contract) and its result rehydrates on the next launch. `Ctrl+C` itself is now unbound / inert. |
+| `/new`  | Start a fresh session with an empty chat log (current turn must be idle).                                                                                                                                                                                                                                            |
 
 **Fuzzy shortcut:** pressing Enter on a slash line that is not an exact command
 name but _does_ have at least one fuzzy-finder match runs the best match with no
@@ -258,9 +258,13 @@ On each turn the client then:
    the stream's terminal `turn.aborted` event, carrying the cut-point token
    counts and the per-turn summary line when the provider reported usage
    before the cut.
-9. On quit, keeps the session: the server's DELETE is a detach (status
-   `open` → `dormant`) and the transcript is kept, so the next launch resumes
-   where this one left off. Only a server-side purge (`DELETE ?purge=true`)
-   or the 30-day retention prune truly ends a session.
+9. On quit, keeps the session AND any in-flight turn: turns are sent with
+   the `linger: true` disconnect policy (yog contract), so the server keeps
+   running the turn to its terminal state after the client hangs up instead
+   of aborting it. The session's DELETE is a detach (status `open` →
+   `dormant`) and the transcript is kept, so the next launch resumes where
+   this one left off — including the finished turn's result. Only a
+   server-side purge (`DELETE ?purge=true`) or the 30-day retention prune
+   truly ends a session.
 
 The bundled `config.example.json` points at the local daemon `http://127.0.0.1:8111`.

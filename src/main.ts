@@ -35,8 +35,9 @@
  *                   clears the chat log (current turn must be idle).
  *   /quit           quit via the slash command (type "/" as the first
  *                   character, Tab completes, Enter runs it). Ctrl+C is
- *                   unbound (inert); the session stays on the server so
- *                   the next launch can resume it.
+ *                   unbound (inert); the session stays on the server and
+ *                   an in-flight turn keeps running there (linger), so the
+ *                   next launch resumes it and rehydrates the turn's result.
  *   Input editing   the TextArea keymap is fully reachable while the input
  *                   holds the ring (arrows, Alt/Ctrl+arrows word nav,
               // compact and handoff both start a fresh server session — adopt it
@@ -625,15 +626,21 @@ async function run(argv: readonly string[]): Promise<void> {
     );
 
   /**
-   * Quit: restore the terminal and exit. The session is NOT deleted — the
-   * server owns it and keeps the transcript, so the next launch resumes
-   * where this one left off (the DELETE endpoint is a detach, and a hard
-   * end is a future server-side purge command, not the quit path).
+   * Quit: restore the terminal and exit. The session is NOT deleted and the
+   * in-flight turn, if any, is NOT aborted — turns are sent with `linger:
+   * true`, so the server keeps running the turn to its terminal state after
+   * the client hangs up, and the next launch rehydrates the transcript
+   * including this turn's result (the DELETE endpoint is a detach, and a
+   * hard end is a future server-side purge command, not the quit path).
    */
   const quit = async (code: number): Promise<void> => {
     if (quitting) return;
     quitting = true;
-    setState({ statusNote: "session saved — bye" });
+    setState({
+      statusNote: getState().busy
+        ? "turn still running on the server — bye"
+        : "session saved — bye",
+    });
     scheduler.cancel(); // flush the note through the pipeline before exiting
     if (spinnerTimer !== undefined) clearInterval(spinnerTimer);
     restoreTerminal();
