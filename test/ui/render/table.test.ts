@@ -26,6 +26,20 @@ describe("parseTable — GFM pipe tables", () => {
     ]);
   });
 
+  it("alignments follow the delimiter's cells, not the header's (GFM)", () => {
+    // Mid-stream snapshot: the delimiter arrived before the header finished
+    // filling in (header 3 cells, delimiter 2). The delimiter fixes both the
+    // column count and the alignments; the header's excess cell is dropped.
+    const md = `| a | b | c |\n| :--- | ---: |\n| x | y |`;
+
+    const t = parseTable(md);
+    expect(t!.columns).toEqual([
+      { title: "a", width: 1, align: "left" },
+      { title: "b", width: 1, align: "right" },
+    ]);
+    expect(t!.rows).toEqual([["x", "y"]]);
+  });
+
   it("omits outer pipes (GFM allows it)", () => {
     const md = `Name | Age\n--- | ---\nAlice | 30\nBob | 25`;
 
@@ -128,6 +142,34 @@ describe("parseTable — GFM pipe tables", () => {
 
     const t = parseTable(md);
     expect(t!.rows).toEqual([["Alice", "line one\nline two\nline three\nline four"]]);
+  });
+
+  it("normalizes a short row to the delimiter's column count (GFM)", () => {
+    const md = `| a | b | c |\n| --- | --- |\n| x | y |`;
+
+    const t = parseTable(md);
+    // The delimiter (2 cells) fixes the columns — the header's third cell is
+    // dropped — and the short row's trailing cell is dropped with it.
+    expect(t!.columns).toEqual([
+      { title: "a", width: 1, align: "left" },
+      { title: "b", width: 1, align: "left" },
+    ]);
+    expect(t!.rows).toEqual([["x", "y"]]);
+  });
+
+  it("normalizes a row wider than the delimiter (GFM; renderer crash guard)", () => {
+    // A streamed row can overshoot the delimiter's column count (an
+    // unescaped pipe inside a streamed cell, or a model re-aligning).
+    // Excess cells are dropped so per-column indexing (widths, alignments)
+    // can never run past the columns array — previously this crashed
+    // renderTable with "Cannot read properties of undefined (reading 'align')".
+    const md = `| a | b |\n| --- | --- |\n| x | y | z |`;
+
+    const t = parseTable(md);
+    expect(t!.columns).toHaveLength(2);
+    expect(t!.rows).toEqual([["x", "y"]]);
+    // The full render path runs without throwing.
+    expect(() => renderTable(t!, 80)).not.toThrow();
   });
 
   it("sizes column width from the widest sub-line of a <br> cell", () => {
@@ -479,6 +521,27 @@ describe("renderTable — styled output", () => {
     expect(cellLines("a\nb")).toEqual(["a", "b"]);
     expect(cellLines("trailing\n")).toEqual(["trailing", ""]);
     expect(cellLines("")).toEqual([""]);
+  });
+
+  it("renders a streamed ragged table through the full entry path", () => {
+    // End-to-end regression for the streaming crash: an assistant entry whose
+    // snapshot holds a table with a row wider than its delimiter — the exact
+    // shape a mid-stream render observed when the client died with
+    // "Cannot read properties of undefined (reading 'align')".
+    const entry: LogEntry = {
+      kind: "assistant",
+      streaming: true,
+      lines: ["| name | value |", "| --- | --- |", "| x | y | extra |"],
+    };
+    const rows = cachedRows(entry, 80);
+    expect(rows.length).toBeGreaterThan(0);
+    const plain = stripAnsi(rows.join("\n"));
+    // The header survives; the excess cell is dropped, not rendered.
+    expect(plain).toContain("name");
+    expect(plain).toContain("value");
+    expect(plain).toContain("x");
+    expect(plain).toContain("y");
+    expect(plain).not.toContain("extra");
   });
 });
 

@@ -15,7 +15,8 @@ export interface ParsedColumn {
   align: "left" | "center" | "right";
 }
 
-/** A parsed table: columns + rows (each row is an array of cell strings). */
+/** A parsed table: columns + rows. Rows are rectangular — every row
+ *  holds exactly `columns.length` cells (GFM normalization). */
 export interface ParsedTable {
   columns: ParsedColumn[];
   rows: string[][];
@@ -132,6 +133,11 @@ function isTableDelimiter(line: string): boolean {
  * (header row + delimiter row). Data rows are optional — a table
  * with only a header is still valid.
  *
+ * Per GFM, the delimiter row fixes the column count; ragged rows are
+ * normalized to it (short rows gain empty cells, excess cells are
+ * dropped), so `rows` is always rectangular and every row's cell
+ * count equals `columns.length`.
+ *
  * The text may contain leading/trailing blank lines; they're skipped.
  * Parsing stops at the first non-table line after the delimiter.
  */
@@ -153,8 +159,15 @@ export function parseTable(text: string): ParsedTable | null {
   if (delimIdx >= lines.length) return null;
   if (!isTableDelimiter(lines[delimIdx] ?? "")) return null;
 
-  const headerCells = splitCells(lines[headerIdx] ?? "");
-  if (headerCells.length === 0) return null;
+  // GFM: the delimiter row (NOT the header row) fixes the column count, and
+  // it must have at least one cell; rows may diverge mid-stream (a streamed
+  // cell carrying an unescaped pipe, or the model re-aligning), so every row
+  // is normalized below instead of being trusted.
+  const delimCells = splitCells(lines[delimIdx] ?? "");
+  if (delimCells.length === 0) return null;
+  const colCount = delimCells.length;
+  const headerCells = splitCells(lines[headerIdx] ?? "").slice(0, colCount);
+  while (headerCells.length < colCount) headerCells.push("");
 
   // Data rows: consecutive table rows after the delimiter
   const rows: string[][] = [];
@@ -166,20 +179,29 @@ export function parseTable(text: string): ParsedTable | null {
       break; // table ends at the first non-row line
     }
   }
+  // GFM: rows with fewer cells gain empty trailing cells; rows with more
+  // cells have the excess dropped. Streamed text routinely produces ragged
+  // tables (an unescaped pipe mid-cell, or a row that arrives wider than the
+  // header) — a row longer than colCount used to crash the renderer when it
+  // indexed header-derived per-column state (widths, alignments).
+  const normalized = rows.map((row) => {
+    const cells = row.slice(0, colCount);
+    while (cells.length < colCount) cells.push("");
+    return cells;
+  });
 
   // Compute column widths from header + all data cells.
   // Multi-line cells (from <br>) count their widest sub-line, not total length.
-  const colCount = headerCells.length;
   const widths: number[] = headerCells.map((h) => cellWidth(h));
-  for (const row of rows) {
+  for (const row of normalized) {
     for (let c = 0; c < colCount; c++) {
       const w = cellWidth(row[c] ?? "");
       if (w > widths[c]!) widths[c] = w;
     }
   }
 
-  // Parse the delimiter row to capture per-column alignment.
-  const delimCells = splitCells(lines[delimIdx] ?? "");
+  // Per-column alignment from the delimiter's own cells — every column has
+  // one (delimCells.length IS colCount), so the align lookup cannot miss.
   const aligns = delimCells.map((c) => parseAlign(c));
 
   return {
@@ -188,7 +210,7 @@ export function parseTable(text: string): ParsedTable | null {
       width: widths[i]!,
       align: aligns[i] ?? "left",
     })),
-    rows,
+    rows: normalized,
   };
 }
 
