@@ -155,29 +155,28 @@ describe("user prompt — padded bubble", () => {
 });
 
 describe("notice and error entries", () => {
-  it("renders label and detail as two full rows (nothing truncated)", () => {
+  it("renders one line: padded label, dot, dimmed detail", () => {
     const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", "by operator"] }, 40);
-    expect(rows).toHaveLength(2);
-    // The padded label rides alone; the detail is wrapped onto its own rows.
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted ");
-    expect(stripAnsi(rows[1] ?? "")).toBe("by operator");
+    expect(rows).toHaveLength(1);
+    // The padded label, mid-dot separator, and dimmed detail — one row.
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted · by operator");
     // The label carries the themed style; the detail carries the dim style.
     expect(rows[0]).toContain(ST.notice.render("⏹️ turn aborted"));
-    expect(rows[1]).toContain(ST.noticeDetail.render("by operator"));
+    expect(rows[0]).toContain(ST.noticeDetail.render("by operator"));
   });
 
-  it("renders label only, blank row when there is no detail", () => {
+  it("renders label only, no separator when there is no detail", () => {
     const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", ""] }, 40);
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(1);
     expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted ");
-    expect(stripAnsi(rows[1] ?? "")).toBe("");
-    expect(rows[1]).toBe("");
+    expect(rows[0]).toContain(ST.notice.render("⏹️ turn aborted"));
+    expect(rows[0]).not.toContain("\x1b[39m");
   });
 
   it("wraps a long detail so every word survives (never truncated)", () => {
     const detail = "a very long detail line that would overflow the terminal width";
     const rows = cachedRows({ kind: "error", lines: ["❌ turn error", detail] }, 30);
-    expect(rows.length).toBeGreaterThan(2);
+    expect(rows.length).toBeGreaterThan(1);
     for (const row of rows) {
       expect(displayWidth(row)).toBeLessThanOrEqual(30);
     }
@@ -186,9 +185,9 @@ describe("notice and error entries", () => {
     for (const word of detail.split(" ")) {
       expect(plain).toContain(word);
     }
-    // The label is untouched on its own row; the detail is dimmed.
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ❌ turn error ");
-    expect(rows[1]).toContain(ST.noticeDetail.render("a very long detail line that"));
+    // The label carries its themed style; the detail is dimmed.
+    expect(rows[0]).toContain(ST.notice.render("❌ turn error"));
+    expect(rows[1]).toContain(ST.noticeDetail.render("detail line that would"));
   });
 
   it("wraps wide emoji by CELLS, not characters (regression)", () => {
@@ -206,9 +205,10 @@ describe("notice and error entries", () => {
       { kind: "notice", lines: ["⚠️ warning", "wait for the current turn, then /new"] },
       60,
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⚠️ warning · wait for the current turn, then /new");
     expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
-    expect(rows[1]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
+    expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
   });
 
   it("styles lifecycle notices (🪧) in the blue-grey tone", () => {
@@ -216,11 +216,10 @@ describe("notice and error entries", () => {
       { kind: "notice", lines: ["🪧 recovered", "stream interrupted — resumed"] },
       60,
     );
-    expect(rows).toHaveLength(2);
-    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered ");
-    expect(stripAnsi(rows[1] ?? "")).toBe("stream interrupted — resumed");
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed");
     expect(rows[0]).toContain(ST.noticeSystem.render("🪧 recovered"));
-    expect(rows[1]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
+    expect(rows[0]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
   });
 
   it("counts one terminal row per rendered row (wrapping included)", () => {
@@ -228,7 +227,8 @@ describe("notice and error entries", () => {
       kind: "error",
       lines: ["❌ turn error", "x".repeat(95)],
     };
-    // 1 label row + 3 wrapped detail rows + 1 separator.
+    // One logical line word-wrapped at 38 cells: 4 rows (label + 3), plus
+    // the separator.
     expect(totalRows([entry], 40)).toBe(5);
   });
 });
