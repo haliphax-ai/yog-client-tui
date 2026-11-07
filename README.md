@@ -112,7 +112,7 @@ will land.
 | `←` `→` `↑` `↓`, `Home` `End`, `Backspace` `Delete` | In the input: the textarea's full editing keymap — arrows, word navigation (Alt/Ctrl+arrows), line start/end, delete; ↑/↓ move the caret between lines in a multi-line input. In the log: ↑/↓ scroll one row; on a focused expanded table, ←/→ scroll its columns |
 | `PageUp` / `PageDown`                               | In the log: scroll the viewport by one page. In a multi-line input: page the caret                                                                                                                                                                                |
 | `Ctrl+Home` / `Ctrl+End`                            | In the log: jump to the top/bottom of the log. In the input: move to the start/end of the buffer                                                                                                                                                                  |
-| `Tab` / `Shift+Tab`                                 | In the log: cycle forward/backward through focusable units (tool calls, output/debug chunks, tables; wraps through "none"). In the input: `Tab` completes a slash command                                                                                         |
+| `Tab` / `Shift+Tab`                                 | In the log: cycle forward/backward through focusable units (user/assistant messages, tool calls, output/debug chunks, tables; wraps through "none"). In the input: `Tab` completes a slash command                                                                |
 | `T` / `Shift+T`                                     | While a user/assistant message with tables is focused: cycle forward/backward through its tables (wraps back to the entry)                                                                                                                                        |
 | `Esc`                                               | In the log with an entry focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op)                                                                                                   |
 
@@ -181,8 +181,8 @@ shown.
 
 A message containing a GFM pipe table is focusable, and every table in the
 message is its own focus target (`Tab` walks the tables before moving to
-the next message). The focused table draws blue borders; the others stay
-white.
+the next message). The focused table draws blue borders — and its striped
+data rows carry the focus blue — while the others stay white.
 
 The table engine reshapes a table in a fixed order (all widths in terminal
 cells):

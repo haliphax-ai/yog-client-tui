@@ -266,6 +266,13 @@ function renderChunkLike(entry: LogEntry, cols: number, focusedTable: boolean): 
  * headers show `↓` when expanded (bodies <= COLLAPSE_LINES are always
  * expanded), `→` when collapsed. Other rows wrap plain.
  *
+ * The user bubble and the assistant border recolor when the entry is
+ * focused (`focusedTable` is the entry-focus flag at this call site): the
+ * bubble turns white-on-dark-blue like every other focus target, the
+ * assistant border rune switches to the focus blue ("black" edge).
+ * Geometry is identical in both states — focus only recolors, it never
+ * reflows.
+ *
  * Every chunk is HARD-wrapped: prose, tool bodies, and tool-arg rows are
  * programmatically word-wrapped to the block's body width (cols-2 for
  * padded/bordered blocks, cols otherwise), so no row exceeds the terminal
@@ -340,14 +347,20 @@ function renderEntry(
     }
     if (parts.length === 0) parts.push("");
     if (isUser) {
-      const rendered = ST.user.width(cols).render(parts.join("\n"));
+      // Focus recolors the whole bubble (white on dark blue, same as the
+      // other focus targets); geometry is identical in both states, so
+      // focusing never reflows — only the palette swaps.
+      const style = (focusedTable ? ST.userFocus : ST.user).width(cols);
+      const rendered = style.render(parts.join("\n"));
       return { rendered, rows: rendered.split("\n").length, tableOffsets };
     }
     // Style each prose row by itself, then glue the border in front — the
     // border never crosses the prose styling and vice versa, and pre-wrapped
     // rows (md or wrapText, both <= bodyW = cols-2 cells) leave room for the
     // two-cell gutter on every row.
-    const border = ST.assistantBorder.render(BORDER_RUNE);
+    const border = (focusedTable ? ST.assistantBorderFocus : ST.assistantBorder).render(
+      BORDER_RUNE,
+    );
     const rows = parts.map((row) => `${border} ${row}`);
     const rendered = rows.join("\n");
     return { rendered, rows: rows.length, tableOffsets };
