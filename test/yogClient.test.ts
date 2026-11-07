@@ -543,6 +543,7 @@ describe("YogClient.getTranscript", () => {
             turns: [
               {
                 turnId: 1,
+                status: "finished",
                 usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
                 durationMs: 1200,
               },
@@ -561,10 +562,34 @@ describe("YogClient.getTranscript", () => {
     expect(result.turns).toEqual([
       {
         turnId: 1,
+        status: "finished",
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         durationMs: 1200,
       },
     ]);
+  });
+
+  it("keeps a status-only turn row (a running turn with no metrics yet)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            session: { id: "s1", status: "open" },
+            messages: [],
+            turns: [{ turnId: 7, status: "running" }],
+          },
+          200,
+        ),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.getTranscript();
+    expect(result.turns).toEqual([{ turnId: 7, status: "running" }]);
+    // The reconnect pickup signal: a running turn the client can surface.
+    const running = (result.turns ?? []).find((t) => t.status === "running");
+    expect(running?.turnId).toBe(7);
   });
 });
 
@@ -573,7 +598,7 @@ describe("YogClient.runTurn payload", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts only { prompt, model } — history never rides along", async () => {
+  it("posts only { prompt, model, linger } — history never rides along", async () => {
     // A clean terminal stream: turn.started → turn.finished.
     vi.stubGlobal(
       "fetch",
@@ -590,7 +615,13 @@ describe("YogClient.runTurn payload", () => {
     expect(outcome.ok).toBe(true);
     const fetchMock = vi.mocked(fetch);
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ prompt: "hello", model: "model-x" });
+    expect(JSON.parse(String(init.body))).toEqual({
+      prompt: "hello",
+      model: "model-x",
+      // Disconnect policy (yog contract): every turn asks the server to
+      // keep running to its terminal state if the client goes away.
+      linger: true,
+    });
   });
 
   it("reports aborted: true and fires onAborted on a turn.aborted event", async () => {
