@@ -5,8 +5,6 @@ import { C, ST } from "../../../src/ui/theme.ts";
 import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 import type { LogEntry } from "../../../src/core/entries.ts";
 
-const ESC = "\x1b";
-
 /** The border cell: themed half-block rune + the single separator space. */
 const BORDER = `${ST.assistantBorder.render("▐")} `;
 
@@ -102,45 +100,51 @@ describe("user prompt — padded bubble", () => {
   });
 });
 
-describe("terminal-state notice", () => {
-  it("renders one line: padded label, default-fg dot, dimmed detail", () => {
+describe("notice and error entries", () => {
+  it("renders label and detail as two full rows (nothing truncated)", () => {
     const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", "by operator"] }, 40);
-    expect(rows).toHaveLength(1);
-    // Padding, label, mid-dot separator, dimmed detail — single line.
-    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted · by operator");
-    // The label carries the themed style; the dot is a plain fg reset.
-    expect(rows[0]).toContain(ST.notice.render("⏹️ turn aborted"));
-    expect(rows[0]).toContain(`${ESC}[39m· `);
-    // The detail carries the dim style.
-    expect(rows[0]).toContain(ST.noticeDetail.render("by operator"));
-  });
-
-  it("omits the dot when there is no detail", () => {
-    const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", ""] }, 40);
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
+    // The padded label rides alone; the detail is wrapped onto its own rows.
     expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted ");
-    expect(rows[0]).not.toContain(`${ESC}[39m`);
+    expect(stripAnsi(rows[1] ?? "")).toBe("by operator");
+    // The label carries the themed style; the detail carries the dim style.
+    expect(rows[0]).toContain(ST.notice.render("⏹️ turn aborted"));
+    expect(rows[1]).toContain(ST.noticeDetail.render("by operator"));
   });
 
-  it("caps the label and detail so the line never exceeds the width", () => {
-    const rows = cachedRows(
-      {
-        kind: "notice",
-        lines: [
-          "⏹️ turn aborted",
-          "a very long detail line that would overflow the terminal width",
-        ],
-      },
-      30,
-    );
-    expect(rows).toHaveLength(1);
-    // Total line stays inside the terminal width.
-    expect(stripAnsi(rows[0] ?? "").length).toBeLessThanOrEqual(30);
-    // The dot survives the cap, so the separator never disappears.
-    expect(rows[0]).toContain(`${ESC}[39m· `);
-    // Detail is capped but starts correctly (shorter label leaves more
-    // of the detail visible under the same width cap).
-    expect(stripAnsi(rows[0] ?? "").endsWith("a very lon")).toBe(true);
+  it("renders label only, blank row when there is no detail", () => {
+    const rows = cachedRows({ kind: "notice", lines: ["⏹️ turn aborted", ""] }, 40);
+    expect(rows).toHaveLength(2);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ⏹️ turn aborted ");
+    expect(stripAnsi(rows[1] ?? "")).toBe("");
+    expect(rows[1]).toBe("");
+  });
+
+  it("wraps a long detail so every word survives (never truncated)", () => {
+    const detail = "a very long detail line that would overflow the terminal width";
+    const rows = cachedRows({ kind: "error", lines: ["❌ turn error", detail] }, 30);
+    expect(rows.length).toBeGreaterThan(2);
+    for (const row of rows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(30);
+    }
+    // Round-trip: the whole detail survives wrapping intact.
+    const plain = stripAnsi(rows.join("\n"));
+    for (const word of detail.split(" ")) {
+      expect(plain).toContain(word);
+    }
+    // The label is untouched on its own row; the detail is dimmed.
+    expect(stripAnsi(rows[0] ?? "")).toBe(" ❌ turn error ");
+    expect(rows[1]).toContain(ST.noticeDetail.render("a very long detail line that"));
+  });
+
+  it("wraps wide emoji by CELLS, not characters (regression)", () => {
+    // 20 emoji are 20 characters but 40 cells — a char-based wrap budget
+    // would emit 80-cell rows and push content past the terminal edge.
+    const rows = cachedRows({ kind: "error", lines: ["❌ turn error", "✅".repeat(20)] }, 30);
+    for (const row of rows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(30);
+    }
+    expect(stripAnsi(rows.join("\n"))).toContain("✅".repeat(14));
   });
 
   it("styles wait notices (⚠️) yellow instead of the info blue", () => {
@@ -148,19 +152,30 @@ describe("terminal-state notice", () => {
       { kind: "notice", lines: ["⚠️ warning", "wait for the current turn, then /new"] },
       60,
     );
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
     expect(rows[0]).toContain(ST.noticeWait.render("⚠️ warning"));
-    expect(rows[0]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
+    expect(rows[1]).toContain(ST.noticeDetail.render("wait for the current turn, then /new"));
   });
+
   it("styles lifecycle notices (🪧) in the blue-grey tone", () => {
     const rows = cachedRows(
       { kind: "notice", lines: ["🪧 recovered", "stream interrupted — resumed"] },
       60,
     );
-    expect(rows).toHaveLength(1);
-    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered · stream interrupted — resumed");
+    expect(rows).toHaveLength(2);
+    expect(stripAnsi(rows[0] ?? "")).toBe(" 🪧 recovered ");
+    expect(stripAnsi(rows[1] ?? "")).toBe("stream interrupted — resumed");
     expect(rows[0]).toContain(ST.noticeSystem.render("🪧 recovered"));
-    expect(rows[0]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
+    expect(rows[1]).toContain(ST.noticeDetail.render("stream interrupted — resumed"));
+  });
+
+  it("counts one terminal row per rendered row (wrapping included)", () => {
+    const entry: LogEntry = {
+      kind: "error",
+      lines: ["❌ turn error", "x".repeat(95)],
+    };
+    // 1 label row + 3 wrapped detail rows + 1 separator.
+    expect(totalRows([entry], 40)).toBe(5);
   });
 });
 
@@ -185,12 +200,12 @@ describe("height summary", () => {
 
   it("reuses the cached total while nothing changes and rebuilds on mutation", () => {
     const entries: LogEntry[] = [
-      { kind: "error", lines: ["a"] },
+      { kind: "error", lines: ["❌ err", "x".repeat(95)] },
       { kind: "error", lines: ["b"] },
     ];
     const first = totalRows(entries, 40);
     expect(totalRows(entries, 40)).toBe(first); // short-circuit hit
-    (entries[1] as LogEntry).lines.push("more content");
+    (entries[1] as LogEntry).lines[1] = "x".repeat(95); // grows the wrapped detail
     cachedRows(entries[1] as LogEntry, 40); // render records the mutation → revision bump
     const second = totalRows(entries, 40);
     expect(second).toBeGreaterThan(first);
