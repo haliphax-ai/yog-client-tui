@@ -470,3 +470,67 @@ describe("toolResult tokenNote", () => {
     expect(seen).toBe(0);
   });
 });
+
+describe("focus visuals on user and assistant messages (issue #65)", () => {
+  it("paints the user bubble white-on-dark-blue while focused", () => {
+    const e: LogEntry = { kind: "user", lines: ["a focused prompt"] };
+    const rows = cachedRows(e, 40, true, -1);
+    const text = rows.join("\n");
+    // The bubble bg is the focus blue (#1e3a8a) — the same background the
+    // other focus targets (tool calls, chunks) paint. The plain bubble's
+    // dark grey (#3f3f46) must not appear anywhere in the block.
+    expect(text).toContain("48;2;30;58;138");
+    expect(text).not.toContain("48;2;63;63;70");
+    // Content survives the recolor (bubble text flattened to the focused
+    // fg — white).
+    expect(stripAnsi(text)).toContain("a focused prompt");
+    // Same geometry as the unfocused bubble: one pad row above and below.
+    expect(rows.length).toBe(3);
+  });
+
+  it("keeps the unfocused user bubble dark grey", () => {
+    const rows = cachedRows({ kind: "user", lines: ["plain prompt"] }, 40, false, -1);
+    const text = rows.join("\n");
+    expect(text).toContain("48;2;63;63;70");
+    expect(text).not.toContain("48;2;30;58;138");
+  });
+
+  it("renders the assistant border rune in the focus blue while focused", () => {
+    const e: LogEntry = {
+      kind: "assistant",
+      lines: ["a focused reply that is long enough to wrap across several rows here"],
+    };
+    const rows = cachedRows(e, 40, true, -1);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      // The border rune leads every row and carries the focus blue fg
+      // (#1e3a8a) — the "black edge" the issue describes.
+      expect(row.startsWith(`${ST.assistantBorderFocus.render("▐")} `)).toBe(true);
+      expect(row).toContain("38;2;30;58;138");
+      // The unfocused blue (#60a5fa) never leaks into the focused block.
+      expect(row).not.toContain("38;2;96;165;250");
+    }
+  });
+
+  it("keeps the assistant border blue (#60a5fa) when unfocused", () => {
+    const rows = cachedRows({ kind: "assistant", lines: ["an unfocused reply"] }, 40, false, -1);
+    for (const row of rows) {
+      expect(row.startsWith(BORDER)).toBe(true);
+      expect(row).toContain("38;2;96;165;250");
+      expect(row).not.toContain("38;2;30;58;138");
+    }
+  });
+
+  it("recolors without reflowing: focused and unfocused rows wrap identically", () => {
+    const e: LogEntry = {
+      kind: "user",
+      lines: ["a prompt long enough to wrap across rows when the bubble is narrow"],
+    };
+    const unfocused = cachedRows(e, 24, false, -1);
+    const focused = cachedRows(e, 24, true, -1);
+    expect(focused.length).toBe(unfocused.length);
+    for (let i = 0; i < focused.length; i++) {
+      expect(stripAnsi(focused[i] as string)).toBe(stripAnsi(unfocused[i] as string));
+    }
+  });
+});

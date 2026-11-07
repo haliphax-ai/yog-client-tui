@@ -375,17 +375,20 @@ describe("renderTable — styled output", () => {
     expect(rows[6]).not.toMatch(/48;2;26;26;46/);
   });
 
-  it("focus no longer recolors data rows (border-only focus indicator)", () => {
+  it("focus paints data rows with the focused zebra (issue #65)", () => {
     const focused = renderTable(table, 80, true, 0);
     const unfocused = renderTable(table, 80, false, 0);
-    // Focus is now border-only — data rows render identically in both modes
-    // (zebra only, no selected-row bg). The old selected bg (#1e3a8a) is gone.
-    expect(focused[4]).toMatch(/48;2;26;26;46/); // zebra, same as unfocused
+    // Focused table's even data rows carry the FOCUSED zebra: white text on
+    // the focus blue (#1e3a8a → 48;2;30;58;138) instead of the plain dark
+    // zebra (#1a1a2e → 48;2;26;26;46). Unfocused rows keep the plain zebra
+    // and never show the focus blue.
+    expect(focused[4]).toMatch(/48;2;30;58;138/);
+    expect(focused[4]).not.toMatch(/48;2;26;26;46/);
     expect(unfocused[4]).toMatch(/48;2;26;26;46/);
-    expect(focused[4]).not.toMatch(/48;2;30;58;138/); // no selected bg
     expect(unfocused[4]).not.toMatch(/48;2;30;58;138/);
-    // Row 1 (divider) is never striped in either mode
+    // Odd data rows (row index 1) stay unstriped in both modes.
     expect(focused[6]).not.toMatch(/48;2;26;26;46/);
+    expect(focused[6]).not.toMatch(/48;2;30;58;138/);
     expect(unfocused[6]).not.toMatch(/48;2;26;26;46/);
   });
 
