@@ -127,7 +127,7 @@ export function renderMarkdown(text: string, cols: number): string[] {
   if (text.length > 100_000) return [];
   const rendered = mdRender(text, cols);
   if (rendered === "") return [];
-  return normalizeLines(rendered, cols, text);
+  return hangWrapRows(normalizeLines(rendered, cols, text), cols);
 }
 
 /** Shared group normalization: trim glamour's blank outer rows, strip the
@@ -146,6 +146,45 @@ export function normalizeLines(rendered: string, cols: number, source: string): 
       continue;
     }
     out.push(truncateAnsi(trimLeading(line, indent), cols));
+  }
+  return out;
+}
+
+/** A list-marker row start: indent + (dash/asterisk/bullet or a 1-9 digit
+ *  marker) + one separator space. The BULLET rune (•) is what glamour
+ *  emits for unordered items after normalization, not the source "-". */
+const LIST_MARK_RE = /^(\s*)(?:[-*+•]|\d{1,9}[.)])( )/;
+
+/**
+ * Hanging indent for list rows: glamour wraps an item's continuation
+ * rows back to the item's own left edge, so a wrapped bullet reads as
+ * several top-level rows. Every row after a marker row is padded to the
+ * marker's content column (indent + marker + separator) until the next
+ * marker row or blank row. Rows are already normalized text — glamour
+ * colors words, not leading whitespace, so padding in the plain domain
+ * and re-styling would be indistinguishable; padding is prepended as
+ * literal spaces and any row pushed past `cols` is capped (its last word
+ * fit before the pad, so the cap trims pad, not content — except at
+ * pathological 1-cell budgets where the marker itself cannot fit).
+ */
+export function hangWrapRows(rows: string[], cols: number): string[] {
+  const out: string[] = [];
+  let hang = 0;
+  for (const row of rows) {
+    const plain = stripAnsi(row).replace(/ +$/, "");
+    const lead = (plain.match(/^ */) ?? [""])[0].length;
+    const marker = plain.trimStart().match(LIST_MARK_RE);
+    if (marker !== null) {
+      hang = lead + marker[0].length;
+      out.push(row);
+      continue;
+    }
+    if (hang > 0 && plain.trim() !== "") {
+      out.push(truncateAnsi(" ".repeat(hang) + plain.trim(), cols));
+      continue;
+    }
+    out.push(row);
+    if (plain.trim() === "") hang = 0;
   }
   return out;
 }
