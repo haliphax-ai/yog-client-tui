@@ -543,6 +543,7 @@ describe("YogClient.getTranscript", () => {
             turns: [
               {
                 turnId: 1,
+                status: "finished",
                 usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
                 durationMs: 1200,
               },
@@ -561,10 +562,34 @@ describe("YogClient.getTranscript", () => {
     expect(result.turns).toEqual([
       {
         turnId: 1,
+        status: "finished",
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
         durationMs: 1200,
       },
     ]);
+  });
+
+  it("keeps a status-only turn row (a running turn with no metrics yet)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            session: { id: "s1", status: "open" },
+            messages: [],
+            turns: [{ turnId: 7, status: "running" }],
+          },
+          200,
+        ),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.getTranscript();
+    expect(result.turns).toEqual([{ turnId: 7, status: "running" }]);
+    // The reconnect pickup signal: a running turn the client can surface.
+    const running = (result.turns ?? []).find((t) => t.status === "running");
+    expect(running?.turnId).toBe(7);
   });
 });
 

@@ -65,6 +65,7 @@ import {
   YogClient,
   YogError,
   type TokenUsage,
+  type TranscriptResult,
   type TurnEvents,
   type TurnOutcome,
 } from "./yogClient.ts";
@@ -234,6 +235,8 @@ async function run(argv: readonly string[]): Promise<void> {
    */
   /** Restored context weight (last known total) when resuming; 0 otherwise. */
   let resumedTokenWeight = 0;
+  /** The resume-time transcript dump (for reconnect turn pickup). */
+  let resumeDump: TranscriptResult | undefined;
   const resolveSession = async (): Promise<void> => {
     if (requested === undefined) {
       const id = await client.open();
@@ -246,6 +249,7 @@ async function run(argv: readonly string[]): Promise<void> {
         throw new YogError("unknown_session", `session ${requested} not found`, 404);
       }
       const dump = await client.getTranscript();
+      resumeDump = dump;
       let tokenWeight = finalContextTotal(dump.turns);
       if (tokenWeight <= 0) tokenWeight = estimatedContextTotal(dump.messages);
       resumedTokenWeight = tokenWeight;
@@ -272,6 +276,71 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   await resolveSession();
+  // Reconnect pickup (yog#88 / yog#31): if the resumed session still has a
+  // `running` turn — one we lingered on quit, or another client's — take the
+  // busy state over: spinner on (which arms every idle-gated command's
+  // refusal and enables Esc abort), a startup note, and a poll that
+  // rehydrates the settled turn's transcript rows and brings the counters
+  // up to speed. Old servers report no status at all → nothing to do.
+  const runningTurn = (resumeDump?.turns ?? []).find((t) => t.status === "running");
+  const pollRunningTurn = (turnId: number): void => {
+    startSpinner();
+    setState({ statusNote: "picked up an in-flight turn" });
+    const timer: NodeJS.Timeout = setInterval(() => {
+      void (async () => {
+        try {
+          const fresh = await client.getTranscript();
+          const row = (fresh.turns ?? []).find((t) => t.turnId === turnId);
+          if (row !== undefined && row.status !== undefined && row.status !== "running") {
+            clearInterval(timer);
+            const cols = process.stdout.columns ?? 80;
+            const entries = transcriptLogEntries(toTranscriptEntries(fresh.messages), cols, {
+              turns: perTurnDeltas(fresh.turns),
+            });
+            // Total = the settled turn's reported absolute context (fall
+            // back to the last dump's running snapshot, then the estimate).
+            let total = finalContextTotal(fresh.turns);
+            if (total <= 0) total = row.usage?.total_tokens ?? 0;
+            if (total <= 0) total = estimatedContextTotal(fresh.messages);
+            setState({
+              entries,
+              tokenTotals: { prompt: 0, completion: 0, total },
+            });
+            stopSpinner();
+            setState({ statusNote: "" });
+            pushLines(
+              "notice",
+              noticeLine(
+                "notice",
+                "turn settled on the server",
+                `${row.status} · log rehydrated${total > 0 ? ` · ~${formatTokenTotal(total)} tokens in context` : ""}`,
+              ),
+            );
+          } else if (row?.usage?.total_tokens !== undefined) {
+            // Still running: keep the context-total estimate climbing with
+            // the server's live snapshot.
+            setState({
+              tokenTotals: {
+                prompt: 0,
+                completion: 0,
+                total: row.usage.total_tokens,
+              },
+            });
+          }
+        } catch {
+          // Polling is best effort: a failed probe keeps the previous state
+          // and retries on the next tick.
+        }
+      })();
+    }, 2000);
+  };
+  if (runningTurn !== undefined) {
+    startupNote(
+      "turn in flight",
+      `the session still has a running turn — generating; Esc aborts it`,
+    );
+    pollRunningTurn(runningTurn.turnId);
+  }
   // Persist the resolved id so the next launch resumes automatically. A
   // startup failure above never reaches this write, so a stored id survives.
   await saveState(stateFilePath(), { lastSessionId: client.sessionId ?? null });

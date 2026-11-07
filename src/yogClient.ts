@@ -54,8 +54,15 @@ export interface TranscriptResult {
   sessionId: string;
   status: string;
   messages: TranscriptMessage[];
-  /** Per-turn metrics (usage/duration) when the server captured them. */
-  turns?: Array<{ turnId: number; usage?: TokenUsage; durationMs?: number }>;
+  /** Per-turn metrics (usage/duration + settle status) when the server
+   *  captured them. `status: "running"` marks an in-flight (typically
+   *  lingered) turn — the reconnect-detection signal. */
+  turns?: Array<{
+    turnId: number;
+    status?: string;
+    usage?: TokenUsage;
+    durationMs?: number;
+  }>;
 }
 
 /** Well-known event types on the turn stream. */
@@ -461,27 +468,42 @@ export class YogClient {
     const status = typeof body.session?.status === "string" ? body.session.status : "open";
     const rows = Array.isArray(body.messages) ? body.messages : [];
     // Per-turn metrics are additive and optional; tolerate absent/malformed
-    // entries so old servers and odd payloads degrade gracefully.
+    // entries so old servers and odd payloads degrade gracefully. A row is
+    // kept when it has metrics OR a settle status — the status alone is
+    // meaningful (`running` = an active turn the reconnecting client should
+    // surface, even with no usage/duration yet).
     const turns = (Array.isArray(body.turns) ? body.turns : [])
-      .map((t): { turnId: number; usage?: TokenUsage; durationMs?: number } | undefined => {
-        if (t === null || typeof t !== "object" || Array.isArray(t)) return undefined;
-        const rec = t as Record<string, unknown>;
-        const turnId = typeof rec["turnId"] === "number" ? rec["turnId"] : undefined;
-        if (turnId === undefined) return undefined;
-        const usage = parseUsage(rec["usage"]);
-        const durationMs =
-          typeof rec["durationMs"] === "number" && Number.isFinite(rec["durationMs"])
-            ? (rec["durationMs"] as number)
-            : undefined;
-        return {
-          turnId,
-          ...(usage !== undefined ? { usage } : {}),
-          ...(durationMs !== undefined ? { durationMs } : {}),
-        };
-      })
+      .map(
+        (
+          t,
+        ):
+          | { turnId: number; status?: string; usage?: TokenUsage; durationMs?: number }
+          | undefined => {
+          if (t === null || typeof t !== "object" || Array.isArray(t)) return undefined;
+          const rec = t as Record<string, unknown>;
+          const turnId = typeof rec["turnId"] === "number" ? rec["turnId"] : undefined;
+          if (turnId === undefined) return undefined;
+          const usage = parseUsage(rec["usage"]);
+          const durationMs =
+            typeof rec["durationMs"] === "number" && Number.isFinite(rec["durationMs"])
+              ? (rec["durationMs"] as number)
+              : undefined;
+          const status =
+            typeof rec["status"] === "string" && rec["status"] !== ""
+              ? (rec["status"] as string)
+              : undefined;
+          return {
+            turnId,
+            ...(status !== undefined ? { status } : {}),
+            ...(usage !== undefined ? { usage } : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
+          };
+        },
+      )
       .filter(
-        (t): t is { turnId: number; usage?: TokenUsage; durationMs?: number } =>
-          t !== undefined && (t.usage !== undefined || t.durationMs !== undefined),
+        (t): t is { turnId: number; status?: string; usage?: TokenUsage; durationMs?: number } =>
+          t !== undefined &&
+          (t.usage !== undefined || t.durationMs !== undefined || t.status !== undefined),
       );
     return {
       sessionId: id,
