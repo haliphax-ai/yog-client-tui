@@ -179,6 +179,70 @@ describe("notice and error entries", () => {
   });
 });
 
+describe("plain fallback (unhandled kinds)", () => {
+  it("wraps a long system line instead of truncating it", () => {
+    const lines = [
+      "system message that is quite long and will definitely overflow the forty column terminal width",
+    ];
+    const rows = cachedRows({ kind: "system", lines }, 40);
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) expect(displayWidth(row)).toBeLessThanOrEqual(40);
+    // Round-trip: the whole line survives wrapping intact.
+    const plain = stripAnsi(rows.join("\n"));
+    for (const word of lines[0]?.split(" ") ?? []) {
+      expect(plain).toContain(word);
+    }
+  });
+
+  it("styles every wrapped row with the kind's style (no drift)", () => {
+    const rows = cachedRows(
+      {
+        kind: "system",
+        lines: ["a very long system transcript line that wraps somewhere around here for sure"],
+      },
+      30,
+    );
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      expect(row).toContain(ST.system.render(stripAnsi(row).trimEnd()));
+    }
+  });
+
+  it("keeps hard-wrapped wide emoji within the cell budget", () => {
+    // 20 emoji are 20 characters but 40 cells — a char-count wrap would
+    // emit 80-cell rows; the cell-based budget must hard-break them.
+    const rows = cachedRows({ kind: "system", lines: ["✅".repeat(20)] }, 30);
+    for (const row of rows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(30);
+    }
+    expect(stripAnsi(rows.join("\n")).replace(/\n/g, "")).toContain("✅".repeat(20));
+  });
+
+  it("wraps every logical line of a multi-line entry", () => {
+    const rows = cachedRows(
+      {
+        kind: "system",
+        lines: [
+          "short",
+          "a very long system transcript line that wraps somewhere around here for sure",
+        ],
+      },
+      30,
+    );
+    // 1 row for "short" + 3 wrapped rows for the long line.
+    expect(rows.length).toBe(4);
+    expect(stripAnsi(rows[0] ?? "")).toBe("short");
+  });
+
+  it("counts one terminal row per wrapped row", () => {
+    const entry: LogEntry = {
+      kind: "system",
+      lines: ["a very long system transcript line that wraps somewhere around here for sure"],
+    };
+    expect(totalRows([entry], 30)).toBe(4); // 3 wrapped rows + separator
+  });
+});
+
 describe("height summary", () => {
   it("counts one terminal row per rendered row plus the separator", () => {
     const row: LogEntry = { kind: "system", lines: ["hello world"] };
