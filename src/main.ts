@@ -83,7 +83,13 @@ import {
 } from "./core/commands.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
 import { createInputDecoder } from "./ui/components/inputDecode.ts";
-import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
+import {
+  emitDebug,
+  isDebugEnabled,
+  isKeyLogEnabled,
+  keyLogPath,
+  setKeyDumpSink,
+} from "./ui/debugLog.ts";
 import { appendFileSync } from "node:fs";
 
 /**
@@ -642,38 +648,38 @@ async function run(argv: readonly string[]): Promise<void> {
 
   // ---- key handling ------------------------------------------------------
   /**
-   * Optional key-debug log file. TWO gates must hold: `YOG_DEBUG=1` turns on
-   * client-side debugging at all, and `YOG_DEBUG_KEYS` opts in the keylog
-   * specifically — `YOG_DEBUG_KEYS=1` (or a path) alone no longer enables it,
-   * so the keylogger never runs when the user only asked for debug chunks.
+   * Key logger: `YOG_DEBUG_KEYS=1` adds the key/char/paste diagnostics to the
+   * debug chunk stream; a path (`YOG_DEBUG_KEYS=/some/file`) does that AND
+   * appends a hex dump of every raw input chunk to the file. Both are gated
+   * on `YOG_DEBUG=1` (debug chunks) — `YOG_DEBUG_KEYS` alone stays inert.
    */
-  const keyEnv = process.env.YOG_DEBUG_KEYS;
-  const keyDebugPath =
-    keyEnv === undefined || keyEnv === "" || !isDebugEnabled()
+  const keyLoggerOn = isKeyLogEnabled();
+  const keyEnv = keyLogPath();
+  // "1" marks chunk-only logging; a path also gets raw hex dumps.
+  const keyDebugPath = keyLoggerOn && keyEnv !== "1" ? keyEnv : undefined;
+  setKeyDumpSink(
+    keyDebugPath === undefined
       ? undefined
-      : keyEnv === "1"
-        ? "/tmp/yog-client-keys.log"
-        : keyEnv;
+      : (raw: string) => {
+          appendFileSync(keyDebugPath, `${Buffer.from(raw, "utf8").toString("hex")}\n`);
+        },
+  );
   /** Raw-input decoder (sequences, chars, bracketed paste framing). */
   const decodeInput = createInputDecoder({
     onSequence: (seq) => {
-      emitDebug([`key ${Buffer.from(seq, "utf8").toString("hex")}`]);
+      if (keyLoggerOn) emitDebug([`key ${Buffer.from(seq, "utf8").toString("hex")}`], seq);
       routeKey(chain, seq, globals);
     },
     onChar: (ch) => {
-      emitDebug([`char ${Buffer.from(ch, "utf8").toString("hex")}`]);
+      if (keyLoggerOn) emitDebug([`char ${Buffer.from(ch, "utf8").toString("hex")}`], ch);
       routeChar(chain, ch, globals);
     },
     onPasteEnd: (content) => {
-      emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`]);
+      if (keyLoggerOn) emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`], content);
       input.paste(content);
     },
   });
-
   const handleData = (chunk: string): void => {
-    if (keyDebugPath !== undefined) {
-      appendFileSync(keyDebugPath, `${Buffer.from(chunk, "utf8").toString("hex")}\n`);
-    }
     decodeInput(chunk);
   };
 

@@ -1,19 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { getState, resetForTests, setState } from "../../src/core/store.ts";
-import { DEBUG_HEADER, emitDebug, isDebugEnabled } from "../../src/ui/debugLog.ts";
+import {
+  DEBUG_HEADER,
+  emitDebug,
+  isDebugEnabled,
+  isKeyLogEnabled,
+  keyLogPath,
+  setKeyDumpSink,
+} from "../../src/ui/debugLog.ts";
 
-const OLD_ENV = process.env.YOG_DEBUG;
+const OLD_ENV = {
+  YOG_DEBUG: process.env.YOG_DEBUG,
+  YOG_DEBUG_KEYS: process.env.YOG_DEBUG_KEYS,
+};
 
 beforeEach(() => {
   resetForTests();
 });
 
 afterEach(() => {
-  if (OLD_ENV === undefined) {
-    delete process.env.YOG_DEBUG;
-  } else {
-    process.env.YOG_DEBUG = OLD_ENV;
+  for (const key of ["YOG_DEBUG", "YOG_DEBUG_KEYS"] as const) {
+    const old = OLD_ENV[key];
+    if (old === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = old;
+    }
   }
 });
 
@@ -64,5 +77,58 @@ describe("client-side debug log", () => {
     process.env.YOG_DEBUG = "1";
     emitDebug([]);
     expect(getState().entries).toEqual([]);
+  });
+
+  it("key logger is off unless YOG_DEBUG_KEYS is set", () => {
+    delete process.env.YOG_DEBUG;
+    delete process.env.YOG_DEBUG_KEYS;
+    expect(isKeyLogEnabled()).toBe(false);
+    expect(keyLogPath()).toBeUndefined();
+  });
+
+  it("YOG_DEBUG_KEYS=1 opts into chunk-only key logging (default path still reported)", () => {
+    process.env.YOG_DEBUG = "1";
+    process.env.YOG_DEBUG_KEYS = "1";
+    expect(isKeyLogEnabled()).toBe(true);
+    expect(keyLogPath()).toBe("/tmp/yog-client-keys.log");
+  });
+
+  it("YOG_DEBUG_KEYS alone is inert — no key diagnostics without YOG_DEBUG=1", () => {
+    delete process.env.YOG_DEBUG;
+    process.env.YOG_DEBUG_KEYS = "1";
+    expect(isKeyLogEnabled()).toBe(false);
+    emitDebug(["key 61"], "a");
+    expect(getState().entries).toEqual([]);
+  });
+
+  it("YOG_DEBUG_KEYS=<path> routes raw chunks to the wired file sink", () => {
+    process.env.YOG_DEBUG = "1";
+    process.env.YOG_DEBUG_KEYS = "/tmp/yog-test-keys.log";
+    expect(isKeyLogEnabled()).toBe(true);
+    const dumps: string[] = [];
+    setKeyDumpSink((raw) => dumps.push(raw));
+    try {
+      emitDebug(["key 61"], "a");
+    } finally {
+      setKeyDumpSink(undefined);
+    }
+    expect(dumps).toEqual(["a"]);
+    expect(getState().entries[0]?.lines.slice(1)).toEqual(["key 61"]);
+  });
+
+  it("no file sink is consulted when the entry carries no raw chunk", () => {
+    process.env.YOG_DEBUG = "1";
+    process.env.YOG_DEBUG_KEYS = "/tmp/yog-test-keys.log";
+    let called = 0;
+    setKeyDumpSink(() => {
+      called += 1;
+    });
+    try {
+      emitDebug(["client-side debug log enabled"]);
+    } finally {
+      setKeyDumpSink(undefined);
+    }
+    expect(called).toBe(0);
+    expect(getState().entries).toHaveLength(1);
   });
 });
