@@ -34,23 +34,23 @@ describe("statusBody", () => {
 
   it("shows session and stats segments separated by a vertical bar", () => {
     const out = body({ model: "m-1", connection: "connected", entries: fixture(2, 27) });
-    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 2  🔧 27");
+    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 2  🔧 27");
   });
 
   it("prepends the spinner + generating as its own segment while busy", () => {
     const out = body({ busy: true, busyFrame: 0, model: "m-1", connection: "connected" });
-    expect(out).toMatch(/^⠋ generating │ 👤 m-1 · 🔌 ok │ 🔄 0  🔧 0/);
+    expect(out).toMatch(/^⠋ generating ╱ 👤 m-1  🔌 ok ╱ 🔄 0  🔧 0/);
     expect(out).not.toMatch(/·.*⠋|⠋.*·.*generating/);
   });
 
   it("joins the transient note into the activity segment", () => {
     const out = body({ statusNote: "session saved — bye", model: "m-1", connection: "connected" });
-    expect(out).toMatch(/^session saved — bye │ 👤 m-1 · 🔌 ok │/);
+    expect(out).toMatch(/^session saved — bye ╱ 👤 m-1  🔌 ok ╱/);
   });
 
   it("reflects a non-connected state in the session segment", () => {
     const out = body({ model: "m-1", connection: "error" });
-    expect(out).toMatch(/^👤 m-1 · 🔌 error │/);
+    expect(out).toMatch(/^👤 m-1  🔌 error ╱/);
   });
 
   it("counts turns and tool calls from the log entries", () => {
@@ -74,12 +74,12 @@ describe("statusBody", () => {
       entries: fixture(2, 27),
       tokenTotals: { prompt: 1200, completion: 600, total: 1800 },
     });
-    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 2  🔧 27  🪙 1.8K tok");
+    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 2  🔧 27  🪙 1.8K tok");
   });
 
   it("omits the 🪙 stat while totals are zero (no turns yet)", () => {
     const out = body({ model: "m-1", connection: "connected", entries: fixture(0, 0) });
-    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 0  🔧 0");
+    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 0  🔧 0");
   });
 
   it("falls back to prompt+completion when total is absent", () => {
@@ -89,7 +89,7 @@ describe("statusBody", () => {
       entries: fixture(1, 0),
       tokenTotals: { prompt: 1000, completion: 500, total: 0 },
     });
-    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K tok");
+    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 1.5K tok");
   });
 
   it("uses bright green for very low fill (<=10%)", () => {
@@ -100,7 +100,7 @@ describe("statusBody", () => {
       tokenTotals: { prompt: 1000, completion: 0, total: 1000 },
       contextWindow: 20000,
     });
-    expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 5.0%/20.0K");
+    expect(stripAnsi(out)).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 5.0%/20.0K");
     expect(out).toContain("38;2;0;255;0"); // CONTEXT_WINDOW.brightGreen
     expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
@@ -114,7 +114,7 @@ describe("statusBody", () => {
       contextWindow: 20000,
     });
     // 3000 / 20000 = 15% → green band; window abbreviates to 20.0K.
-    expect(stripAnsi(out)).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 15.0%/20.0K");
+    expect(stripAnsi(out)).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 15.0%/20.0K");
     expect(out).toContain("38;2;0;200;0"); // CONTEXT_WINDOW.green
     expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
@@ -166,9 +166,9 @@ describe("statusBody", () => {
       entries: fixture(1, 0),
       tokenTotals: totals,
     };
-    expect(stripAnsi(body(base))).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K tok");
+    expect(stripAnsi(body(base))).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 3.0K tok");
     expect(stripAnsi(body({ ...base, contextWindow: 0 }))).toBe(
-      "👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K tok",
+      "👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 3.0K tok",
     );
   });
 

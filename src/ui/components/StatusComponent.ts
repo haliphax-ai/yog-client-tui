@@ -97,12 +97,12 @@ export function statusBody(): string {
   const activity = activityItems(state);
   if (activity.length > 0) segments.push(activity.join(" · "));
   segments.push(
-    `${USER_EMOJI} ${state.model} · ${SESSION_EMOJI} ${
+    `${USER_EMOJI} ${state.model}  ${SESSION_EMOJI} ${
       state.connection === "connected" ? "ok" : state.connection
     }`,
   );
   segments.push(statsSegment(state, stats));
-  return segments.join(" │ ");
+  return segments.join(" ╱ ");
 }
 
 export class StatusComponent extends BaseComponent {
@@ -125,12 +125,12 @@ export class StatusComponent extends BaseComponent {
       ST.status.render(
         `${SESSION_EMOJI} ${state.connection === "connected" ? "ok" : state.connection}`,
       ),
-    ].join(ST.status.render(" · "));
+    ].join(ST.status.render("  "));
     const statsLine = ST.status.render(statsSegment(state, stats));
     const segments: string[] = [];
-    if (activity.length > 0) segments.push(activity.join(ST.status.render(" · ")));
+    if (activity.length > 0) segments.push(activity.join("  "));
     segments.push(session, statsLine);
-    const row = segments.join(ST.status.render(" │ "));
+    const row = segments.join(ST.status.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);
     const pad = Math.max(0, cols - displayWidth(stripAnsi(row)));
     return row + ST.status.render(" ".repeat(pad));
