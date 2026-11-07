@@ -128,7 +128,7 @@ export class StatusComponent extends BaseComponent {
     ].join(ST.status.render(" · "));
     const statsLine = ST.status.render(statsSegment(state, stats));
     const segments: string[] = [];
-    if (activity.length > 0) segments.push(activity.join(ST.status.render(" · ")));
+    if (activity.length > 0) segments.push(activity.join("  "));
     segments.push(session, statsLine);
     const row = segments.join(ST.status.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);
