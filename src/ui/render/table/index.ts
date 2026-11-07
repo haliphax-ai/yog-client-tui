@@ -13,7 +13,9 @@
 export {
   cellLines,
   parseTable,
+  paragraphGroups,
   splitTableSections,
+  type ParagraphGroup,
   type ParsedColumn,
   type ParsedTable,
   type TableSection,

@@ -10,7 +10,7 @@ import type { Style } from "@oakoliver/lipgloss";
 import { ST, CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
-import { renderMarkdown } from "./markdown.ts";
+import { flattenMarkdownFlat, renderMarkdownFlat } from "./prose.ts";
 import { resultPreview } from "./formatting.ts";
 import type { EntryKind, LogEntry } from "../../core/entries.ts";
 import type { FocusTarget } from "../../core/focus.ts";
@@ -64,10 +64,11 @@ interface EntryRender {
 }
 
 /**
- * Flatten glamour's theme colors out of a rendered markdown row, keeping only
- * structural emphasis (bold/italic): inside the prompt bubble the role style
- * (light-grey text on light-grey bg) must win, and background resets would
- * punch holes in it. Glamour emits colors in combined SGRs in TWO orders:
+ * Flatten glamour's theme colors out of a rendered markdown row, keeping
+ * only structural emphasis (bold/italic): inside the prompt bubble the role
+ * style (light-grey text on light-grey bg) must win, and background resets
+ * would punch holes in it. Glamour emits colors in combined SGRs in TWO
+ * orders:
  *
  *  - `renderText` (element styling): color parts lead — `38;2;r;g;b;3` —
  *    with attributes trailing.
@@ -84,38 +85,36 @@ interface EntryRender {
  * codes so emphasis never leaks past its run. Assistant replies keep
  * glamour's full styling.
  */
-function flattenMarkdown(rows: string[]): string[] {
-  return rows.map((row) =>
-    row
-      .replaceAll("\x1b[m", "\x1b[23m\x1b[22m")
-      .replaceAll("\x1b[0m", "\x1b[23m\x1b[22m")
-      .replace(
-        // eslint-disable-next-line no-control-regex
-        /\x1b\[([0-9;]*)m/g,
-        (_m, params: string) => {
-          const parts = params.split(";");
-          const attrs: string[] = [];
-          for (let i = 0; i < parts.length; i++) {
-            const code = parts[i] as string;
-            // Extended color parts: 38/48/58 consume 3 or 5 params — skip
-            // them entirely (colors are flattened away).
-            if (code === "38" || code === "48" || code === "58") {
-              i += (parts[i + 1] === "2" ? 5 : 3) - 1;
-              continue;
-            }
-            // Attribute parts survive; color shorthand (30-37/90-97 fg,
-            // 40-47/100-107 bg) and color resets (39/49/59) are dropped.
-            if (
-              /^(?:[1-9]|[1-9][0-9])$/.test(code) &&
-              !/^(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])$/.test(code)
-            ) {
-              attrs.push(code);
-            }
+export function flattenRow(row: string): string {
+  return row
+    .replaceAll("\x1b[m", "\x1b[23m\x1b[22m")
+    .replaceAll("\x1b[0m", "\x1b[23m\x1b[22m")
+    .replace(
+      // eslint-disable-next-line no-control-regex
+      /\x1b\[([0-9;]*)m/g,
+      (_m, params: string) => {
+        const parts = params.split(";");
+        const attrs: string[] = [];
+        for (let i = 0; i < parts.length; i++) {
+          const code = parts[i] as string;
+          // Extended color parts: 38/48/58 consume 3 or 5 params — skip
+          // them entirely (colors are flattened away).
+          if (code === "38" || code === "48" || code === "58") {
+            i += (parts[i + 1] === "2" ? 5 : 3) - 1;
+            continue;
           }
-          return attrs.length > 0 ? `\x1b[${attrs.join(";")}m` : "";
-        },
-      ),
-  );
+          // Attribute parts survive; color shorthand (30-37/90-97 fg,
+          // 40-47/100-107 bg) and color resets (39/49/59) are dropped.
+          if (
+            /^(?:[1-9]|[1-9][0-9])$/.test(code) &&
+            !/^(?:3[0-9]|4[0-9]|9[0-7]|10[0-7])$/.test(code)
+          ) {
+            attrs.push(code);
+          }
+        }
+        return attrs.length > 0 ? `\x1b[${attrs.join(";")}m` : "";
+      },
+    );
 }
 
 /**
@@ -298,10 +297,15 @@ function renderEntry(
     let tableIndex = 0;
     for (const section of sections) {
       if (section.kind === "prose") {
-        const md = renderMarkdown(section.text, bodyW);
-        parts.push(
-          ...(md.length > 0 ? (isUser ? flattenMarkdown(md) : md) : wrapText(section.text, bodyW)),
-        );
+        // Per-paragraph rendering: each paragraph group renders as its own
+        // glamour document so its list indent is assigned from its own
+        // first block (see prose.ts). A group that fails to render falls
+        // back to plain wrapText ON ITS OWN — groups are independent, so
+        // one glamour failure must not flatten the whole section.
+        const flat = isUser
+          ? flattenMarkdownFlat(section.text, bodyW)
+          : renderMarkdownFlat(section.text, bodyW);
+        parts.push(...flat);
         continue;
       }
       // A table section. The column layout comes from the layout engine:
