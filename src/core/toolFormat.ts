@@ -36,6 +36,15 @@ export function prettyArgs(
   if (displayWidth(clean) <= limit) return clean;
   return `${truncateAnsi(clean, limit - 1)}…`;
 }
+/**
+ * Token-count note for a tool result: `172t` (`+` prefix when the number is
+ * a context delta rather than an absolute total). "" when there is nothing
+ * to show.
+ */
+export function tokenCountNote(tokens: number | undefined, delta = false): string {
+  if (tokens === undefined || !Number.isFinite(tokens) || tokens <= 0) return "";
+  return `${delta ? "+" : ""}${formatTokenTotal(tokens)}t`;
+}
 
 /**
  * Exit/runtime status for a tool result: `exit 0 · 42ms` ("" if none).
@@ -57,6 +66,15 @@ export function isBashShaped(result: unknown): boolean {
   if (result === null || typeof result !== "object" || Array.isArray(result)) return false;
   const obj = result as Record<string, unknown>;
   return typeof obj["stdout"] === "string" || typeof obj["stderr"] === "string";
+}
+/**
+ * Token count attached to a tool result by an older server build (the
+ * fabricated per-call estimate once carried in `result.tokens`).
+ */
+export function resultTokens(result: unknown): number | undefined {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) return undefined;
+  const n = (result as Record<string, unknown>)["tokens"];
+  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 /**

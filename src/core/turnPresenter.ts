@@ -14,6 +14,8 @@ import {
   formatTokenTotal,
   prettyArgs,
   resultStatus,
+  resultTokens,
+  tokenCountNote,
   isBashShaped,
 } from "./toolFormat.ts";
 import { displayWidth } from "../util/ansi.ts";
@@ -84,10 +86,6 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
   const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
   // Tool calls announced during this turn (reset per presenter = per turn).
   let toolCallsThisTurn = 0;
-  // Calls announced since the last tool result drained the pending map: >0
-  // remaining pending calls at result time means this result belongs to a
-  // batched round.
-  let batchedRound = false;
 
   const events: TurnEvents = {
     onDelta: (text) => {
@@ -124,7 +122,6 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       }
       const entry = toolCallEntry(id, name, args, host.width());
       host.entries.push(entry);
-      if (pendingToolCalls.size > 0) batchedRound = true;
       pendingToolCalls.set(id, entry);
       host.requestRender();
     },
@@ -134,45 +131,38 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
-        // Round-usage suffix on the call line: promptDelta is the honest
-        // context-growth number for this call's round; usage alone (first
-        // round) shows the round's completion. The number describes the
-        // whole round — call(s) + results + any streamed prose — so it is
-        // shown once, on the round's LAST result (pendingToolCalls drained).
-        // Every batched member gets a "(batch)" tag (so a batch tail is
-        // never mistaken for a single-call round); only the last one also
-        // carries the count.
-        const batched = batchedRound;
-        const lastOfRound = pendingToolCalls.size === 0;
-        const count =
-          promptDelta !== undefined
-            ? `+${formatTokenTotal(promptDelta)} ctx`
-            : usage?.completion_tokens !== undefined
-              ? `${formatTokenTotal(usage.completion_tokens)} tok`
-              : undefined;
-        const note = batched
-          ? lastOfRound
-            ? `${count} (batch)` // round complete: the count + the tag
-            : "(batch)" // earlier member: tag only, count comes later
-          : count; // single-call round: the count alone
-        if (note !== undefined) {
-          call.lines[0] = `${call.lines[0] ?? ""} · ${note}`;
-        }
-        if (lastOfRound) batchedRound = false;
-        // Splice the result output right after its call entry so it stays
-        // visually paired with the call that produced it, even when events
-        // arrive batched (call1, call2, result1, result2).
+        // THIS call's token count goes on THIS call's own result block — the
+        // chunk/toolResult entries spliced right after the call line — never
+        // on the call line itself (an args row showing a token figure reads
+        // as the next call's attribution) and never on a later call's
+        // block. Round-level bookkeeping (usage/promptDelta) stays off the
+        // log here; the status bar owns it (live completion tokens are
+        // folded into the session total as results land).
+        // The delta/absolute distinction decides the `+` prefix:
+        // promptDelta (+Nt) is context growth; completion tokens (Nt) are
+        // the round's generation volume.
+        const count = tokenCountNote(
+          promptDelta ?? usage?.completion_tokens,
+          promptDelta !== undefined,
+        );
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
-          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width()));
+          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width(), count));
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(...toolResultEntries(name, result, host.width()));
+          host.entries.push(
+            ...toolResultEntries(
+              name,
+              result,
+              host.width(),
+              tokenCountNote(usage?.completion_tokens),
+            ),
+          );
         }
       }
       host.requestRender();
@@ -308,18 +298,22 @@ export function annotateToolCall(call: LogEntry, ok: boolean, error?: string): v
 
 /**
  * Build the collapsible tool-output chunk for a result: the header carries the
- * tool name and status (`exit 0 · 42ms` when present); the body is the RAW
- * result — the renderer expands it to display rows at the current width, so
- * the domain never formats it. Shared by the live turn path and rehydration.
+ * tool name, status (`exit 0 · 42ms` when present), and this call's token
+ * count (`172t` — the bash-output header the issue asks for). The body is
+ * the RAW result — the renderer expands it to display rows at the current
+ * width, so the domain never formats it. Shared by the live turn path and
+ * rehydration.
  */
-export function toolResultChunk(name: string, result: unknown): LogEntry {
+export function toolResultChunk(name: string, result: unknown, tokenNote = ""): LogEntry {
   const status = resultStatus(result);
-  const arrow = status ? ` → ${status}` : " →";
+  const suffix = tokenNote === "" ? status : status === "" ? tokenNote : `${status} · ${tokenNote}`;
+  const arrow = suffix ? ` → ${suffix}` : " →";
   return {
     kind: "chunk",
     lines: [`${name || "tool"}${arrow}`],
     collapsed: true,
     result,
+    tokenNote: tokenNote === "" ? undefined : tokenNote,
   };
 }
 /**
@@ -329,7 +323,12 @@ export function toolResultChunk(name: string, result: unknown): LogEntry {
  * focus + Enter expands the full result. Shared by the live path and
  * rehydration.
  */
-export function toolResultEntry(name: string, result: unknown, cols: number): LogEntry {
+export function toolResultEntry(
+  name: string,
+  result: unknown,
+  cols: number,
+  tokenNote = "",
+): LogEntry {
   const label = `🔚 ${name || "tool"}`;
   const full =
     result === undefined || result === null
@@ -340,7 +339,16 @@ export function toolResultEntry(name: string, result: unknown, cols: number): Lo
       ? undefined
       : prettyArgs(result, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
   const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
-  return { kind: "toolResult", lines: [shown], label, argsCompact, full, expanded: false, result };
+  return {
+    kind: "toolResult",
+    lines: [shown],
+    label,
+    argsCompact,
+    full,
+    expanded: false,
+    result,
+    tokenNote: tokenNote,
+  };
 }
 
 /** This call's own status line (same format as the turn summary), or undefined. */
@@ -353,7 +361,15 @@ function toolResultSummary(result: unknown): string | undefined {
   if (typeof obj["runtimeMs"] === "number") {
     parts.push(`runtime ${formatRuntime(obj["runtimeMs"] as number)}`);
   }
+  const tokens = resultTokens(result);
+  if (tokens !== undefined) parts.push(`${formatTokenTotal(tokens)} tokens`);
   return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/** A transcript row's own per-call token count (legacy `tokens` field). */
+function rowTokenCount(row: { tokens?: number }): number | undefined {
+  const n = row.tokens;
+  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /**
@@ -361,9 +377,14 @@ function toolResultSummary(result: unknown): string | undefined {
  * keep the collapsible output chunk; any other tool renders as the generic
  * 🔚 result component with its own attached per-call status line.
  */
-export function toolResultEntries(name: string, result: unknown, cols: number): LogEntry[] {
-  if (isBashShaped(result)) return [toolResultChunk(name, result)];
-  const entries: LogEntry[] = [toolResultEntry(name, result, cols)];
+export function toolResultEntries(
+  name: string,
+  result: unknown,
+  cols: number,
+  tokenNote = "",
+): LogEntry[] {
+  if (isBashShaped(result)) return [toolResultChunk(name, result, tokenNote)];
+  const entries: LogEntry[] = [toolResultEntry(name, result, cols, tokenNote)];
   const summary = toolResultSummary(result);
   if (summary !== undefined) entries.push({ kind: "status", lines: [summary] });
   return entries;
@@ -378,8 +399,9 @@ export function toolResultEntries(name: string, result: unknown, cols: number): 
  * their entry kinds. Orphan result rows (their call row predates the
  * transcript) render as a standalone ✅/❌ status line, plus an output
  * chunk on success only — a failure has no result data beyond the error
- * already shown on its line. Width-aware like the live path; never throws
- * on odd rows.
+ * already shown on its line, and each result row's own token count rides
+ * its own result block, never a neighboring call line. Width-aware like
+ * the live path; never throws on odd rows.
  */
 export function transcriptLogEntries(
   entries: TranscriptEntry[],
@@ -450,7 +472,21 @@ export function transcriptLogEntries(
         if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
           const idx = out.indexOf(call.entry);
           const insertAt = idx !== -1 ? idx + 1 : out.length;
-          out.splice(insertAt, 0, ...toolResultEntries(call.name, decoded.value, cols));
+          out.splice(
+            insertAt,
+            0,
+            ...toolResultEntries(
+              call.name,
+              decoded.value,
+              cols,
+              tokenCountNote(
+                rowTokenCount(next.raw) ??
+                  next.raw.promptDelta ??
+                  next.raw.usage?.completion_tokens,
+                next.raw.promptDelta !== undefined && rowTokenCount(next.raw) === undefined,
+              ),
+            ),
+          );
         }
         i += 1;
       }
@@ -463,6 +499,7 @@ export function transcriptLogEntries(
       // Orphan result row (its call row predates the transcript). Success:
       // standalone status line + output chunk. Failure: nothing beyond the
       // error itself to show (the ❌ line carries it, as with live calls).
+      // The row's own token count rides its own result block.
       const decoded = decodeToolResult(e.raw);
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
       out.push({
@@ -472,7 +509,17 @@ export function transcriptLogEntries(
         ],
       });
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
-        out.push(...toolResultEntries(label, decoded.value, cols));
+        out.push(
+          ...toolResultEntries(
+            label,
+            decoded.value,
+            cols,
+            tokenCountNote(
+              rowTokenCount(e.raw) ?? e.raw.promptDelta ?? e.raw.usage?.completion_tokens,
+              e.raw.promptDelta !== undefined && rowTokenCount(e.raw) === undefined,
+            ),
+          ),
+        );
       }
     } else {
       // Rehydrated server-transcript system rows (the session prompt): keep

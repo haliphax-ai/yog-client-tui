@@ -42,6 +42,8 @@ export interface TranscriptMessage {
   usage?: TokenUsage;
   /** Context growth this round's call+result added (prompt_tokens diff). */
   promptDelta?: number;
+  /** Per-call token count (older server builds attached one to the row). */
+  tokens?: number;
 }
 
 /** Result of the transcript rehydration dump: the session plus its ordered
@@ -841,9 +843,4 @@ function parseUsage(value: unknown): TokenUsage | undefined {
     }
   }
   return hasNumber ? out : undefined;
-}
-
-/** Read a per-call token count from a payload field (finite, non-negative). */
-function parseTokens(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
