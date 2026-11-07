@@ -255,7 +255,12 @@ export function renderTable(
       styleCell(c ?? "", w[i]!).map((rl) => padCellLine(rl, w[i]!, table.columns[i]!.align)),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
-    const style = r % 2 === 0 ? ST.tableZebra : undefined;
+    // Focus paints the blue THROUGH the zebra: a focused table's even rows
+    // carry the focused zebra (white on the focus blue) instead of the
+    // plain dark zebra, so the selection is unmistakable on data rows too —
+    // borders alone read as "that table has a header" rather than
+    // "selected". White fg in both states keeps contrast identical.
+    const style = r % 2 === 0 ? (focused ? ST.tableZebraFocused : ST.tableZebra) : undefined;
     for (let sl = 0; sl < rowHeight; sl++) {
       // Short cells fill their missing lines with blank padded cells so the
       // dividers stay aligned (a bare "" would collapse the cell entirely).

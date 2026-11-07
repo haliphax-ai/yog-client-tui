@@ -43,6 +43,9 @@ export const ST = {
   chunkBlock: newStyle().foreground("#a1a1aa").background("#000000").padding(1),
   /** Tool block (focused): white text on dark blue, same padding. */
   chunkBlockFocus: newStyle().foreground("#ffffff").background("#1e3a8a").padding(1),
+  /** Prompt (focused): white text on dark blue — the bubble's geometry is
+   *  identical in both states, focus only recolors. */
+  userFocus: newStyle().foreground("#ffffff").background("#1e3a8a").padding(1),
   /** Tool call (unfocused): transparent bg, purple text, same padding. */
   toolPlain: newStyle().foreground("#a78bfa").padding(0, 1),
   /** Focused tool call: dark blue bar, white text (same padding — no jitter). */
@@ -69,6 +72,17 @@ export const ST = {
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Focused table border: blue runes (the focus indicator — not a row bg). */
   tableBorderFocused: newStyle().foreground("#60a5fa"),
+  /** Assistant prose left border (focused): the same right-half block rune
+   *  rendered in the focus blue — the "black" the issue asks for. The
+   *  terminal's bg is the theme's dark base; a literal black bg on a
+   *  bare rune would paint a hard rectangle over the prose instead of
+   *  recoloring the edge. */
+  assistantBorderFocus: newStyle().foreground("#1e3a8a"),
+  /** Zebra-striped data row in a FOCUSED table: white text on the focus
+   *  blue. The plain zebra and this share a white fg, so a focused table's
+   *  data rows stay readable when the blue focus paint lands on them.
+   *  Applied in place of the plain zebra while the table is focused. */
+  tableZebraFocused: newStyle().foreground("#ffffff").background("#1e3a8a"),
   /** Unfocused table border: plain white runes so the border is always
    *  visible regardless of stale SGR state from a previously-focused
    *  table rendered above. */
