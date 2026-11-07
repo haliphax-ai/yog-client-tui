@@ -42,6 +42,8 @@ export interface TranscriptMessage {
   usage?: TokenUsage;
   /** Context growth this round's call+result added (prompt_tokens diff). */
   promptDelta?: number;
+  /** Estimated tokens this result adds to context (tokenx estimate). */
+  resultTokens?: number;
 }
 
 /** Result of the transcript rehydration dump: the session plus its ordered
@@ -90,6 +92,7 @@ export interface TurnEvents {
     error?: string,
     usage?: TokenUsage,
     promptDelta?: number,
+    resultTokens?: number,
   ): void;
   /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
   onFinish?(durationMs: number, stopReason?: string, usage?: TokenUsage): void;
@@ -532,6 +535,11 @@ export class YogClient {
             parseUsage(data["usage"]),
             typeof data["promptDelta"] === "number" && Number.isFinite(data["promptDelta"])
               ? Math.max(0, data["promptDelta"])
+              : undefined,
+            typeof data["resultTokens"] === "number" &&
+              Number.isFinite(data["resultTokens"]) &&
+              (data["resultTokens"] as number) > 0
+              ? data["resultTokens"]
               : undefined,
           );
           return;

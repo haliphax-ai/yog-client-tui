@@ -11,6 +11,7 @@
  * rows are tolerated defensively — conversion never throws.
  */
 import type { TranscriptMessage, TokenUsage } from "../yogClient.ts";
+import { estimateTokenCount } from "tokenx";
 
 /** Roles a transcript row can carry. */
 export type TranscriptRole = "user" | "assistant" | "system" | "tool";
@@ -105,6 +106,30 @@ export function finalContextTotal(
     if (typeof n === "number" && Number.isFinite(n) && n > 0) last = n;
   }
   return last;
+}
+/**
+ * Estimate the current context weight directly from the transcript rows when
+ * no provider-reported totals exist (e.g. a fresh handoff/compaction session
+ * whose artifact has not been through a model round yet). Uses tokenx on the
+ * serialized row text — an estimate, so callers label it with "~".
+ */
+export function estimatedContextTotal(
+  messages: ReadonlyArray<{ content?: string; toolCalls?: unknown } | undefined> | undefined,
+): number {
+  if (!Array.isArray(messages)) return 0;
+  let total = 0;
+  for (const m of messages) {
+    if (m === null || typeof m !== "object") continue;
+    if (typeof m.content === "string" && m.content !== "") total += estimateTokenCount(m.content);
+    if (m.toolCalls !== undefined) {
+      try {
+        total += estimateTokenCount(JSON.stringify(m.toolCalls));
+      } catch {
+        // ignore malformed tool-call payloads
+      }
+    }
+  }
+  return total;
 }
 
 /**

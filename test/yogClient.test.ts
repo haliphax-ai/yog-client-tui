@@ -844,23 +844,32 @@ describe("YogClient token usage", () => {
         sseResponse([
           'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
           'event: tool.call\ndata: {"id":"c1","name":"bash","args":"{}"}\n\n',
-          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"result":{"exitCode":0},"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18}}\n\n',
+          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"result":{"exitCode":0},"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18},"resultTokens":362}\n\n',
           'event: turn.finished\ndata: {"durationMs":1}\n\n',
         ]),
       ),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
-    const calls: Array<{ id: string; usage?: TokenUsage; promptDelta?: number }> = [];
+    const calls: Array<{
+      id: string;
+      usage?: TokenUsage;
+      promptDelta?: number;
+      resultTokens?: number;
+    }> = [];
     const toolCalls: Array<{ id: string; name: string }> = [];
     const outcome = await client.runTurn("hello", "model-x", {
       onToolCall: (id, name) => toolCalls.push({ id, name }),
-      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta) =>
-        calls.push({ id, usage, promptDelta }),
+      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta, resultTokens) =>
+        calls.push({ id, usage, promptDelta, resultTokens }),
     });
     expect(outcome.ok).toBe(true);
     expect(calls).toEqual([
-      { id: "c1", usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 } },
+      {
+        id: "c1",
+        usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+        resultTokens: 362,
+      },
     ]);
     expect(toolCalls).toEqual([{ id: "c1", name: "bash" }]);
   });

@@ -226,8 +226,9 @@ The server owns the canonical conversation. At startup the client:
    When the server captured per-turn usage, each rehydrated turn ends with
    the same summary line a live turn shows (runtime · tool-call count ·
    incremental tokens — the delta vs. the prior context total, not the
-   session total), per-call token segments are restored on tool results, and the
-   startup note includes the resumed context weight
+   session total), per-result token estimates are restored on tool results, and
+   the startup note includes the resumed context weight — the provider total
+   when known, otherwise a tokenx estimate of the transcript
    (`resumed session … · ~1.2M tokens in context`). Old servers without the
    optional metrics simply render as before.
 4. Persists the resolved session id into `state.json` so the next launch
@@ -242,12 +243,12 @@ On each turn the client then:
 6. Consumes the SSE stream, rendering deltas into the assistant entry, tool
    call lines with an inline ✅/❌ indicator and syntax-highlighted args,
    collapsible (Tab + Enter) result chunks for tool output, and error events
-   as they arrive. Each tool result carries its own token count — `172t` in
-   the bash chunk header, on the generic 🔚 result line (and repeated below
-   the expanded body), never on the ⚙️ call line itself (a figure after the
-   args would read as the next call's attribution). These counts fold into
-   the status bar's 🪙 session total live — it climbs while tools run, and
-   the terminal usage report later replaces those provisional totals with
+   as they arrive. Each tool result carries its own context estimate — `~N tok`
+   in the bash chunk header and on the generic 🔚 result line (never on the
+   ⚙️ call line itself, and never repeated in a footer). Real round usage
+   (promptDelta / completion tokens) stays out of the log: it folds into the
+   status bar's 🪙 session total once per round — it climbs while tools run,
+   and the terminal usage report later replaces those provisional totals with
    the authoritative full-context numbers.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
    (a "🪧 recovered · stream interrupted — resumed from turn status" note is

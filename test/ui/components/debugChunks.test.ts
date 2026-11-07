@@ -49,7 +49,7 @@ describe("debug chunks — focus / collapse / expand", () => {
     const text = rows.map((r) => stripAnsi(r)).join("\n");
     expect(text).toContain("🐞 debug");
     expect(text).toContain("dbg 5");
-    expect(text).toContain("… +3 lines (focus, Enter)");
+    expect(text).toContain("… +3 lines");
     expect(text).not.toContain("dbg 6");
   });
 

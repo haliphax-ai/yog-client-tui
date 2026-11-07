@@ -61,6 +61,12 @@ export interface TurnHost {
    * the full reported total.
    */
   prevTokenTotal?: () => number;
+  /**
+   * Called at most once per round, with the round's real promptDelta, when
+   * the round's LAST tool result lands — so live session totals fold each
+   * round in exactly once, even for batches.
+   */
+  onRoundDelta?(delta: number): void;
 }
 
 /** Mutable turn session handed to the client's `TurnEvents` handlers. */
@@ -124,26 +130,22 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       pendingToolCalls.set(id, entry);
       host.requestRender();
     },
-    onToolResult: (id, name, ok, result, error, usage, promptDelta) => {
+    onToolResult: (id, name, ok, result, error, usage, promptDelta, resultTokens) => {
       // Annotate the matching call line in place (no extra chat lines).
       const call = pendingToolCalls.get(id);
       if (call) {
         pendingToolCalls.delete(id);
         annotateToolCall(call, ok, error);
-        // THIS call's token count goes on THIS call's own result block — the
-        // chunk/toolResult entries spliced right after the call line — never
-        // on the call line itself (an args row showing a token figure reads
-        // as the next call's attribution) and never on a later call's
-        // block. Round-level bookkeeping (usage/promptDelta) stays off the
-        // log here; the status bar owns it (live completion tokens are
-        // folded into the session total as results land).
-        // The delta/absolute distinction decides the `+` prefix:
-        // promptDelta (+Nt) is context growth; completion tokens (Nt) are
-        // the round's generation volume.
-        const count = tokenCountNote(
-          promptDelta ?? usage?.completion_tokens,
-          promptDelta !== undefined,
-        );
+        // The last result of a round drains the pending map — the one place
+        // the round's REAL promptDelta folds into live session totals, so a
+        // batch never counts its round more than once.
+        const lastOfRound = pendingToolCalls.size === 0;
+        if (lastOfRound && promptDelta !== undefined) host.onRoundDelta?.(promptDelta);
+        // THIS call's token count is the per-result tokenx estimate (~N tok)
+        // from the server — no fallbacks: pre-release, the server always
+        // sends resultTokens. Round-level real numbers (promptDelta) fold
+        // into session totals once via onRoundDelta.
+        const count = tokenCountNote(resultTokens, { estimated: true });
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
@@ -159,7 +161,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
               name,
               result,
               host.width(),
-              tokenCountNote(usage?.completion_tokens),
+              tokenCountNote(resultTokens, { estimated: true }),
             ),
           );
         }
@@ -470,10 +472,7 @@ export function transcriptLogEntries(
               call.name,
               decoded.value,
               cols,
-              tokenCountNote(
-                next.raw.promptDelta ?? next.raw.usage?.completion_tokens,
-                next.raw.promptDelta !== undefined,
-              ),
+              tokenCountNote(next.raw.resultTokens, { estimated: true }),
             ),
           );
         }
@@ -503,10 +502,7 @@ export function transcriptLogEntries(
             label,
             decoded.value,
             cols,
-            tokenCountNote(
-              e.raw.promptDelta ?? e.raw.usage?.completion_tokens,
-              e.raw.promptDelta !== undefined,
-            ),
+            tokenCountNote(e.raw.resultTokens, { estimated: true }),
           ),
         );
       }

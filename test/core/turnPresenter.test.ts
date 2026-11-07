@@ -676,6 +676,7 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
           name: "bash",
           content: '{"exitCode":0,"stdout":"one"}',
           promptDelta: 120,
+          resultTokens: 1200,
           turnId: "1",
         }),
         row({
@@ -685,6 +686,7 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
           name: "bash",
           content: '{"exitCode":0,"stdout":"two"}',
           promptDelta: 60,
+          resultTokens: 400,
           turnId: "1",
         }),
       ]),
@@ -700,10 +702,10 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
     expect(out[firstCall]?.tokenNote).toBeUndefined();
     const c1chunk = out[firstCall + 1];
     expect(c1chunk?.kind).toBe("chunk");
-    expect(c1chunk?.lines[0]).toBe("bash → exit 0 · +120t");
+    expect(c1chunk?.lines[0]).toBe("bash → exit 0 · ~1.2K tok");
     const c2chunk = out[firstCall + 3];
     expect(c2chunk?.kind).toBe("chunk");
-    expect(c2chunk?.lines[0]).toBe("bash → exit 0 · +60t");
+    expect(c2chunk?.lines[0]).toBe("bash → exit 0 · ~400 tok");
     expect(kinds.filter((k) => k === "chunk").length).toBe(2);
   });
 });
@@ -720,16 +722,23 @@ describe("createTurnPresenter per-call tokens (live)", () => {
     };
     const presenter = createTurnPresenter(host);
     presenter.events.onToolCall?.("c1", "bash", "{}");
-    presenter.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "hi" }, undefined, {
-      completion_tokens: 7,
-    });
+    presenter.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "hi" },
+      undefined,
+      undefined,
+      undefined,
+      7,
+    );
     const chunk = host.entries.find((e) => e.kind === "chunk");
     // The token count lands on THIS call's own result block: the bash
     // chunk header (issue #70), not the ⚙️ call line — a figure on the args
     // row would read as the NEXT call's attribution.
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7t");
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · ~7 tok");
     const call = host.entries.find((e) => e.kind === "tool");
-    expect(call?.lines[0]).not.toContain("7t");
+    expect(call?.lines[0]).not.toContain("7 tok");
     expect(call?.tokenNote).toBeUndefined();
   });
 });
@@ -746,13 +755,14 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       { exitCode: 0, stdout: "out" },
       undefined,
       undefined,
-      120,
+      undefined,
+      1200,
     );
     const chunk = entries.find((e) => e.kind === "chunk");
     // The count belongs to THIS call's bash chunk header, as +Nt (context
     // delta) — never appended to the ⚙️ call line after the args.
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · +120t");
-    expect(chunk?.tokenNote).toBe("+120t");
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · ~1.2K tok");
+    expect(chunk?.tokenNote).toBe("~1.2K tok");
     const call = entries.find((e) => e.kind === "tool");
     expect(call?.lines[0]).not.toContain("120");
     expect(call?.lines[0]).not.toContain("(batch)");
@@ -771,7 +781,8 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       { exitCode: 0, stdout: "ls out" },
       undefined,
       undefined,
-      240,
+      undefined,
+      2400,
     );
     turn.events.onToolResult?.(
       "c2",
@@ -780,7 +791,8 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       { exitCode: 0, stdout: "pwd out" },
       undefined,
       undefined,
-      240,
+      undefined,
+      40,
     );
     // Each call's OWN chunk carries the count; the c2 chunk sits between
     // the c1 chunk and the c2 call line, so a figure appended to the c1
@@ -795,15 +807,15 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     expect(entries[lsIdx]?.kind).toBe("tool");
     expect(entries[pwdIdx]?.kind).toBe("tool");
     expect(entries[lsIdx + 1]?.kind).toBe("chunk");
-    expect(entries[lsIdx + 1]?.lines[0]).toBe("bash → exit 0 · +240t");
-    expect(entries[lsIdx + 1]?.tokenNote).toBe("+240t");
+    expect(entries[lsIdx + 1]?.lines[0]).toBe("bash → exit 0 · ~2.4K tok");
+    expect(entries[lsIdx + 1]?.tokenNote).toBe("~2.4K tok");
     expect(entries[pwdIdx + 1]?.kind).toBe("chunk");
-    expect(entries[pwdIdx + 1]?.lines[0]).toBe("bash → exit 0 · +240t");
-    expect(entries[pwdIdx + 1]?.tokenNote).toBe("+240t");
+    expect(entries[pwdIdx + 1]?.lines[0]).toBe("bash → exit 0 · ~40 tok");
+    expect(entries[pwdIdx + 1]?.tokenNote).toBe("~40 tok");
     // The call lines stay pure args rows — no token figures, no batch tag.
-    expect(lines[lsIdx]).not.toContain("240");
+    expect(lines[lsIdx]).not.toContain("2400");
     expect(lines[lsIdx]).not.toContain("(batch)");
-    expect(lines[pwdIdx]).not.toContain("240");
+    expect(lines[pwdIdx]).not.toContain("40");
     expect(lines[pwdIdx]).not.toContain("(batch)");
     expect(entries[lsIdx]?.tokenNote).toBeUndefined();
     expect(entries[pwdIdx]?.tokenNote).toBeUndefined();
@@ -822,7 +834,8 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       { exitCode: 0, stdout: "ls out" },
       undefined,
       undefined,
-      240,
+      undefined,
+      2400,
     );
     turn.events.onToolResult?.(
       "c2",
@@ -831,7 +844,8 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       { exitCode: 0, stdout: "pwd out" },
       undefined,
       undefined,
-      240,
+      undefined,
+      40,
     );
     // Then a plain single-call round.
     turn.events.onToolCall?.("c3", "bash", parseToolArgs('{"cmd":"date"}'));
@@ -842,32 +856,78 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       { exitCode: 0, stdout: "date out" },
       undefined,
       undefined,
+      undefined,
       30,
     );
     const chunks = entries.filter((e) => e.kind === "chunk");
     expect(chunks.map((c) => c.lines[0])).toEqual([
-      "bash → exit 0 · +240t",
-      "bash → exit 0 · +240t",
-      "bash → exit 0 · +30t",
+      "bash → exit 0 · ~2.4K tok",
+      "bash → exit 0 · ~40 tok",
+      "bash → exit 0 · ~30 tok",
     ]);
     const call3 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("date"));
     expect(call3?.lines[0]).not.toContain("30");
     expect(call3?.lines[0]).not.toContain("(batch)");
   });
 
-  it("falls back to the round's completion tokens when there is no delta (first round)", () => {
+  it("uses the per-result estimate when the server sends no round delta", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "ls out" }, undefined, {
-      completion_tokens: 55,
-    });
+    turn.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "ls out" },
+      undefined,
+      undefined,
+      undefined,
+      55,
+    );
     const chunk = entries.find((e) => e.kind === "chunk");
     // No delta → the round's completion volume, absolute (no plus).
-    expect(chunk?.lines[0]).toBe("bash → exit 0 · 55t");
-    expect(chunk?.tokenNote).toBe("55t");
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · ~55 tok");
+    expect(chunk?.tokenNote).toBe("~55 tok");
     const call = entries.find((e) => e.kind === "tool");
     expect(call?.lines[0]).not.toContain("55");
+  });
+
+  it("uses per-result tokenx estimates when the server sends resultTokens", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"cat"}'));
+    turn.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "big output" },
+      undefined,
+      undefined,
+      undefined,
+      1200,
+    );
+    const chunk = entries.find((e) => e.kind === "chunk");
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · ~1.2K tok");
+    expect(chunk?.tokenNote).toBe("~1.2K tok");
+  });
+
+  it("folds the round's real promptDelta into host.onRoundDelta exactly once per round", () => {
+    const deltas: number[] = [];
+    const host = {
+      entries: [] as LogEntry[],
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        host.entries.push({ kind, lines });
+      },
+      width: () => COLS,
+      requestRender: () => {},
+      onRoundDelta: (d: number) => deltas.push(d),
+    };
+    const turn = createTurnPresenter(host);
+    turn.events.onToolCall?.("c1", "bash", "{}");
+    turn.events.onToolCall?.("c2", "bash", "{}");
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    expect(deltas).toEqual([240]);
   });
 });
 

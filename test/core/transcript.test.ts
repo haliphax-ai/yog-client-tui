@@ -4,6 +4,7 @@ import {
   decodeTurnUsage,
   decodeToolCalls,
   decodeToolResult,
+  estimatedContextTotal,
   finalContextTotal,
   perTurnDeltas,
   toTranscriptEntries,
@@ -203,6 +204,24 @@ describe("decodeTurnUsage", () => {
     expect(decodeTurnUsage([])).toBeUndefined();
     expect(decodeTurnUsage({})).toBeUndefined();
     expect(decodeTurnUsage({ prompt_tokens: "NaN" })).toBeUndefined();
+  });
+});
+
+describe("estimatedContextTotal", () => {
+  it("sums tokenx estimates over row content and tool-call payloads", () => {
+    const total = estimatedContextTotal([
+      { content: "hello world" },
+      { content: "", toolCalls: [{ id: "c1" }] },
+      { content: "1234567890" },
+      undefined,
+    ]);
+    expect(Number.isFinite(total)).toBe(true);
+    expect(total).toBeGreaterThan(0);
+  });
+
+  it("returns 0 for empty or malformed input", () => {
+    expect(estimatedContextTotal([])).toBe(0);
+    expect(estimatedContextTotal(undefined)).toBe(0);
   });
 });
 
