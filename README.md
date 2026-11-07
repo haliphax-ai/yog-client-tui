@@ -133,9 +133,10 @@ verbatim — including newlines — and never submits.
 `Shift+Enter` is recognized from the CSI-u / Kitty (`ESC[13;2u`), xterm
 modifyOtherKeys (`ESC[27;2;13~`), and `ESC[13;2~` encodings. If a terminal is
 configured to not report modified keys, Shift+Enter is indistinguishable from
-Enter. Set `YOG_DEBUG_KEYS` to a file path (or `1` for `/tmp/yog-client-keys.log`)
-to append a hex dump of every input chunk there — never to the terminal, so the
-TUI display is unaffected.
+Enter. The key logger needs BOTH debug variables: `YOG_DEBUG=1` (debug mode
+itself) and `YOG_DEBUG_KEYS` set to a file path (or `1` for
+`/tmp/yog-client-keys.log`). It appends a hex dump of every input chunk there —
+never to the terminal, so the TUI display is unaffected.
 
 ### Debug mode
 
@@ -145,7 +146,10 @@ chat log as `🐞 debug` chunks — consecutive messages merge into one chunk un
 a non-debug entry lands in the log. Debug chunks mirror tool-result chunks:
 they are focusable, collapsed to five body lines by default, and expandable
 with focus + Enter. They never leave the client (not sent to the server, not
-part of the transcript).
+part of the transcript). An error that escapes an async callback (for example a
+render flush) surfaces as a `❌ fatal error` notice with the exception message;
+when debug mode is on, the full stack trace lands in a `🐞 debug` chunk before
+the client restores the terminal and exits.
 
 ### Slash commands
 

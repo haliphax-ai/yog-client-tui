@@ -86,7 +86,37 @@ import { createInputDecoder } from "./ui/components/inputDecode.ts";
 import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
 import { appendFileSync } from "node:fs";
 
-/** Terminal state shared with error paths (module scope, always in sync). */
+/**
+ * Last-resort crash handler: an error escaping an async callback (a scheduler
+ * flush, an SSE event, a spinner tick) never reaches `main`'s catch — it would
+ * otherwise tear the process down mid-session with the terminal in raw mode.
+ * Surface it through the notice system (the exception message on an ❌ error
+ * line), stash the full stack in a 🐞 debug chunk when YOG_DEBUG=1, restore
+ * the terminal, and exit non-zero. Synchronous startup failures keep the
+ * plain-stderr path in `main()` — the chat log does not exist yet. `scheduler`
+ * lives inside `run()`, so this file-level function reaches it through a
+ * module-scope holder assigned once the scheduler is created.
+ */
+/** Module-scope handle to the render scheduler (set once `run()` wires it). */
+let fatalScheduler: (() => void) | undefined;
+
+function handleFatal(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  if (terminalActive) {
+    if (isDebugEnabled() && err instanceof Error && err.stack !== undefined) {
+      emitDebug(["fatal error stack:", ...err.stack.split("\n")]);
+    }
+    // pushLines-shaped: same one-line ❌ shape every other producer uses.
+    const state = getState();
+    state.entries.push({ kind: "error", lines: noticeLine("error", "fatal error", message) });
+    setState({ entries: state.entries });
+    fatalScheduler?.(); // let the flush draw the notice before exiting
+  }
+  restoreTerminal();
+  process.stderr.write(`fatal: ${message}\n`);
+  process.exit(1);
+}
+
 let terminalActive = false;
 
 /** Restore the terminal: leave the alternate screen, re-enable the cursor. */
@@ -140,11 +170,12 @@ function main(): void {
     process.exit(1);
   }
 
-  void run(process.argv.slice(2)).catch((err: unknown) => {
-    restoreTerminal();
-    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
-  });
+  // Last-resort handlers for errors that escape an async callback (a render
+  // flush, an SSE event, a spinner tick) — main()'s await-catch only covers
+  // startup. Handle them identically: notice + debug stack + clean terminal.
+  process.on("uncaughtException", handleFatal);
+  process.on("unhandledRejection", (reason) => handleFatal(reason));
+  void run(process.argv.slice(2)).catch(handleFatal);
 }
 
 async function run(argv: readonly string[]): Promise<void> {
@@ -260,6 +291,8 @@ async function run(argv: readonly string[]): Promise<void> {
   // which coalesces redraws with the FRAME_MS timer and runs the pipeline
   // on flush.
   const scheduler = createScheduler(draw);
+  // The fatal handler draws its notice through the same flush timer.
+  fatalScheduler = scheduler.request;
 
   // ---- busy spinner ------------------------------------------------------
   let spinnerTimer: NodeJS.Timeout | undefined;
@@ -608,10 +641,15 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   // ---- key handling ------------------------------------------------------
-  /** Optional key-debug log file (`YOG_DEBUG_KEYS=<file>`, default /tmp). */
+  /**
+   * Optional key-debug log file. TWO gates must hold: `YOG_DEBUG=1` turns on
+   * client-side debugging at all, and `YOG_DEBUG_KEYS` opts in the keylog
+   * specifically — `YOG_DEBUG_KEYS=1` (or a path) alone no longer enables it,
+   * so the keylogger never runs when the user only asked for debug chunks.
+   */
   const keyEnv = process.env.YOG_DEBUG_KEYS;
   const keyDebugPath =
-    keyEnv === undefined || keyEnv === ""
+    keyEnv === undefined || keyEnv === "" || !isDebugEnabled()
       ? undefined
       : keyEnv === "1"
         ? "/tmp/yog-client-keys.log"
