@@ -126,22 +126,28 @@ describe("totalRows", () => {
   });
 
   it("counts one row per logical line plus a separator", () => {
-    expect(totalRows([entry({ lines: ["hi"] })], 40)).toBe(2);
-    expect(totalRows([entry({ lines: ["a", "b"] })], 40)).toBe(3);
+    expect(totalRows([entry({ kind: "system", lines: ["hi"] })], 40)).toBe(2);
+    expect(totalRows([entry({ kind: "system", lines: ["a", "b"] })], 40)).toBe(3);
   });
-
   it("adds one separator row between entries", () => {
-    expect(totalRows([entry({ lines: ["hi"] }), entry({ lines: ["x", "y"] })], 40)).toBe(5);
+    expect(
+      totalRows(
+        [entry({ kind: "system", lines: ["hi"] }), entry({ kind: "system", lines: ["x", "y"] })],
+        40,
+      ),
+    ).toBe(5);
   });
 
   it("counts wrapped rows", () => {
-    expect(totalRows([entry({ lines: ["w".repeat(100)] })], 40)).toBe(4);
-    expect(totalRows([entry({ lines: ["w".repeat(100), "w".repeat(100)] })], 40)).toBe(7);
-    expect(totalRows([entry({ lines: ["你好世界再见世界"] })], 6)).toBe(4);
+    expect(totalRows([entry({ kind: "system", lines: ["w".repeat(100)] })], 40)).toBe(4);
+    expect(
+      totalRows([entry({ kind: "system", lines: ["w".repeat(100), "w".repeat(100)] })], 40),
+    ).toBe(7);
+    expect(totalRows([entry({ kind: "system", lines: ["你好世界再见世界"] })], 6)).toBe(4);
   });
 
   it("counts a headerless entry as a single row", () => {
-    expect(totalRows([entry({ lines: [] })], 40)).toBe(2);
+    expect(totalRows([entry({ kind: "system", lines: [] })], 40)).toBe(2);
   });
 
   it("counts chunk blocks including their vertical padding", () => {
@@ -164,8 +170,10 @@ describe("totalRows", () => {
     ).toBe(2);
   });
 
-  it("counts error entries", () => {
-    expect(totalRows([entry({ kind: "error", lines: ["boom"] })], 40)).toBe(2);
+  it("counts error entries (notice shape: label row + blank detail row)", () => {
+    // The error kind renders through the notice shape: the label row plus
+    // the blank detail row, plus the separator.
+    expect(totalRows([entry({ kind: "error", lines: ["boom"] })], 40)).toBe(3);
   });
 });
 

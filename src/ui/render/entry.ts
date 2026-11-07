@@ -352,28 +352,31 @@ function renderEntry(
     };
   }
 
-  if (entry.kind === "notice") {
-    // One-line notice (like the status bar's dot-separated items): the
-    // padded label in its themed color — light blue for info (ℹ️), yellow
-    // for wait notices (⚠️), picked by the label's leading emoji — the
-    // mid-dot in the terminal's default foreground, and the detail dimmed;
-    // all capped to the terminal width.
+  if (entry.kind === "notice" || entry.kind === "error") {
+    // Notices and errors are never focusable, so collapsing them would hide
+    // content forever: they render in FULL — the padded label in its themed
+    // color (light blue for info, yellow for wait ⚠️, blue-grey for lifecycle
+    // 🪧 notices), and the detail dimmed and WORD-WRAPPED below the label at
+    // the body width, so the block always spans the terminal width and never
+    // soft-wraps.
     const label = entry.lines[0] ?? "";
     const detail = entry.lines[1] ?? "";
-    // 1 pad + label + 3 (" · ") + detail; -4 when the dot is present so the
-    // separator always survives the cap.
-    const budget = Math.max(0, cols - 2 - (detail === "" ? 0 : 3));
     const noticeStyle = label.startsWith("⚠️")
       ? ST.noticeWait
       : label.startsWith("🪧")
         ? ST.noticeSystem
         : ST.notice;
-    const head = noticeStyle.render(truncateAnsi(label, budget));
-    const body =
-      detail === ""
-        ? head
-        : `${head}\x1b[39m· ${ST.noticeDetail.render(truncateAnsi(detail, Math.max(0, budget - displayWidth(label))))}`;
-    return { rendered: body, rows: 1, tableOffsets: [] };
+    const detailRows = detail === "" ? [] : wrapText(detail, Math.max(1, cols - 2));
+    const rows = [
+      noticeStyle.render(label),
+      ...detailRows.map((row) => ST.noticeDetail.render(row)),
+    ];
+    if (detailRows.length === 0) rows.push("");
+    return {
+      rendered: rows.join("\n"),
+      rows: rows.length,
+      tableOffsets: [],
+    };
   }
 
   if (entry.kind === "status") {
@@ -389,10 +392,17 @@ function renderEntry(
     };
   }
 
+  // The plain fallback (system-kind transcript rows, any future kind):
+  // wrap every logical line to the terminal width, then style each wrapped
+  // row individually — lipgloss would style the joined string WITHOUT
+  // wrapping, leaving one overwide row for the frame to truncate. Styling
+  // per row keeps every kind's color on all of its rows (no drift from the
+  // kind-level style), and rows.length stays one-terminal-row-per-row.
   const lines: string[] = [];
   for (const line of entry.lines) lines.push(...wrapText(line, cols));
   if (lines.length === 0) lines.push("");
-  const rendered = kindStyle(entry.kind).render(lines.join("\n"));
+  const style = kindStyle(entry.kind);
+  const rendered = lines.map((line) => style.render(line)).join("\n");
   return { rendered, rows: lines.length, tableOffsets: [] };
 }
 
