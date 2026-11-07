@@ -384,11 +384,11 @@ function renderEntry(
 
   if (entry.kind === "notice" || entry.kind === "error") {
     // Notices and errors are never focusable, so collapsing them would hide
-    // content forever: they render in FULL — the padded label in its themed
-    // color (light blue for info, yellow for wait ⚠️, blue-grey for lifecycle
-    // 🪧 notices), and the detail dimmed and WORD-WRAPPED below the label at
-    // the body width, so the block always spans the terminal width and never
-    // soft-wraps.
+    // content forever: they render in FULL, as a SINGLE logical line — the
+    // padded label in its themed color (light blue for info, yellow for wait
+    // ⚠️, blue-grey for lifecycle 🪧 notices), a mid-dot separator, and the
+    // detail dimmed — WORD-WRAPPED at the body width so nothing is ever
+    // truncated and the block never soft-wraps past the terminal edge.
     const label = entry.lines[0] ?? "";
     const detail = entry.lines[1] ?? "";
     const noticeStyle = label.startsWith("⚠️")
@@ -396,12 +396,12 @@ function renderEntry(
       : label.startsWith("🪧")
         ? ST.noticeSystem
         : ST.notice;
-    const detailRows = detail === "" ? [] : wrapText(detail, Math.max(1, cols - 2));
-    const rows = [
-      noticeStyle.render(label),
-      ...detailRows.map((row) => ST.noticeDetail.render(row)),
-    ];
-    if (detailRows.length === 0) rows.push("");
+    const line =
+      detail === ""
+        ? noticeStyle.render(label)
+        : `${noticeStyle.render(label)}\x1b[39m· ${ST.noticeDetail.render(detail)}`;
+    const rows = wrapText(line, Math.max(1, cols - 2));
+    if (rows.length === 0) rows.push("");
     return {
       rendered: rows.join("\n"),
       rows: rows.length,

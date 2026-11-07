@@ -170,10 +170,10 @@ describe("totalRows", () => {
     ).toBe(2);
   });
 
-  it("counts error entries (notice shape: label row + blank detail row)", () => {
-    // The error kind renders through the notice shape: the label row plus
-    // the blank detail row, plus the separator.
-    expect(totalRows([entry({ kind: "error", lines: ["boom"] })], 40)).toBe(3);
+  it("counts error entries (notice shape: one wrapped line + separator)", () => {
+    // The error kind renders through the notice shape: one logical line
+    // (label + separator + detail) word-wrapped, plus the separator.
+    expect(totalRows([entry({ kind: "error", lines: ["boom"] })], 40)).toBe(2);
   });
 });
 
