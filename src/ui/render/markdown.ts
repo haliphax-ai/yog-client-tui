@@ -119,21 +119,30 @@ export function highlightBlock(
 
 /**
  * Render markdown through glamour (tokyo-night) at `cols` and normalize:
- * drop blank outer rows, strip glamour's shared indent, keep interior blank
- * rows (paragraph breaks), and cap every line to `cols`. Returns [] on
- * failure or oversized input so callers can fall back to plain text.
+ * drop blank outer rows, strip glamour's shared indent, keep interior
+ * blank rows (paragraph breaks), and cap every line to `cols`. Returns []
+ * on failure or oversized input so callers can fall back to plain text.
  */
 export function renderMarkdown(text: string, cols: number): string[] {
   if (text.length > 100_000) return [];
   const rendered = mdRender(text, cols);
   if (rendered === "") return [];
+  return normalizeLines(rendered, cols, text);
+}
+
+/** Shared group normalization: trim glamour's blank outer rows, strip the
+ *  block's shared indent, keep interior blank rows (paragraph breaks), and
+ *  cap every line to `cols`. Exported for the entry-prose module
+ *  (prose.ts), which renders each paragraph group as its own glamour
+ *  document and reuses this exact post-processing. */
+export function normalizeLines(rendered: string, cols: number, source: string): string[] {
   const lines = trimBlankOuter(rendered.split("\n"));
-  if (lines.length === 0) return [];
+  if (lines.length === 0) return source.trim() === "" ? [""] : [];
   const indent = sharedIndent(lines);
   const out: string[] = [];
   for (const line of lines) {
     if (stripAnsi(line).trim() === "") {
-      out.push(""); // paragraph break inside the entry
+      out.push(""); // paragraph break inside the group
       continue;
     }
     out.push(truncateAnsi(trimLeading(line, indent), cols));
