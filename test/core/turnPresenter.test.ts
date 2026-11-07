@@ -653,6 +653,59 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
     );
     expect(out.map((e) => e.kind)).toEqual(["user", "assistant"]);
   });
+
+  it("rides each rehydrated result row's usage onto ITS OWN result block", () => {
+    const turns = new Map<number, { usage?: TokenUsage; durationMs?: number }>();
+    turns.set(1, { durationMs: 500, usage: { total_tokens: 42 } });
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({
+          seq: 1,
+          role: "assistant",
+          toolCalls: [
+            { id: "c1", type: "function", function: { name: "bash", arguments: "{}" } },
+            { id: "c2", type: "function", function: { name: "bash", arguments: "{}" } },
+          ],
+          promptDelta: 120,
+          turnId: "1",
+        }),
+        row({
+          seq: 2,
+          role: "tool",
+          toolCallId: "c1",
+          name: "bash",
+          content: '{"exitCode":0,"stdout":"one"}',
+          promptDelta: 120,
+          turnId: "1",
+        }),
+        row({
+          seq: 3,
+          role: "tool",
+          toolCallId: "c2",
+          name: "bash",
+          content: '{"exitCode":0,"stdout":"two"}',
+          promptDelta: 60,
+          turnId: "1",
+        }),
+      ]),
+      COLS,
+      { turns },
+    );
+    // The call lines (⚙️ args rows) never carry a count — a figure appended
+    // after c1's args would sit directly above c2's call line and read as
+    // c2's attribution. Each result chunk carries its row's own count.
+    const kinds = out.map((e) => e.kind);
+    const firstCall = out.findIndex((e) => e.kind === "tool");
+    expect(out[firstCall]?.lines[0]).not.toContain("120");
+    expect(out[firstCall]?.tokenNote).toBeUndefined();
+    const c1chunk = out[firstCall + 1];
+    expect(c1chunk?.kind).toBe("chunk");
+    expect(c1chunk?.lines[0]).toBe("bash → exit 0 · +120t");
+    const c2chunk = out[firstCall + 3];
+    expect(c2chunk?.kind).toBe("chunk");
+    expect(c2chunk?.lines[0]).toBe("bash → exit 0 · +60t");
+    expect(kinds.filter((k) => k === "chunk").length).toBe(2);
+  });
 });
 
 describe("createTurnPresenter per-call tokens (live)", () => {
@@ -671,53 +724,134 @@ describe("createTurnPresenter per-call tokens (live)", () => {
       completion_tokens: 7,
     });
     const chunk = host.entries.find((e) => e.kind === "chunk");
-    // The chunk header shows tool status only — round usage lives on the
-    // call-line suffix (promptDelta / round completion), not the body chunk.
-    expect(chunk?.lines[0]).toBe("bash → exit 0");
+    // The token count lands on THIS call's own result block: the bash
+    // chunk header (issue #70), not the ⚙️ call line — a figure on the args
+    // row would read as the NEXT call's attribution.
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · 7t");
+    const call = host.entries.find((e) => e.kind === "tool");
+    expect(call?.lines[0]).not.toContain("7t");
+    expect(call?.tokenNote).toBeUndefined();
   });
 });
 
-describe("createTurnPresenter round-usage call-line suffix", () => {
-  it("annotates a single-call round with +N ctx (no batch qualifier)", () => {
+describe("createTurnPresenter tool-result token counts (live)", () => {
+  it("puts the round count on the single call's own result block (not the call line)", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 120);
+    turn.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "out" },
+      undefined,
+      undefined,
+      120,
+    );
+    const chunk = entries.find((e) => e.kind === "chunk");
+    // The count belongs to THIS call's bash chunk header, as +Nt (context
+    // delta) — never appended to the ⚙️ call line after the args.
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · +120t");
+    expect(chunk?.tokenNote).toBe("+120t");
     const call = entries.find((e) => e.kind === "tool");
-    expect(call?.lines[0]).toContain("+120 ctx");
+    expect(call?.lines[0]).not.toContain("120");
     expect(call?.lines[0]).not.toContain("(batch)");
+    expect(call?.tokenNote).toBeUndefined();
   });
 
-  it("tags every batched member (batch); only the last also shows the count", () => {
+  it("attributes each batch member's count to its own result block, never to the next call", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    // First result of a batched round: tagged, no count — the count lands
-    // on the last result of the round.
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
-    const call1 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("ls"));
-    expect(call1?.lines[0]).toContain("· (batch)");
-    expect(call1?.lines[0]).not.toContain("240");
-    // Last result: still tagged (it IS a batch member) + the round count.
-    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
-    const call2 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("pwd"));
-    expect(call2?.lines[0]).toContain("+240 ctx (batch)");
+    turn.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "ls out" },
+      undefined,
+      undefined,
+      240,
+    );
+    turn.events.onToolResult?.(
+      "c2",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "pwd out" },
+      undefined,
+      undefined,
+      240,
+    );
+    // Each call's OWN chunk carries the count; the c2 chunk sits between
+    // the c1 chunk and the c2 call line, so a figure appended to the c1
+    // CALL LINE would visually belong to c2 — hence none goes there.
+    // Only tool-call rows (⚙️ args lines) go in the index map; chunk
+    // headers also mention the tool name, so they must not match.
+    const lines = entries.map((e) =>
+      e.kind === "tool" && e.lines[0]?.includes("⚙️") ? (e.lines[0] ?? "") : "",
+    );
+    const lsIdx = lines.findIndex((l) => l.includes("ls"));
+    const pwdIdx = lines.findIndex((l) => l.includes("pwd"));
+    expect(entries[lsIdx]?.kind).toBe("tool");
+    expect(entries[pwdIdx]?.kind).toBe("tool");
+    expect(entries[lsIdx + 1]?.kind).toBe("chunk");
+    expect(entries[lsIdx + 1]?.lines[0]).toBe("bash → exit 0 · +240t");
+    expect(entries[lsIdx + 1]?.tokenNote).toBe("+240t");
+    expect(entries[pwdIdx + 1]?.kind).toBe("chunk");
+    expect(entries[pwdIdx + 1]?.lines[0]).toBe("bash → exit 0 · +240t");
+    expect(entries[pwdIdx + 1]?.tokenNote).toBe("+240t");
+    // The call lines stay pure args rows — no token figures, no batch tag.
+    expect(lines[lsIdx]).not.toContain("240");
+    expect(lines[lsIdx]).not.toContain("(batch)");
+    expect(lines[pwdIdx]).not.toContain("240");
+    expect(lines[pwdIdx]).not.toContain("(batch)");
+    expect(entries[lsIdx]?.tokenNote).toBeUndefined();
+    expect(entries[pwdIdx]?.tokenNote).toBeUndefined();
   });
 
-  it("a single-call round after a batch shows the bare count (no tag)", () => {
+  it("a single-call round after a batch puts the bare count on its own result block", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     // Batched round first.
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
-    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    turn.events.onToolResult?.(
+      "c1",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "ls out" },
+      undefined,
+      undefined,
+      240,
+    );
+    turn.events.onToolResult?.(
+      "c2",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "pwd out" },
+      undefined,
+      undefined,
+      240,
+    );
     // Then a plain single-call round.
     turn.events.onToolCall?.("c3", "bash", parseToolArgs('{"cmd":"date"}'));
-    turn.events.onToolResult?.("c3", "bash", true, { exitCode: 0 }, undefined, undefined, 30);
+    turn.events.onToolResult?.(
+      "c3",
+      "bash",
+      true,
+      { exitCode: 0, stdout: "date out" },
+      undefined,
+      undefined,
+      30,
+    );
+    const chunks = entries.filter((e) => e.kind === "chunk");
+    expect(chunks.map((c) => c.lines[0])).toEqual([
+      "bash → exit 0 · +240t",
+      "bash → exit 0 · +240t",
+      "bash → exit 0 · +30t",
+    ]);
     const call3 = entries.find((e) => e.kind === "tool" && (e.lines[0] ?? "").includes("date"));
-    expect(call3?.lines[0]).toContain("+30 ctx");
+    expect(call3?.lines[0]).not.toContain("30");
     expect(call3?.lines[0]).not.toContain("(batch)");
   });
 
@@ -725,11 +859,15 @@ describe("createTurnPresenter round-usage call-line suffix", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, {
+    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "ls out" }, undefined, {
       completion_tokens: 55,
     });
+    const chunk = entries.find((e) => e.kind === "chunk");
+    // No delta → the round's completion volume, absolute (no plus).
+    expect(chunk?.lines[0]).toBe("bash → exit 0 · 55t");
+    expect(chunk?.tokenNote).toBe("55t");
     const call = entries.find((e) => e.kind === "tool");
-    expect(call?.lines[0]).toContain("55 tok");
+    expect(call?.lines[0]).not.toContain("55");
   });
 });
 

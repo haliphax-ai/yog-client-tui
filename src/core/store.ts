@@ -63,10 +63,10 @@ export function setState(patch: Partial<UiState>): void {
 
 /**
  * Fold each round's promptDelta (honest context growth) into the running
- * session total as tool results arrive live, so the status-bar 🪙 stat climbs while tools
- * run. The terminal usage report (`applyUsageTotal` in main.ts) later
- * replaces these provisional totals with the authoritative full-context
- * numbers, so nothing double-counts.
+ * session total as tool results arrive live, so the status-bar 🪙 stat
+ * climbs while tools run. The terminal usage report (`applyUsageTotal` in
+ * main.ts) later replaces these provisional totals with the authoritative
+ * full-context numbers, so nothing double-counts.
  */
 export function addLiveCompletionTokens(count: number): void {
   if (!Number.isFinite(count) || count <= 0) return;

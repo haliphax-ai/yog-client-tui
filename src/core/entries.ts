@@ -56,6 +56,12 @@ export interface LogEntry {
   /** Raw tool result of a chunk entry. The renderer expands it to display
    *  rows at the current width — the domain never formats it. */
   result?: unknown;
+  /** Token-count note for this call's results (`172t`, `+1.2Kt`): chunk and
+   *  toolResult entries carry it on their header/collapsed line, and the
+   *  renderer repeats it below expanded content on its own row. Never set on
+   *  a tool-call entry — the count describes RESULTS, so it must never read
+   *  as a later call's args-row figure. */
+  tokenNote?: string;
   /** Per-table state, keyed by the table's index within the entry. */
   tables?: Record<number, TableState>;
 }
