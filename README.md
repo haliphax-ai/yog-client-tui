@@ -232,10 +232,13 @@ On each turn the client then:
 6. Consumes the SSE stream, rendering deltas into the assistant entry, tool
    call lines with an inline ✅/❌ indicator and syntax-highlighted args,
    collapsible (Tab + Enter) result chunks for tool output, and error events
-   as they arrive. As each tool result lands, its attributed completion tokens
-   are folded into the status bar's 🪙 session total live — it climbs while
-   tools run, and the terminal usage report later replaces those provisional
-   totals with the authoritative full-context numbers.
+   as they arrive. Each tool result carries its own token count — `172t` in
+   the bash chunk header, on the generic 🔚 result line (and repeated below
+   the expanded body), never on the ⚙️ call line itself (a figure after the
+   args would read as the next call's attribution). These counts fold into
+   the status bar's 🪙 session total live — it climbs while tools run, and
+   the terminal usage report later replaces those provisional totals with
+   the authoritative full-context numbers.
 7. If the stream drops, recovers the turn outcome from the turn-status endpoint
    (a "🪧 recovered · stream interrupted — resumed from turn status" note is
    logged).

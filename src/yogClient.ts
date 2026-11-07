@@ -842,8 +842,3 @@ function parseUsage(value: unknown): TokenUsage | undefined {
   }
   return hasNumber ? out : undefined;
 }
-
-/** Read a per-call token count from a payload field (finite, non-negative). */
-function parseTokens(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
-}

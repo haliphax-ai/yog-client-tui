@@ -36,6 +36,15 @@ export function prettyArgs(
   if (displayWidth(clean) <= limit) return clean;
   return `${truncateAnsi(clean, limit - 1)}…`;
 }
+/**
+ * Token-count note for a tool result: `172t` (`+` prefix when the number is
+ * a context delta rather than an absolute total). "" when there is nothing
+ * to show.
+ */
+export function tokenCountNote(tokens: number | undefined, delta = false): string {
+  if (tokens === undefined || !Number.isFinite(tokens) || tokens <= 0) return "";
+  return `${delta ? "+" : ""}${formatTokenTotal(tokens)}t`;
+}
 
 /**
  * Exit/runtime status for a tool result: `exit 0 · 42ms` ("" if none).
