@@ -67,15 +67,6 @@ export function isBashShaped(result: unknown): boolean {
   const obj = result as Record<string, unknown>;
   return typeof obj["stdout"] === "string" || typeof obj["stderr"] === "string";
 }
-/**
- * Token count attached to a tool result by an older server build (the
- * fabricated per-call estimate once carried in `result.tokens`).
- */
-export function resultTokens(result: unknown): number | undefined {
-  if (result === null || typeof result !== "object" || Array.isArray(result)) return undefined;
-  const n = (result as Record<string, unknown>)["tokens"];
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
-}
 
 /**
  * Human-readable runtime abbreviation for a duration in milliseconds:

@@ -14,7 +14,6 @@ import {
   formatTokenTotal,
   prettyArgs,
   resultStatus,
-  resultTokens,
   tokenCountNote,
   isBashShaped,
 } from "./toolFormat.ts";
@@ -361,15 +360,7 @@ function toolResultSummary(result: unknown): string | undefined {
   if (typeof obj["runtimeMs"] === "number") {
     parts.push(`runtime ${formatRuntime(obj["runtimeMs"] as number)}`);
   }
-  const tokens = resultTokens(result);
-  if (tokens !== undefined) parts.push(`${formatTokenTotal(tokens)} tokens`);
   return parts.length > 0 ? parts.join(" · ") : undefined;
-}
-
-/** A transcript row's own per-call token count (legacy `tokens` field). */
-function rowTokenCount(row: { tokens?: number }): number | undefined {
-  const n = row.tokens;
-  return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /**
@@ -480,10 +471,8 @@ export function transcriptLogEntries(
               decoded.value,
               cols,
               tokenCountNote(
-                rowTokenCount(next.raw) ??
-                  next.raw.promptDelta ??
-                  next.raw.usage?.completion_tokens,
-                next.raw.promptDelta !== undefined && rowTokenCount(next.raw) === undefined,
+                next.raw.promptDelta ?? next.raw.usage?.completion_tokens,
+                next.raw.promptDelta !== undefined,
               ),
             ),
           );
@@ -515,8 +504,8 @@ export function transcriptLogEntries(
             decoded.value,
             cols,
             tokenCountNote(
-              rowTokenCount(e.raw) ?? e.raw.promptDelta ?? e.raw.usage?.completion_tokens,
-              e.raw.promptDelta !== undefined && rowTokenCount(e.raw) === undefined,
+              e.raw.promptDelta ?? e.raw.usage?.completion_tokens,
+              e.raw.promptDelta !== undefined,
             ),
           ),
         );

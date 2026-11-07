@@ -42,8 +42,6 @@ export interface TranscriptMessage {
   usage?: TokenUsage;
   /** Context growth this round's call+result added (prompt_tokens diff). */
   promptDelta?: number;
-  /** Per-call token count (older server builds attached one to the row). */
-  tokens?: number;
 }
 
 /** Result of the transcript rehydration dump: the session plus its ordered

@@ -706,38 +706,6 @@ describe("transcriptLogEntries per-turn summaries and tokens", () => {
     expect(c2chunk?.lines[0]).toBe("bash → exit 0 · +60t");
     expect(kinds.filter((k) => k === "chunk").length).toBe(2);
   });
-
-  it("restores a legacy per-call token field onto the result block too", () => {
-    const out = transcriptLogEntries(
-      toTranscriptEntries([
-        row({
-          seq: 1,
-          role: "assistant",
-          toolCalls: [{ id: "c1", type: "function", function: { name: "grep", arguments: "{}" } }],
-        }),
-        row({
-          seq: 2,
-          role: "tool",
-          toolCallId: "c1",
-          name: "grep",
-          content: '{"note":"ok"}',
-          tokens: 172,
-        }),
-      ]),
-      COLS,
-    );
-    const result = out.find((e) => e.kind === "toolResult");
-    // The 🔚 line keeps the count on the entry (the renderer appends it when
-    // drawing); the count must never land on the ⚙️ call line above it.
-    expect(result?.tokenNote).toBe("172t");
-    const call = out.find((e) => e.kind === "tool");
-    expect(call?.lines[0]).not.toContain("172");
-    expect(call?.tokenNote).toBeUndefined();
-    const status = out.find((e) => e.kind === "status");
-    // The status bar owns live counts; a legacy rehydrated row shows the note
-    // on its result block only — no extra per-call status line.
-    expect(status).toBeUndefined();
-  });
 });
 
 describe("createTurnPresenter per-call tokens (live)", () => {
