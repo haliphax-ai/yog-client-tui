@@ -125,7 +125,7 @@ export class StatusComponent extends BaseComponent {
       ST.status.render(
         `${SESSION_EMOJI} ${state.connection === "connected" ? "ok" : state.connection}`,
       ),
-    ].join(ST.status.render(" · "));
+    ].join(ST.status.render("  "));
     const statsLine = ST.status.render(statsSegment(state, stats));
     const segments: string[] = [];
     if (activity.length > 0) segments.push(activity.join("  "));
