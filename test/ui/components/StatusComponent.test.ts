@@ -74,7 +74,7 @@ describe("statusBody", () => {
       entries: fixture(2, 27),
       tokenTotals: { prompt: 1200, completion: 600, total: 1800 },
     });
-    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 2  🔧 27  🪙 1.8K");
+    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 2  🔧 27  🪙 1.8K tok");
   });
 
   it("omits the 🪙 stat while totals are zero (no turns yet)", () => {
@@ -89,7 +89,7 @@ describe("statusBody", () => {
       entries: fixture(1, 0),
       tokenTotals: { prompt: 1000, completion: 500, total: 0 },
     });
-    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K");
+    expect(out).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 1.5K tok");
   });
 
   it("uses bright green for very low fill (<=10%)", () => {
@@ -166,9 +166,9 @@ describe("statusBody", () => {
       entries: fixture(1, 0),
       tokenTotals: totals,
     };
-    expect(stripAnsi(body(base))).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K");
+    expect(stripAnsi(body(base))).toBe("👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K tok");
     expect(stripAnsi(body({ ...base, contextWindow: 0 }))).toBe(
-      "👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K",
+      "👤 m-1 · 🔌 ok │ 🔄 1  🔧 0  🪙 3.0K tok",
     );
   });
 

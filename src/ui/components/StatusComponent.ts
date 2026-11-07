@@ -64,7 +64,7 @@ export function statsSegment(
   const totals = state.tokenTotals;
   if (totals.total > 0 || totals.prompt > 0 || totals.completion > 0) {
     const total = totals.total > 0 ? totals.total : totals.prompt + totals.completion;
-    const tokenPart = `${TOKENS_EMOJI} ${formatTokenTotal(total)}`;
+    const tokenPart = `${TOKENS_EMOJI} ${formatTokenTotal(total)} tok`;
     // Add context window info if available: fill % (color-coded) + window
     // size — no raw token count, no parentheses.
     if (state.contextWindow && state.contextWindow > 0) {

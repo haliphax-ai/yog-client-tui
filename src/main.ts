@@ -51,7 +51,12 @@ import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from 
 import { type LogEntry } from "./core/entries.ts";
 import { FOCUS_NONE_TARGET } from "./core/focus.ts";
 import { addLiveCompletionTokens, getState, setState } from "./core/store.ts";
-import { finalContextTotal, perTurnDeltas, toTranscriptEntries } from "./core/transcript.ts";
+import {
+  estimatedContextTotal,
+  finalContextTotal,
+  perTurnDeltas,
+  toTranscriptEntries,
+} from "./core/transcript.ts";
 import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
 import { noticeLine } from "./core/notices.ts";
 import { formatTokenTotal } from "./core/toolFormat.ts";
@@ -240,7 +245,8 @@ async function run(argv: readonly string[]): Promise<void> {
         throw new YogError("unknown_session", `session ${requested} not found`, 404);
       }
       const dump = await client.getTranscript();
-      const tokenWeight = finalContextTotal(dump.turns);
+      let tokenWeight = finalContextTotal(dump.turns);
+      if (tokenWeight <= 0) tokenWeight = estimatedContextTotal(dump.messages);
       resumedTokenWeight = tokenWeight;
       startupNote(
         "session resumed",
@@ -471,7 +477,11 @@ async function run(argv: readonly string[]): Promise<void> {
               });
               setState({
                 entries,
-                tokenTotals: { prompt: 0, completion: 0, total: 0 },
+                tokenTotals: {
+                  prompt: 0,
+                  completion: 0,
+                  total: estimatedContextTotal(dump.messages),
+                },
               });
               const truncatedNote = result.truncated ? " (input was middle-truncated)" : "";
               pushLines(
@@ -522,6 +532,7 @@ async function run(argv: readonly string[]): Promise<void> {
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
       prevTokenTotal: () => turnStartTotal,
+      onRoundDelta: (delta) => addLiveCompletionTokens(delta),
     });
     // Surface transcript token totals in the status-bar 🪙 stat: each
     // terminal usage report (finished or aborted at a cut point) carries the
@@ -550,13 +561,8 @@ async function run(argv: readonly string[]): Promise<void> {
       if (usage !== undefined) applyUsageTotal(usage);
     };
     const baseOnToolResult = turn.events.onToolResult;
-    turn.events.onToolResult = (id, name, ok, result, error, usage, promptDelta) => {
-      baseOnToolResult?.(id, name, ok, result, error, usage, promptDelta);
-      // Live status-bar update: the round's promptDelta is the honest
-      // context-growth number (this round's prompt_tokens minus the previous
-      // round's). Folding it in makes the 🪙 stat climb as tools run; the
-      // terminal usage report later replaces totals with authoritative numbers.
-      addLiveCompletionTokens(promptDelta ?? 0);
+    turn.events.onToolResult = (id, name, ok, result, error, usage, promptDelta, resultTokens) => {
+      baseOnToolResult?.(id, name, ok, result, error, usage, promptDelta, resultTokens);
     };
     turn.begin(prompt);
     input.reset();
