@@ -31,6 +31,14 @@ export interface ParsedTable {
  * a table that can be focused.
  */
 export type TableSection = { kind: "prose"; text: string } | { kind: "table"; table: ParsedTable };
+/**
+ * A paragraph group within one prose section: the lines are joined and
+ * rendered (and normalized) TOGETHER, so glamour sees the same document
+ * structure a standard markdown renderer would.
+ */
+export interface ParagraphGroup {
+  lines: string[];
+}
 
 /**
  * Split one table row into cells.
@@ -270,4 +278,81 @@ export function splitTableSections(text: string): TableSection[] {
 
   flushProse();
   return sections;
+}
+
+/**
+ * Group the lines of one prose section into paragraph groups.
+ *
+ * Most sections are one group: blank lines mark a paragraph break and
+ * start a new group. The one exception is blank lines INSIDE a list — a
+ * blank line between a list item (or one of its nested children or
+ * wrapped continuation rows) and the next line of the same list is
+ * list-item spacing, not a paragraph break, so those lines stay in one
+ * group. Loose lists must render as a single document, exactly like
+ * tight ones: glamour owns the blank-line semantics (the same list
+ * renders with or without the interior blank rows; the paragraph-broken
+ * variant breaks the list apart and strips nesting).
+ *
+ * A pending blank line attaches the next line to the group when the line
+ * continues the open list: a list marker at or below the SHALLOWEST open
+ * level (the next sibling of any open list — a deeper marker nests, a
+ * shallower one closes back down), or a plain continuation row indented
+ * to the deepest open item's marker content (a soft-wrapped row of that
+ * item). Anything else — plain paragraphs, dedented content — ends the
+ * group. Reconstructed blank lines between groups render as paragraph
+ * breaks, as before.
+ * paragraphs, a shallower marker reaching past an indent step — ends
+ * the group. Reconstructed blank lines between groups render as
+ * paragraph breaks, as before.
+ */
+export function paragraphGroups(text: string): ParagraphGroup[] {
+  const lines = text.split("\n");
+  const LIST_RE = /^(\s*)([-*+]|\d{1,9}[.)])(\s)/;
+  const marker = (line: string): { indent: number; width: number } | undefined => {
+    const m = line.match(LIST_RE);
+    if (!m) return undefined;
+    return { indent: (m[1] ?? "").length, width: (m[1] ?? "").length + (m[2] ?? "").length + 1 };
+  };
+  const groups: ParagraphGroup[] = [];
+  let current: string[] = [];
+  let pendingBreak = false;
+  // The open list nesting, as a stack of marker geometries (deepest last).
+  let stack: { indent: number; width: number }[] = [];
+  for (const line of lines) {
+    if (line.trim() === "") {
+      pendingBreak = current.length > 0;
+      continue;
+    }
+    const mk = marker(line);
+    if (pendingBreak && current.length > 0) {
+      const top = stack[stack.length - 1];
+      // Attach when the line continues the open list: a list marker at or
+      // below the SHALLOWEST open level (the next sibling of any open
+      // list — a deeper marker nests, a shallower one closes back down),
+      // or a plain continuation row indented to the deepest open item's
+      // marker content (a soft-wrapped row of that item).
+      const shallowest = stack[0]?.indent;
+      const attaches =
+        shallowest !== undefined &&
+        ((mk !== undefined && mk.indent >= shallowest) ||
+          (mk === undefined && (line.match(/^ */) ?? [""])[0].length >= (top?.width ?? 0)));
+      if (!attaches) {
+        groups.push({ lines: current });
+        current = [];
+        stack = [];
+      }
+    }
+    if (mk !== undefined) {
+      while (stack.length > 0 && (stack[stack.length - 1] ?? { indent: 0 }).indent >= mk.indent) {
+        stack.pop();
+      }
+      if ((stack[stack.length - 1] ?? { indent: -1 }).indent < mk.indent) {
+        stack.push(mk);
+      }
+    }
+    pendingBreak = false;
+    current.push(line);
+  }
+  if (current.length > 0) groups.push({ lines: current });
+  return groups;
 }

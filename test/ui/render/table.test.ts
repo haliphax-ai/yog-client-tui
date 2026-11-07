@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   cellLines,
+  paragraphGroups,
   parseTable,
   renderTable,
   splitTableSections,
@@ -265,6 +266,74 @@ describe("splitTableSections — prose/table interleaving", () => {
     expect(sections).toHaveLength(2);
     expect(sections[0]!.kind).toBe("prose");
     expect(sections[1]!.kind).toBe("table");
+  });
+});
+
+describe("paragraphGroups — loose-list-aware paragraph splitting", () => {
+  it("keeps a loose list in ONE group (blank lines between items)", () => {
+    const groups = paragraphGroups("- top one\n\n  - nested one\n\n- top two");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.lines).toEqual(["- top one", "  - nested one", "- top two"]);
+  });
+
+  it("keeps a tight list in one group as before", () => {
+    const groups = paragraphGroups("- top one\n  - nested one\n- top two");
+    expect(groups).toHaveLength(1);
+  });
+
+  it("keeps a loose ordered list with 2-space-nested sublists in one group", () => {
+    const groups = paragraphGroups("1. top one\n\n  - nested one\n\n2. top two");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.lines).toEqual(["1. top one", "  - nested one", "2. top two"]);
+  });
+
+  it("splits a blank-separated true paragraph after a list", () => {
+    const groups = paragraphGroups("- alpha\n\nThe paragraph after the list.");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]!.lines).toEqual(["- alpha"]);
+    expect(groups[1]!.lines).toEqual(["The paragraph after the list."]);
+  });
+
+  it("splits list → paragraph → list (shallower content ends the group)", () => {
+    const groups = paragraphGroups("- a\n\nplain\n\n- b");
+    expect(groups).toHaveLength(3);
+  });
+
+  it("keeps a deeper blank-separated chain attached to its outer list", () => {
+    const groups = paragraphGroups("- a\n\n  - b\n\n    - c\n\n- d");
+    // "- d" is the next item of the OUTER list (indent 0 = the shallowest
+    // open level), so the whole loose chain renders as ONE document.
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.lines).toEqual(["- a", "  - b", "    - c", "- d"]);
+  });
+
+  it("keeps wrapped continuation rows of an item attached", () => {
+    const groups = paragraphGroups("- a\n\n  continued child text");
+    expect(groups).toHaveLength(1);
+  });
+
+  it("keeps prose paragraphs blank-separated as before", () => {
+    const groups = paragraphGroups("First.\n\nSecond.\n\nThird.");
+    expect(groups).toHaveLength(3);
+  });
+
+  it("treats a blank-separated shallower marker as a NEW group (dedent)", () => {
+    const groups = paragraphGroups("- a\n  - b\n\n- c");
+    // The 2-space child nests under "- a"; the blank line plus a TOP-LEVEL
+    // item ends the nested list — still the same outer list though, so it
+    // stays attached (one group).
+    expect(groups).toHaveLength(1);
+  });
+
+  it("splits when a blank-separated list ENDS (dedent below the marker)", () => {
+    const groups = paragraphGroups("- a\n  - b\n\nplain text");
+    expect(groups).toHaveLength(2);
+    expect(groups[1]!.lines).toEqual(["plain text"]);
+  });
+
+  it("returns one empty group for empty input", () => {
+    expect(paragraphGroups("")).toEqual([]);
+    expect(paragraphGroups("\n\n")).toEqual([]);
   });
 });
 

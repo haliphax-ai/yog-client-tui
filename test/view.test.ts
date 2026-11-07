@@ -262,6 +262,56 @@ describe("renderMarkdown", () => {
   });
 });
 
+describe("renderMarkdown — nested sublists in prose (issue #63)", () => {
+  it("keeps a tight list's nested sublist indented", () => {
+    const rows = renderMarkdown("- top one\n  - nested one\n- top two", 60).map((r) =>
+      stripAnsi(r).replace(/ +$/, ""),
+    );
+    expect(rows[0]).toContain("top one");
+    expect(rows[1]).toContain("nested one");
+    expect(rows[2]).toContain("top two");
+    // The nested item's row must be indented relative to its parent.
+    const indentOf = (row: string) => row.match(/^ */)![0].length;
+    expect(indentOf(rows[1]!)).toBeGreaterThan(indentOf(rows[0]!));
+    expect(indentOf(rows[2]!)).toBe(indentOf(rows[0]!));
+  });
+
+  it("keeps a loose list's nested sublist indented (blank lines between items)", () => {
+    const rows = renderMarkdown("- top one\n\n  - nested one\n\n- top two", 60).map((r) =>
+      stripAnsi(r).replace(/ +$/, ""),
+    );
+    const nonBlank = rows.filter((r) => r.trim() !== "");
+    expect(nonBlank.length).toBe(3);
+    const indentOf = (row: string) => row.match(/^ */)![0].length;
+    expect(indentOf(nonBlank[1]!)).toBeGreaterThan(indentOf(nonBlank[0]!));
+  });
+
+  it("keeps a 3-space-nested item under an ordered parent indented", () => {
+    // CommonMark: children of "1. " nest at >= 3 spaces. (A 2-space child
+    // under an ORDERED parent is a sibling list by spec — glamour follows.)
+    const rows = renderMarkdown(
+      "Intro paragraph.\n\n1. top one\n   - nested one\n2. top two",
+      60,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    const nested = rows.find((r) => r.includes("nested one"));
+    const parent = rows.find((r) => r.includes("top one"));
+    expect(nested).toBeDefined();
+    expect(parent).toBeDefined();
+    expect(nested!.match(/^ */)![0].length).toBeGreaterThan(parent!.match(/^ */)![0].length);
+  });
+
+  it("wraps a long parent item while keeping the child's deeper indent", () => {
+    const rows = renderMarkdown(
+      "- a very long list item text that will definitely wrap somewhere around the sixty cell mark of this narrow test\n  - nested child",
+      60,
+    ).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    const child = rows.find((r) => r.includes("nested child"));
+    expect(child).toBeDefined();
+    expect(child!.match(/^ */)![0].length).toBeGreaterThan(0);
+  });
+});
+
 describe("resultStatus", () => {
   it("joins exit code and runtime", () => {
     expect(resultStatus({ exitCode: 0, runtimeMs: 42 })).toBe("exit 0 · 42ms");
