@@ -98,6 +98,60 @@ describe("user prompt — padded bubble", () => {
       expect(plain).toContain(word);
     }
   });
+
+  it("keeps emphasis on wrapped continuation rows at the bubble's own colors", () => {
+    // glamour re-emits wrap-split state as attr-leading combined SGRs
+    // (`3;38;2;r;g;b`); the flattener must strip the theme fg but keep the
+    // italic — otherwise continuation rows paint in glamour's blue-grey and
+    // the emphasis drifts past its run.
+    const rows = cachedRows(
+      {
+        kind: "user",
+        lines: [
+          "plain start *this italic run is long enough to wrap somewhere around here for sure* plain end",
+        ],
+      },
+      30,
+    );
+    expect(rows.length).toBeGreaterThan(3);
+    // The bubble fg (#d4d4d8 → 38;2;212;212;216) leads every content row;
+    // glamour's #a9b1d6 (38;2;169;177;214) never appears on the user path.
+    for (const row of rows) {
+      expect(row).not.toContain("\x1b[38;2;169;177;214m");
+      // eslint-disable-next-line no-control-regex
+      expect(row).not.toMatch(/\x1b\[3;38;2;\d+;\d+;\d+m/);
+    }
+    // Emphasis survives on the wrapped rows: italic runs are re-emitted
+    // standalone (`3`), never fused with a theme color.
+    const italicRows = rows.filter((r) => r.includes("\x1b[3m"));
+    expect(italicRows.length).toBeGreaterThanOrEqual(2);
+    for (const row of italicRows) {
+      expect(row).toContain("\x1b[3m");
+      expect(row).toContain("\x1b[23m");
+    }
+    // Content round-trips: every word survives the wrap + flatten.
+    const plain = stripAnsi(rows.join("\n"));
+    for (const word of ["plain", "start", "italic", "run", "somewhere", "sure", "end"]) {
+      expect(plain).toContain(word);
+    }
+  });
+
+  it("keeps bold on wrapped continuation rows at the bubble's own colors", () => {
+    const rows = cachedRows(
+      {
+        kind: "user",
+        lines: ["a **very bold statement that spans across the wrap boundary here** tail"],
+      },
+      30,
+    );
+    for (const row of rows) {
+      expect(row).not.toContain("\x1b[38;2;169;177;214m");
+      // eslint-disable-next-line no-control-regex
+      expect(row).not.toMatch(/\x1b\[1;38;2;\d+;\d+;\d+m/);
+    }
+    const boldRows = rows.filter((r) => r.includes("\x1b[1m"));
+    expect(boldRows.length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("notice and error entries", () => {
