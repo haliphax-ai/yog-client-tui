@@ -277,48 +277,39 @@ describe("toolResult entry", () => {
 });
 
 describe("chunk tokenNote", () => {
-  it("shows the count in the collapsed tail row, leaving room for it", () => {
+  it("keeps the collapsed tail to the line count (no token note, no guidance)", () => {
     const entry: LogEntry = {
       kind: "chunk",
       lines: ["bash → exit 0"],
       collapsed: true,
       result: { exitCode: 0, stdout: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" },
-      tokenNote: "172t",
+      tokenNote: "172 tok",
     };
     const rows = cachedRows(entry, 60);
-    // Header + COLLAPSE_LINES body rows + the tail row with the count.
-    // The block is padded top+bottom by the style; find the tail row.
     const tail = rows.map((r) => stripAnsi(r)).find((s) => s.includes("… +3 lines")) ?? "";
     const plain = stripAnsi(tail);
     expect(plain).toContain("… +3 lines");
-    expect(plain).toContain("· 172t");
+    expect(plain).not.toContain("· 172 tok");
+    expect(plain).not.toContain("(focus, Enter)");
     for (const row of rows) expect(displayWidth(stripAnsi(row))).toBeLessThanOrEqual(60);
   });
 
-  it("shows the count below the expanded body on its own row", () => {
+  it("does not repeat the note below the expanded body", () => {
     const entry: LogEntry = {
       kind: "chunk",
       lines: ["bash → exit 0"],
       collapsed: false,
       result: { exitCode: 0, stdout: "one\ntwo\nthree\nfour\nfive\nsix\nseven" },
-      tokenNote: "172t",
+      tokenNote: "172 tok",
     };
     const rows = cachedRows(entry, 60);
-    // The block is padded top+bottom by the style; the note is the last
-    // NON-BLANK row, under the expanded body, on its own row.
-    const last = rows
-      .map((r) => stripAnsi(r).trim())
-      .filter((s) => s !== "")
-      .at(-1);
-    expect(last).toBe("172t");
-    // And it does not appear twice.
-    const seen = rows.map((r) => stripAnsi(r).trim()).filter((s) => s === "172t").length;
-    expect(seen).toBe(1);
+    const seen = rows.map((r) => stripAnsi(r).trim()).filter((s) => s === "172 tok").length;
+    expect(seen).toBe(0);
   });
 });
 
 describe("toolResult tokenNote", () => {
-  it("appends the count to the collapsed line and repeats it below the expanded body", () => {
+  it("appends the count to the collapsed line and never repeats it below the expanded body", () => {
     const entry: LogEntry = {
       kind: "toolResult",
       lines: ['🔚 noop { "note": "did nothing" }'],
@@ -326,13 +317,13 @@ describe("toolResult tokenNote", () => {
       argsCompact: '{ "note": "did nothing" }',
       full: '{\n  "note": "did nothing"\n}',
       expanded: false,
-      tokenNote: "172t",
+      tokenNote: "172 tok",
     };
     const collapsed = cachedRows(entry, 80);
-    expect(stripAnsi(collapsed[0] as string)).toContain("· 172t");
+    expect(stripAnsi(collapsed[0] as string)).toContain("· 172 tok");
     entry.expanded = true;
     const expanded = cachedRows(entry, 80);
-    const last = stripAnsi(expanded[expanded.length - 1] as string).trim();
-    expect(last).toBe("172t");
+    const seen = expanded.map((r) => stripAnsi(r).trim()).filter((s) => s === "172 tok").length;
+    expect(seen).toBe(0);
   });
 });

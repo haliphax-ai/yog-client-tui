@@ -37,13 +37,17 @@ export function prettyArgs(
   return `${truncateAnsi(clean, limit - 1)}…`;
 }
 /**
- * Token-count note for a tool result: `172t` (`+` prefix when the number is
- * a context delta rather than an absolute total). "" when there is nothing
- * to show.
+ * Token-count note for a tool result: `234 tok`, `12.4K tok`. A `+` prefix
+ * marks a context delta (real provider numbers); a `~` prefix marks a tokenx
+ * estimate. "" when there is nothing to show.
  */
-export function tokenCountNote(tokens: number | undefined, delta = false): string {
+export function tokenCountNote(
+  tokens: number | undefined,
+  opts: { delta?: boolean; estimated?: boolean } = {},
+): string {
   if (tokens === undefined || !Number.isFinite(tokens) || tokens <= 0) return "";
-  return `${delta ? "+" : ""}${formatTokenTotal(tokens)}t`;
+  const prefix = opts.estimated ? "~" : opts.delta ? "+" : "";
+  return `${prefix}${formatTokenTotal(tokens)} tok`;
 }
 
 /**

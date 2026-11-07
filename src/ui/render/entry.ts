@@ -215,29 +215,14 @@ function renderChunkLike(entry: LogEntry, cols: number, focusedTable: boolean): 
   const styledHeader = `\x1b[1m\x1b[4m${headerColor}${arrowed}` + "\x1b[39m\x1b[24m\x1b[22m";
   const style = (focusedTable ? ST.chunkBlockFocus : ST.chunkBlock).width(cols);
   if (open) {
-    // Expanded: the token note rides below the full body on its own row.
-    const rows =
-      entry.tokenNote === undefined
-        ? [styledHeader, ...body]
-        : [styledHeader, ...body, entry.tokenNote];
+    const rows = [styledHeader, ...body];
     const rendered = style.render(rows.join("\n"));
     return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
   }
   const shown = body.slice(0, COLLAPSE_LINES);
   const hidden = body.length - shown.length;
   const rendered = style.render(
-    // Collapsed: the tail row leaves room for the note ("… +N lines" +
-    // " · 172t" must both survive the style width), so the note is
-    // appended only when the reserved slack actually held it.
-    entry.tokenNote === undefined
-      ? [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"} (focus, Enter)`].join(
-          "\n",
-        )
-      : [
-          styledHeader,
-          ...shown,
-          `… +${hidden} line${hidden === 1 ? "" : "s"} · ${entry.tokenNote} (focus, Enter)`,
-        ].join("\n"),
+    [styledHeader, ...shown, `… +${hidden} line${hidden === 1 ? "" : "s"}`].join("\n"),
   );
   return { rendered, rows: rendered.split("\n").length, tableOffsets: [] };
 }
@@ -348,11 +333,7 @@ function renderEntry(
     // Expanded: wrap the full body at the body width (hard wrap).
     const rows =
       entry.expanded && entry.full !== undefined
-        ? [
-            entry.label ?? entry.lines[0] ?? "",
-            ...wrapText(entry.full, Math.max(1, cols - 2)),
-            ...(entry.tokenNote === undefined ? [] : [entry.tokenNote]),
-          ]
+        ? [entry.label ?? entry.lines[0] ?? "", ...wrapText(entry.full, Math.max(1, cols - 2))]
         : (() => {
             // Collapsed: the note rides at the end of the (capped) line; the
             // cap shrinks by the note's width so both always fit the budget.
