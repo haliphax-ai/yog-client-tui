@@ -225,6 +225,24 @@ async function run(argv: readonly string[]): Promise<void> {
     seedEntries.push({ kind: "notice", lines: noticeLine("notice", event, detail) });
   };
 
+  /* Startup banner entries, kept separate so a poll's rehydration can
+   * keep them ahead of the transcript without duplicating them. */
+  const bannerEntries = (): LogEntry[] => [
+    {
+      kind: "notice",
+      lines: noticeLine(
+        "notice",
+        "connected",
+        `${baseUrl} · contract ${caps.contractVersion} · ` +
+          `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
+      ),
+    },
+    {
+      kind: "notice",
+      lines: noticeLine("notice", "model", `${config.model} · /quit exits`),
+    },
+  ];
+
   /**
    * Resume-or-create (PLAN §5.5 item 1): `--new` short-circuits everything
    * and forces a fresh session; then an explicit `--session <id>`; then the
@@ -294,56 +312,38 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   await resolveSession();
-  // Reconnect pickup (yog#88 / yog#31): if the resumed session still has a
-  // `running` turn — one left behind by a quit, crash, or another client —
-  // busy state over: spinner on (which arms every idle-gated command's
-  // refusal and enables Esc abort), a startup note, and a poll that
-  // rehydrates the settled turn's transcript rows and brings the counters
-  // up to speed. Old servers report no status at all → nothing to do.
+  // Reconnect pickup (yog#88 / yog#31): `running` turn at resume —
+  // spinner on, a startup note, and a poll that replays each fresh
+  // transcript dump through the same path resolveSession uses, so
+  // completed rows appear before the turn settles.
   const runningTurn = (resumeDump?.turns ?? []).find((t) => t.status === "running");
   const pollRunningTurn = (turnId: number): void => {
     startSpinner();
-    setState({ statusNote: "picked up an in-flight turn" });
+    let lastTotal = 0;
     const timer: NodeJS.Timeout = setInterval(() => {
       void (async () => {
         try {
           const fresh = await client.getTranscript();
           const row = (fresh.turns ?? []).find((t) => t.turnId === turnId);
-          if (row !== undefined && row.status !== undefined && row.status !== "running") {
+          if (row === undefined) return;
+          const settled = row.status !== undefined && row.status !== "running";
+          if (!settled && row.usage?.total_tokens === undefined) return;
+          const cols = process.stdout.columns ?? 80;
+          const entries = transcriptLogEntries(toTranscriptEntries(fresh.messages), cols, {
+            turns: perTurnDeltas(fresh.turns),
+          });
+          let total = finalContextTotal(fresh.turns);
+          if (total <= 0) total = row.usage?.total_tokens ?? 0;
+          if (total <= 0) total = estimatedContextTotal(fresh.messages);
+          if (!settled && total <= lastTotal) return;
+          lastTotal = total;
+          setState({
+            entries: [...bannerEntries(), ...seedEntries, ...entries],
+            tokenTotals: { prompt: 0, completion: 0, total },
+          });
+          if (settled) {
             clearInterval(timer);
-            const cols = process.stdout.columns ?? 80;
-            const entries = transcriptLogEntries(toTranscriptEntries(fresh.messages), cols, {
-              turns: perTurnDeltas(fresh.turns),
-            });
-            // Total = the settled turn's reported absolute context (fall
-            // back to the last dump's running snapshot, then the estimate).
-            let total = finalContextTotal(fresh.turns);
-            if (total <= 0) total = row.usage?.total_tokens ?? 0;
-            if (total <= 0) total = estimatedContextTotal(fresh.messages);
-            setState({
-              entries,
-              tokenTotals: { prompt: 0, completion: 0, total },
-            });
             stopSpinner();
-            setState({ statusNote: "" });
-            pushLines(
-              "notice",
-              noticeLine(
-                "notice",
-                "turn settled on the server",
-                `${row.status} · log rehydrated${total > 0 ? ` · ~${formatTokenTotal(total)} tokens in context` : ""}`,
-              ),
-            );
-          } else if (row?.usage?.total_tokens !== undefined) {
-            // Still running: keep the context-total estimate climbing with
-            // the server's live snapshot.
-            setState({
-              tokenTotals: {
-                prompt: 0,
-                completion: 0,
-                total: row.usage.total_tokens,
-              },
-            });
           }
         } catch {
           // Polling is best effort: a failed probe keeps the previous state
@@ -353,10 +353,7 @@ async function run(argv: readonly string[]): Promise<void> {
     }, 2000);
   };
   if (runningTurn !== undefined) {
-    startupNote(
-      "turn in flight",
-      `the session still has a running turn — generating; Esc aborts it`,
-    );
+    startupNote("turn in flight", "this session has a running turn — generating");
     pollRunningTurn(runningTurn.turnId);
   }
   // Persist the resolved id so the next launch resumes automatically. A
@@ -791,22 +788,7 @@ async function run(argv: readonly string[]): Promise<void> {
   // 3. Seed the store: startup banner, then the rehydrated transcript and
   //    startup notes (new/resumed/stale-id) already gathered above.
   setState({
-    entries: [
-      {
-        kind: "notice",
-        lines: noticeLine(
-          "notice",
-          "connected",
-          `${baseUrl} · contract ${caps.contractVersion} · ` +
-            `${caps.models.length} model(s) · ${caps.tools.length} tool(s)`,
-        ),
-      },
-      {
-        kind: "notice",
-        lines: noticeLine("notice", "model", `${config.model} · /quit exits`),
-      },
-      ...seedEntries,
-    ],
+    entries: [...bannerEntries(), ...seedEntries],
     model: config.model,
     ...(contextWindow !== undefined ? { contextWindow } : {}),
     focusTarget: FOCUS_NONE_TARGET,
