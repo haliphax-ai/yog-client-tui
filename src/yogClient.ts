@@ -2,10 +2,13 @@
  * yog HTTP/SSE client — every server interaction lives here.
  *
  * Flow: capabilities probe → resume-or-create session → prompt-only turns
- * (SSE) → transcript rehydration. The server owns the canonical transcript
  * and hydrates prior context itself, so a turn request carries only the new
  * prompt, and the session outlives the client: the server's DELETE is a
  * detach (dormant, kept), and only a server-side purge truly ends a session.
+ * Disconnects are cheap by contract (yog server, disconnect policy): the
+ * turn is wire-independent — quitting (or any disconnect) never aborts the
+ * in-flight turn; the server keeps running it to its terminal state,
+ * persists the transcript, and the next launch rehydrates the result.
  * If the SSE stream dies after `turn.started`, the turn is replayed from the
  * turn-status endpoint so the turn still reaches a terminal state.
  *
@@ -52,8 +55,15 @@ export interface TranscriptResult {
   sessionId: string;
   status: string;
   messages: TranscriptMessage[];
-  /** Per-turn metrics (usage/duration) when the server captured them. */
-  turns?: Array<{ turnId: number; usage?: TokenUsage; durationMs?: number }>;
+  /** Per-turn metrics (usage/duration + settle status) when the server
+   *  captured them. `status: "running"` marks an in-flight (typically
+   *  in-flight) turn — the reconnect-detection signal. */
+  turns?: Array<{
+    turnId: number;
+    status?: string;
+    usage?: TokenUsage;
+    durationMs?: number;
+  }>;
 }
 
 /** Well-known event types on the turn stream. */
@@ -459,27 +469,42 @@ export class YogClient {
     const status = typeof body.session?.status === "string" ? body.session.status : "open";
     const rows = Array.isArray(body.messages) ? body.messages : [];
     // Per-turn metrics are additive and optional; tolerate absent/malformed
-    // entries so old servers and odd payloads degrade gracefully.
+    // entries so old servers and odd payloads degrade gracefully. A row is
+    // kept when it has metrics OR a settle status — the status alone is
+    // meaningful (`running` = an active turn the reconnecting client should
+    // surface, even with no usage/duration yet).
     const turns = (Array.isArray(body.turns) ? body.turns : [])
-      .map((t): { turnId: number; usage?: TokenUsage; durationMs?: number } | undefined => {
-        if (t === null || typeof t !== "object" || Array.isArray(t)) return undefined;
-        const rec = t as Record<string, unknown>;
-        const turnId = typeof rec["turnId"] === "number" ? rec["turnId"] : undefined;
-        if (turnId === undefined) return undefined;
-        const usage = parseUsage(rec["usage"]);
-        const durationMs =
-          typeof rec["durationMs"] === "number" && Number.isFinite(rec["durationMs"])
-            ? (rec["durationMs"] as number)
-            : undefined;
-        return {
-          turnId,
-          ...(usage !== undefined ? { usage } : {}),
-          ...(durationMs !== undefined ? { durationMs } : {}),
-        };
-      })
+      .map(
+        (
+          t,
+        ):
+          | { turnId: number; status?: string; usage?: TokenUsage; durationMs?: number }
+          | undefined => {
+          if (t === null || typeof t !== "object" || Array.isArray(t)) return undefined;
+          const rec = t as Record<string, unknown>;
+          const turnId = typeof rec["turnId"] === "number" ? rec["turnId"] : undefined;
+          if (turnId === undefined) return undefined;
+          const usage = parseUsage(rec["usage"]);
+          const durationMs =
+            typeof rec["durationMs"] === "number" && Number.isFinite(rec["durationMs"])
+              ? (rec["durationMs"] as number)
+              : undefined;
+          const status =
+            typeof rec["status"] === "string" && rec["status"] !== ""
+              ? (rec["status"] as string)
+              : undefined;
+          return {
+            turnId,
+            ...(status !== undefined ? { status } : {}),
+            ...(usage !== undefined ? { usage } : {}),
+            ...(durationMs !== undefined ? { durationMs } : {}),
+          };
+        },
+      )
       .filter(
-        (t): t is { turnId: number; usage?: TokenUsage; durationMs?: number } =>
-          t !== undefined && (t.usage !== undefined || t.durationMs !== undefined),
+        (t): t is { turnId: number; status?: string; usage?: TokenUsage; durationMs?: number } =>
+          t !== undefined &&
+          (t.usage !== undefined || t.durationMs !== undefined || t.status !== undefined),
       );
     return {
       sessionId: id,
@@ -491,8 +516,12 @@ export class YogClient {
 
   /**
    * Run one turn: `POST /v1/sessions/{id}/turns` and consume its SSE stream,
-   * dispatching envelopes to `events`. When the stream dies after
-   * `turn.started`, the stored turn is replayed from the turn-status
+   * dispatching envelopes to `events`. The turn is wire-independent (yog
+   * contract, disconnect policy): when this process goes away mid-turn —
+   * quitting the TUI, a crash, a lost connection — the server keeps the
+   * turn running to its terminal state instead of aborting it, and the
+   * transcript persists for the next launch. When the stream dies
+   * after `turn.started`, the stored turn is replayed from the turn-status
    * endpoint so the turn still reaches a terminal state.
    */
   async runTurn(prompt: string, model: string, events: TurnEvents): Promise<TurnOutcome> {
