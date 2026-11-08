@@ -54,3 +54,33 @@ describe("colorizeToolLine: escaped quotes", () => {
     expect(stripAnsi(colorizeToolLine(input))).toBe(input);
   });
 });
+describe("colorizeToolLine: wrapped-text styling (regression)", () => {
+  it("keeps string color on EVERY continuation row of a multi-row string (emoji = 2 cells)", () => {
+    // A string spanning 4 wrapped rows: rows 3 and 4 must carry the same
+    // string color as row 2. Previously only the first continuation was
+    // re-emitted, so later rows rendered uncolored.
+    const input = '{"a":"✅ one\ntwo\nthree\nfour"}';
+    const out = colorizeToolLine(input);
+    expect(stripAnsi(out)).toBe(input);
+    const rows = out.split("\n");
+    expect(rows).toHaveLength(4);
+    for (const row of rows.slice(1)) {
+      expect(row.startsWith(C.str)).toBe(true);
+    }
+    // The closing quote is string-colored and the brace is punctuation,
+    // not string text — the carry must end when the string closes.
+    expect(rows[3]).toContain(`${C.str}"${C.reset}`);
+    expect(rows[3]).toContain(`${C.punct}}${C.reset}`);
+    expect(rows[3]).not.toContain(`${C.str}}`);
+  });
+
+  it("stops carrying after a string closes mid-row", () => {
+    const input = '{"a":"one\ntwo","b":123}';
+    const out = colorizeToolLine(input);
+    expect(stripAnsi(out)).toBe(input);
+    const [, second] = out.split("\n");
+    expect(second).toContain(`${C.str}"${C.reset}`);
+    expect(second).toContain(`${C.key}"b"${C.reset}`);
+    expect(second).toContain(`${C.num}123${C.reset}`);
+  });
+});

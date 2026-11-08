@@ -654,3 +654,26 @@ describe("renderEntry — tool-line wrapping", () => {
     expect(stripAnsi(rows[0]!)).toContain("⚙️ bash ❌ boom");
   });
 });
+describe("renderTable — wrapped list cells keep their styling (regression)", () => {
+  it("keeps italic styling on the continuation rows of a wrapped list cell (emoji = 2 cells)", () => {
+    const md =
+      "| Name | Desc |\n|---|---|\n| b | - list item with *styled words that wrap* and more text ✅ here |\n";
+    const table = parseTable(md)!;
+    // Narrow second column forces the list cell to wrap onto several
+    // physical rows; the hang-indent path must not strip their SGRs.
+    const rows = renderTable(table, 40, false, 0, undefined, [4, 18]);
+    const dataRows = rows.filter((r) => {
+      const plain = stripAnsi(r);
+      return plain.includes("styled") || plain.includes("wrap and") || plain.includes("here");
+    });
+    expect(dataRows.length).toBeGreaterThan(1);
+    const continuation = dataRows.slice(1);
+    expect(continuation.length).toBeGreaterThan(0);
+    for (const row of continuation) {
+      expect(row).toContain("\x1b[");
+      expect(displayWidth(row)).toBeLessThanOrEqual(40);
+    }
+    // Match the actual `;3m` italic SGR glamour emits (a \b3 regex misses it).
+    expect(dataRows.some((r) => r.includes(";3m") || r.includes("[3m"))).toBe(true);
+  });
+});

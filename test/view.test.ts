@@ -381,6 +381,40 @@ describe("renderMarkdown — hanging indent on wrapped list items (issue #85)", 
   });
 });
 
+describe("renderMarkdown — wrapped list continuations keep their styling (regression)", () => {
+  it("keeps glamour styling (fg + italic) on a wrapped bullet's continuation rows", () => {
+    const rows = renderMarkdown(
+      "- item with *italic words here that wrap* and more text following on and on and on",
+      30,
+    );
+    expect(rows.length).toBeGreaterThan(2);
+    for (const row of rows.slice(1)) {
+      // Every continuation row still carries an SGR (the old plain-domain
+      // rebuild stripped all of them) and is still the hang-indented row.
+      expect(row).toContain("\x1b[");
+      expect(stripAnsi(row).startsWith("  ")).toBe(true);
+      expect(displayWidth(row)).toBeLessThanOrEqual(30);
+    }
+    // The italic run itself survives the wrap: a continuation row carries
+    // an italic SGR (…;3m / 3;… / standalone 3).
+    expect(
+      rows.slice(1).some((r) => r.includes("3;") || r.includes(";3m") || r.includes("[3m")),
+    ).toBe(true);
+  });
+
+  it("keeps styling on wrapped continuations with emoji (2 cells each)", () => {
+    const rows = renderMarkdown(
+      "- start with ✅ emoji then *italic long description that keeps going* and going until it must wrap hard",
+      36,
+    );
+    expect(rows.length).toBeGreaterThan(2);
+    for (const row of rows) {
+      expect(displayWidth(row)).toBeLessThanOrEqual(36);
+      if (stripAnsi(row).trim() !== "") expect(row).toContain("\x1b[");
+    }
+  });
+});
+
 describe("resultStatus", () => {
   it("joins exit code and runtime", () => {
     expect(resultStatus({ exitCode: 0, runtimeMs: 42 })).toBe("exit 0 · 42ms");
