@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
 import { type FocusTarget } from "../../../src/core/focus.ts";
-import { totalRows } from "../../../src/ui/render/index.ts";
+import { cachedRows, focusUnits, totalRows } from "../../../src/ui/render/index.ts";
 import { cacheOf } from "../../../src/ui/render/entry.ts";
 import type { LogEntry } from "../../../src/core/entries.ts";
 import { stripAnsi } from "../../../src/util/ansi.ts";
@@ -380,5 +380,126 @@ describe("ChatLogComponent — visible-window production", () => {
     const visible = log.render({ cols: COLS });
     const full = log.produceRows(COLS);
     expect(visible).toEqual(full.slice(10, 17));
+  });
+});
+describe("ChatLogComponent — visibleFocusUnit scaling (issue #66)", () => {
+  const oldVisible = (
+    entries: LogEntry[],
+    units: { entry: number; table: number }[],
+    cols: number,
+    rawOff: number,
+    rows: number,
+    dir: 1 | -1,
+  ): { entry: number; table: number } | undefined => {
+    if (units.length === 0) return undefined;
+    const off = Math.max(0, rawOff);
+    const wb = off + Math.max(1, rows);
+    const bounds = (idx: number) => {
+      let top = 0;
+      for (let i = 0; i < idx; i++) top += cachedRows(entries[i]!, cols).length + 1;
+      return { top, height: cachedRows(entries[idx]!, cols).length + 1 };
+    };
+    const vis: typeof units = [];
+    for (const u of units) {
+      const b = bounds(u.entry);
+      if (b.top < wb && b.top + b.height > off) vis.push(u);
+    }
+    if (dir === 1) {
+      if (vis.length > 0) return vis[0];
+      for (const u of units) if (bounds(u.entry).top >= off) return u;
+      return units[units.length - 1];
+    }
+    if (vis.length > 0) return vis[vis.length - 1];
+    for (let i = units.length - 1; i >= 0; i--) {
+      const b = bounds(units[i]!.entry);
+      if (b.top + b.height <= wb) return units[i];
+    }
+    return units[0];
+  };
+
+  it("matches the old linear scan for mixed entries, many windows and both directions", () => {
+    const entries: LogEntry[] = [];
+    for (let i = 0; i < 120; i++) {
+      const k = i % 7;
+      if (k === 0) entries.push({ kind: "system", lines: [`sys ${i}`] });
+      else if (k === 1)
+        entries.push({
+          kind: "chunk",
+          lines: ["run exit 0", ...Array.from({ length: 8 }, (_, j) => `l${j}`)],
+        });
+      else if (k === 2)
+        entries.push({ kind: "assistant", lines: ["| A | B |\n|---|---|\n| 1 | 2 |"] });
+      else if (k === 3) entries.push({ kind: "assistant", lines: ["hello"] });
+      else if (k === 4)
+        entries.push({
+          kind: "tool",
+          lines: ['⚙️ run ✅ {"a":1}'],
+          label: "⚙️ run ✅",
+          full: '{\n"a":1\n}',
+        });
+      else if (k === 5)
+        entries.push({
+          kind: "user",
+          lines: ["| X | Y |\n|---|---|\n| 3 | 4 |\n\n| P | Q |\n|---|---|\n| 5 | 6 |"],
+        });
+      else entries.push({ kind: "notice", lines: ["note", "detail"] });
+    }
+    const units = focusUnits(entries);
+    const total = totalRows(entries, COLS);
+    const offsets = [
+      -5,
+      0,
+      1,
+      2,
+      5,
+      10,
+      50,
+      Math.floor(total / 2),
+      total - 10,
+      total - 1,
+      total,
+      total + 5,
+      total + 100,
+    ];
+    for (const off of offsets) {
+      for (const rows of [1, 3, 24]) {
+        for (const dir of [1, -1] as const) {
+          const log = new Log(entries);
+          log.setOffset(off);
+          log.setViewportRows(rows);
+          log.clearFocus();
+          log.moveFocus(dir, rows);
+          const got =
+            log.getFocusIndex() >= 0
+              ? { entry: log.getFocusIndex(), table: log.getFocusTable() }
+              : undefined;
+          expect(got, `off=${off} rows=${rows} dir=${dir}`).toEqual(
+            oldVisible(entries, units, COLS, off, rows, dir),
+          );
+        }
+      }
+    }
+  });
+
+  it("stays fast on a large log ring (no O(N^2) rescan per Tab)", () => {
+    const entries: LogEntry[] = [];
+    for (let i = 0; i < 5000; i++)
+      entries.push({
+        kind: "chunk",
+        lines: ["run exit 0", "a", "b", "c", "d", "e", "f", "g", "h"],
+      });
+    const log = new Log(entries);
+    log.setViewportRows(24);
+    log.setOffset(500);
+    log.clearFocus();
+    log.moveFocus(1);
+    expect(log.getFocusIndex()).toBeGreaterThanOrEqual(0);
+    const t0 = performance.now();
+    for (let k = 0; k < 100; k++) {
+      log.setOffset(500 + (k % 10));
+      log.clearFocus();
+      log.moveFocus(k % 2 === 0 ? 1 : -1, 24);
+    }
+    expect(performance.now() - t0).toBeLessThan(200);
   });
 });
