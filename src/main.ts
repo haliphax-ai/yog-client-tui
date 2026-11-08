@@ -221,8 +221,14 @@ async function run(argv: readonly string[]): Promise<void> {
 
   /** Startup notes and rehydrated conversation, seeded before the first frame. */
   const seedEntries: LogEntry[] = [];
+  /** Startup notes only (no transcript rows): a poll rehydration rebuilds
+   * the transcript from its fresh dump, so composing notes + fresh rows
+   * must not also include the resume-time transcript rows in seedEntries. */
+  const startupNotes: LogEntry[] = [];
   const startupNote = (event: string, detail?: string): void => {
-    seedEntries.push({ kind: "notice", lines: noticeLine("notice", event, detail) });
+    const entry: LogEntry = { kind: "notice", lines: noticeLine("notice", event, detail) };
+    seedEntries.push(entry);
+    startupNotes.push(entry);
   };
 
   /* Startup banner entries, kept separate so a poll's rehydration can
@@ -316,10 +322,14 @@ async function run(argv: readonly string[]): Promise<void> {
   // spinner on, a startup note, and a poll that replays each fresh
   // transcript dump through the same path resolveSession uses, so
   // completed rows appear before the turn settles.
-  const runningTurn = (resumeDump?.turns ?? []).find((t) => t.status === "running");
+  // Pick the LAST running row: the server's orchestrator-owned row is
+  // the one stamped with events/messages/usage (any earlier adapter row
+  // is a duplicate with none of those), and `.find` (first) would wait
+  // on the wrong row forever.
+  const runningTurn = [...(resumeDump?.turns ?? [])].reverse().find((t) => t.status === "running");
   const pollRunningTurn = (turnId: number): void => {
     startSpinner();
-    let lastTotal = 0;
+    let lastSignature = "";
     const timer: NodeJS.Timeout = setInterval(() => {
       void (async () => {
         try {
@@ -327,7 +337,6 @@ async function run(argv: readonly string[]): Promise<void> {
           const row = (fresh.turns ?? []).find((t) => t.turnId === turnId);
           if (row === undefined) return;
           const settled = row.status !== undefined && row.status !== "running";
-          if (!settled && row.usage?.total_tokens === undefined) return;
           const cols = process.stdout.columns ?? 80;
           const entries = transcriptLogEntries(toTranscriptEntries(fresh.messages), cols, {
             turns: perTurnDeltas(fresh.turns),
@@ -335,10 +344,25 @@ async function run(argv: readonly string[]): Promise<void> {
           let total = finalContextTotal(fresh.turns);
           if (total <= 0) total = row.usage?.total_tokens ?? 0;
           if (total <= 0) total = estimatedContextTotal(fresh.messages);
-          if (!settled && total <= lastTotal) return;
-          lastTotal = total;
+          // Update whenever the visible content changes — not only when
+          // the token total climbs. The old gates (`usage.total_tokens`
+          // must be present, total must exceed the last total) meant a
+          // running turn with no reported usage yet, or with usage that
+          // only moves at round boundaries, never landed in the log
+          // while generating, and the settled turn could be dropped by
+          // the total gate as well. Signature on message count + last
+          // seq + settled flag + total: any of those moving is visible.
+          const lastMessage = fresh.messages[fresh.messages.length - 1];
+          const signature = [
+            fresh.messages.length,
+            lastMessage?.seq ?? 0,
+            settled ? row.status : "running",
+            total,
+          ].join(":");
+          if (!settled && signature === lastSignature) return;
+          lastSignature = signature;
           setState({
-            entries: [...bannerEntries(), ...seedEntries, ...entries],
+            entries: [...bannerEntries(), ...startupNotes, ...entries],
             tokenTotals: { prompt: 0, completion: 0, total },
           });
           if (settled) {
