@@ -36,8 +36,9 @@
  *   /quit           quit via the slash command (type "/" as the first
  *                   character, Tab completes, Enter runs it). Ctrl+C is
  *                   unbound (inert); the session stays on the server and
- *                   an in-flight turn keeps running there (linger), so the
- *                   next launch resumes it and rehydrates the turn's result.
+ *                   an in-flight turn keeps running there (wire-independent
+ *                   turn), so the next launch resumes it and rehydrates the
+ *                   turn's result.
  *   Input editing   the TextArea keymap is fully reachable while the input
  *                   holds the ring (arrows, Alt/Ctrl+arrows word nav,
               // compact and handoff both start a fresh server session — adopt it
@@ -277,7 +278,7 @@ async function run(argv: readonly string[]): Promise<void> {
 
   await resolveSession();
   // Reconnect pickup (yog#88 / yog#31): if the resumed session still has a
-  // `running` turn — one we lingered on quit, or another client's — take the
+  // `running` turn — one left behind by a quit, crash, or another client —
   // busy state over: spinner on (which arms every idle-gated command's
   // refusal and enables Esc abort), a startup note, and a poll that
   // rehydrates the settled turn's transcript rows and brings the counters
@@ -696,11 +697,12 @@ async function run(argv: readonly string[]): Promise<void> {
 
   /**
    * Quit: restore the terminal and exit. The session is NOT deleted and the
-   * in-flight turn, if any, is NOT aborted — turns are sent with `linger:
-   * true`, so the server keeps running the turn to its terminal state after
-   * the client hangs up, and the next launch rehydrates the transcript
-   * including this turn's result (the DELETE endpoint is a detach, and a
-   * hard end is a future server-side purge command, not the quit path).
+   * in-flight turn, if any, is NOT aborted — turns are wire-independent (yog
+   * contract, disconnect policy), so the server keeps running the turn to
+   * its terminal state after the client hangs up, and the next launch
+   * rehydrates the transcript including this turn's result (the DELETE
+   * endpoint is a detach, and a hard end is a future server-side purge
+   * command, not the quit path).
    */
   const quit = async (code: number): Promise<void> => {
     if (quitting) return;

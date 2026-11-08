@@ -5,9 +5,10 @@
  * and hydrates prior context itself, so a turn request carries only the new
  * prompt, and the session outlives the client: the server's DELETE is a
  * detach (dormant, kept), and only a server-side purge truly ends a session.
- * Every turn is sent with `linger: true`: quitting (or any disconnect) never
- * aborts the in-flight turn — the server keeps running it to its terminal
- * state, persists the transcript, and the next launch rehydrates the result.
+ * Disconnects are cheap by contract (yog server, disconnect policy): the
+ * turn is wire-independent — quitting (or any disconnect) never aborts the
+ * in-flight turn; the server keeps running it to its terminal state,
+ * persists the transcript, and the next launch rehydrates the result.
  * If the SSE stream dies after `turn.started`, the turn is replayed from the
  * turn-status endpoint so the turn still reaches a terminal state.
  *
@@ -56,7 +57,7 @@ export interface TranscriptResult {
   messages: TranscriptMessage[];
   /** Per-turn metrics (usage/duration + settle status) when the server
    *  captured them. `status: "running"` marks an in-flight (typically
-   *  lingered) turn — the reconnect-detection signal. */
+   *  in-flight) turn — the reconnect-detection signal. */
   turns?: Array<{
     turnId: number;
     status?: string;
@@ -515,11 +516,11 @@ export class YogClient {
 
   /**
    * Run one turn: `POST /v1/sessions/{id}/turns` and consume its SSE stream,
-   * dispatching envelopes to `events`. The turn is sent with `linger: true`
-   * (yog contract, disconnect policy): when this process goes away
-   * mid-turn — quitting the TUI, a crash, a lost connection — the server
-   * keeps the turn running to its terminal state instead of aborting it,
-   * and the transcript persists for the next launch. When the stream dies
+   * dispatching envelopes to `events`. The turn is wire-independent (yog
+   * contract, disconnect policy): when this process goes away mid-turn —
+   * quitting the TUI, a crash, a lost connection — the server keeps the
+   * turn running to its terminal state instead of aborting it, and the
+   * transcript persists for the next launch. When the stream dies
    * after `turn.started`, the stored turn is replayed from the turn-status
    * endpoint so the turn still reaches a terminal state.
    */
@@ -608,7 +609,7 @@ export class YogClient {
       res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/turns`, {
         method: "POST",
         headers: this.headers({ "content-type": "application/json" }),
-        body: JSON.stringify({ prompt, model, linger: true }),
+        body: JSON.stringify({ prompt, model }),
       });
     } catch (err) {
       throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
