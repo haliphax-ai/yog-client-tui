@@ -971,3 +971,35 @@ describe("createTurnPresenter incremental tokens", () => {
     expect(status?.lines[0]).toBe("runtime 1s · 0 tool calls · 200 tokens");
   });
 });
+
+describe("transcriptLogEntries — in-flight (synthetic) rows", () => {
+  it("renders a running turn's synthetic rows (user, partial prose, tool round) in seq order", () => {
+    // The server's transcript dump synthesizes in-flight rows from
+    // persisted turn_events while a turn is running; the poll must be
+    // able to render them exactly like settled rows.
+    const out = transcriptLogEntries(
+      toTranscriptEntries([
+        row({ seq: 1, turnId: "9", role: "user", content: "inflight q" }),
+        row({ seq: 2, turnId: "9", role: "assistant", content: "partial " }),
+        row({
+          seq: 3,
+          turnId: "9",
+          role: "assistant",
+          toolCalls: [{ id: "c1", type: "function", function: { name: "bash", arguments: "{}" } }],
+        }),
+        row({
+          seq: 4,
+          turnId: "9",
+          role: "tool",
+          toolCallId: "c1",
+          name: "bash",
+          content: '{"exitCode":0,"stdout":"ok"}',
+        }),
+      ]),
+      COLS,
+    );
+    expect(out.map((e) => e.kind)).toEqual(["user", "assistant", "tool", "chunk"]);
+    expect(out[0]?.lines[0]).toBe("inflight q");
+    expect(out[1]?.lines[0]).toBe("partial ");
+  });
+});
