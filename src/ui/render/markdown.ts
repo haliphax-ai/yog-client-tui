@@ -161,11 +161,21 @@ const LIST_MARK_RE = /^(\s*)(?:[-*+•]|\d{1,9}[.)])( )/;
  * several top-level rows. Every row after a marker row is padded to the
  * marker's content column (indent + marker + separator) until the next
  * marker row or blank row. Rows are already normalized text — glamour
- * colors words, not leading whitespace, so padding in the plain domain
- * and re-styling would be indistinguishable; padding is prepended as
- * literal spaces and any row pushed past `cols` is capped (its last word
- * fit before the pad, so the cap trims pad, not content — except at
+ * colors words, not leading whitespace, so the pad itself needs no
+ * styling; it is prepended as literal spaces BEFORE the row's own escape
+ * sequences and any row pushed past `cols` is capped (its last word fit
+ * before the pad, so the cap trims pad, not content — except at
  * pathological 1-cell budgets where the marker itself cannot fit).
+ *
+ * The continuation row's styling must survive: rebuilding it from
+ * `stripAnsi(row)` (as this function once did) dropped every SGR on
+ * wrapped rows — italic/bold runs and glamour's fg colors vanished the
+ * moment a list item wrapped, in assistant prose and in table cells
+ * alike. So the row is trimmed in the ANSI domain instead: leading
+ * visible spaces are removed with {@link trimLeading} (escape sequences
+ * are kept), trailing visible spaces (glamour's per-row padding) are
+ * cut with `sliceAnsi` at the last visible cell, and the hang pad is
+ * prepended to the intact styled row.
  */
 export function hangWrapRows(rows: string[], cols: number): string[] {
   const out: string[] = [];
@@ -180,7 +190,13 @@ export function hangWrapRows(rows: string[], cols: number): string[] {
       continue;
     }
     if (hang > 0 && plain.trim() !== "") {
-      out.push(truncateAnsi(" ".repeat(hang) + plain.trim(), cols));
+      // Trim leading/trailing VISIBLE spaces without touching escapes:
+      // trimLeading keeps embedded SGR/OSC runs, sliceAnsi keeps the
+      // trailing runs attached past the last visible cell.
+      const trimmed = trimLeading(row, Number.MAX_SAFE_INTEGER);
+      const contentEnd = displayWidth(stripAnsi(trimmed).replace(/ +$/, ""));
+      const styled = contentEnd > 0 ? sliceAnsi(trimmed, 0, contentEnd) : "";
+      out.push(truncateAnsi(" ".repeat(hang) + styled, cols));
       continue;
     }
     out.push(row);

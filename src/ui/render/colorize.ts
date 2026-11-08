@@ -7,12 +7,21 @@
  * continuation rows keep their formatting. Escapes are honored: a \" never
  * opens or closes a string, and a string whose backslash sits against a
  * wrap split stays string-colored into the continuation row.
+ *
+ * The carry is per OPEN STRING, not per row: a string spanning three or
+ * more wrapped rows re-arms the carry at the end of every row it touches
+ * (see the end-of-row propagation below), so row N+1 is colored from the
+ * same string color as row N. The previous implementation only armed the
+ * carry on the row that OPENED the string, so the second continuation row
+ * of a long string lost its color (and a later row could even be misread
+ * as still inside the string, coloring a following `}` as string text).
  */
 import { C } from "../theme.ts";
 import { matchEscape } from "../../util/ansi.ts";
 
 export function colorizeToolLine(text: string): string {
   let pending = ""; // open token color carried across a row split
+  let carryEscaped = false; // backslash-escape state carried across a row split
   const outRows: string[] = [];
 
   for (const row of text.split("\n")) {
@@ -22,7 +31,8 @@ export function colorizeToolLine(text: string): string {
     const carry = pending;
     pending = "";
     const inStringInit = carry !== "";
-    let escapedInit = false; // escape state carried across a row split
+    let escapedInit = carryEscaped; // escape state carried across a row split
+    carryEscaped = false;
     let i = 0;
     let inString = inStringInit; // string carried across a row split
     let escaped = false; // a backslash consumed an escape mid-scan
@@ -192,6 +202,15 @@ export function colorizeToolLine(text: string): string {
       i += 1;
     }
     if (!headDone && head !== "") out += head; // prefix-only row
+    // End-of-row propagation: if this row ENDS inside a string, the next
+    // row starts inside it too — re-arm the carry with the string's color
+    // (and the dangling-backslash escape state, if any) so arbitrarily
+    // long wrapped strings stay colored on every continuation row, not
+    // just the first. A string that closed mid-row leaves no carry.
+    if (inString) {
+      pending = carry !== "" ? carry : C.str;
+      carryEscaped = escaped;
+    }
     outRows.push(out);
   }
   return outRows.join("\n");
