@@ -276,6 +276,23 @@ async function run(argv: readonly string[]): Promise<void> {
     startupNote("new session", id);
   };
 
+  // ---- busy spinner ------------------------------------------------------
+  let spinnerTimer: NodeJS.Timeout | undefined;
+  const startSpinner = (): void => {
+    if (spinnerTimer !== undefined) return;
+    setState({ busy: true });
+    spinnerTimer = setInterval(() => {
+      setState({ busyFrame: getState().busyFrame + 1 });
+    }, 90);
+  };
+  const stopSpinner = (): void => {
+    setState({ busy: false });
+    if (spinnerTimer !== undefined) {
+      clearInterval(spinnerTimer);
+      spinnerTimer = undefined;
+    }
+  };
+
   await resolveSession();
   // Reconnect pickup (yog#88 / yog#31): if the resumed session still has a
   // `running` turn — one left behind by a quit, crash, or another client —
@@ -376,23 +393,6 @@ async function run(argv: readonly string[]): Promise<void> {
   const scheduler = createScheduler(draw);
   // The fatal handler draws its notice through the same flush timer.
   fatalScheduler = scheduler.request;
-
-  // ---- busy spinner ------------------------------------------------------
-  let spinnerTimer: NodeJS.Timeout | undefined;
-  const startSpinner = (): void => {
-    if (spinnerTimer !== undefined) return;
-    setState({ busy: true });
-    spinnerTimer = setInterval(() => {
-      setState({ busyFrame: getState().busyFrame + 1 });
-    }, 90);
-  };
-  const stopSpinner = (): void => {
-    setState({ busy: false });
-    if (spinnerTimer !== undefined) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = undefined;
-    }
-  };
 
   // ---- turn submission ---------------------------------------------------
   /**
