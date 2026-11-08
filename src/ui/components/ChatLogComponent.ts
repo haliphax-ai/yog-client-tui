@@ -42,10 +42,53 @@ function entryBounds(
   cols: number,
   index: number,
 ): { top: number; height: number } {
-  const top = totalRows(entries.slice(0, index), cols);
+  const summary = heightSummaryOf(entries, cols);
+  const top = summary.tops[index] ?? summary.total;
   const entry = entries[index];
   const height = entry === undefined ? 0 : cachedRows(entry, cols).length + 1;
   return { top, height };
+}
+
+/** First unit index whose entry starts at or after terminal-row `row`. */
+function firstUnitAtOrAfter(
+  units: readonly FocusTarget[],
+  summary: ReturnType<typeof heightSummaryOf>,
+  row: number,
+): number {
+  let lo = 0;
+  let hi = units.length - 1;
+  let found = units.length;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const top = summary.tops[(units[mid] as FocusTarget).entry] ?? summary.total;
+    if (top >= row) {
+      found = mid;
+      hi = mid - 1;
+    } else lo = mid + 1;
+  }
+  return found;
+}
+
+/** Last unit index whose entry ends at or before terminal-row `row`. */
+function lastUnitEndingAtOrBefore(
+  units: readonly FocusTarget[],
+  summary: ReturnType<typeof heightSummaryOf>,
+  cols: number,
+  entries: LogEntry[],
+  row: number,
+): number {
+  let lo = 0;
+  let hi = units.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const { top, height } = entryBounds(entries, cols, (units[mid] as FocusTarget).entry);
+    if (top + height <= row) {
+      found = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  return found;
 }
 
 /**
@@ -56,6 +99,9 @@ function entryBounds(
  * after the window for Tab, the last at or before it for Shift+Tab. A
  * viewport holding a single unit resolves to it from both directions.
  * Returns undefined when the log has no focusable units.
+ *
+ * Entry tops from the cached height summary are strictly increasing, so
+ * the visible span and both fallbacks are bisected rather than scanned.
  */
 function visibleFocusUnit(
   entries: LogEntry[],
@@ -66,29 +112,30 @@ function visibleFocusUnit(
   dir: 1 | -1,
 ): FocusTarget | undefined {
   if (units.length === 0) return undefined;
+  scrollOffset = Math.max(0, scrollOffset);
   const windowBottom = scrollOffset + Math.max(1, rows);
-  const visible: FocusTarget[] = [];
-  for (const unit of units) {
-    const { top, height } = entryBounds(entries, cols, unit.entry);
-    if (top < windowBottom && top + height > scrollOffset) visible.push(unit);
+  const summary = heightSummaryOf(entries, cols);
+  if (summary.total === 0) return dir === 1 ? units[0] : units[units.length - 1];
+
+  const topEntry = entryAt(summary.tops, scrollOffset);
+  const bottomEntry = entryAt(summary.tops, Math.max(0, windowBottom - 1));
+  const firstVisibleEntry = Math.min(topEntry, entries.length - 1);
+  const lastVisibleEntry = Math.min(bottomEntry, entries.length - 1);
+
+  const firstUnit = firstUnitAtOrAfter(units, summary, summary.tops[firstVisibleEntry] ?? 0);
+  let lastUnit = units.length - 1;
+  while (lastUnit >= 0 && (units[lastUnit] as FocusTarget).entry > lastVisibleEntry) lastUnit -= 1;
+
+  if (firstUnit <= lastUnit && lastUnit >= 0 && firstUnit < units.length) {
+    return dir === 1 ? units[firstUnit] : units[lastUnit];
   }
+
   if (dir === 1) {
-    if (visible.length > 0) return visible[0] as FocusTarget;
-    // Nothing visible in the window: the next closest is the first unit at
-    // or after the window top; when the window is past every unit, the last.
-    for (const unit of units) {
-      if (entryBounds(entries, cols, unit.entry).top >= scrollOffset) return unit;
-    }
-    return units[units.length - 1] as FocusTarget;
+    const next = firstUnitAtOrAfter(units, summary, scrollOffset);
+    return next < units.length ? units[next] : units[units.length - 1];
   }
-  if (visible.length > 0) return visible[visible.length - 1] as FocusTarget;
-  // Nothing visible: the last unit at or before the window bottom; when the
-  // window is before every unit, the first.
-  for (let i = units.length - 1; i >= 0; i--) {
-    const bounds = entryBounds(entries, cols, (units[i] as FocusTarget).entry);
-    if (bounds.top + bounds.height <= windowBottom) return units[i] as FocusTarget;
-  }
-  return units[0] as FocusTarget;
+  const prev = lastUnitEndingAtOrBefore(units, summary, cols, entries, windowBottom);
+  return prev >= 0 ? units[prev] : units[0];
 }
 
 export abstract class ChatLogComponent extends ViewportComponent {
