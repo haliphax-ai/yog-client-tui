@@ -50,7 +50,7 @@ export interface LogEntry {
   /** Tool label (`⚙️ name ✅`) so the check sits before the args in both
    *  collapsed and expanded views. */
   label?: string;
-  /** Compact args text (re-appended after `label` when the check arrives). */
+  /** Uncapped compact args; renderer caps at current width. */
   argsCompact?: string;
   /** Full (untruncated) args text for the expanded view. */
   full?: string;

@@ -10,6 +10,18 @@
  */
 import { displayWidth, truncateAnsi } from "../util/ansi.ts";
 
+/** Uncapped compact args (renderer caps at current width). */
+export function compactArgs(value: unknown): string {
+  let text: string;
+  try {
+    if (typeof value === "string") text = value;
+    else text = JSON.stringify(value) ?? String(value);
+  } catch {
+    text = String(value);
+  }
+  return text.replace(/\s+/g, " ").trim();
+}
+
 /**
  * Render tool-call arguments as JSON. `compact` (default): whitespace-
  * collapsed, capped to `max` CELLS with an ellipsis — the inline call line.
@@ -20,16 +32,17 @@ export function prettyArgs(
   max: number,
   mode: "compact" | "pretty" = "compact",
 ): string {
-  let text: string;
-  try {
-    if (typeof value === "string") text = value;
-    else
-      text = JSON.stringify(value, undefined, mode === "pretty" ? 2 : undefined) ?? String(value);
-  } catch {
-    text = String(value);
+  if (mode === "pretty") {
+    let text: string;
+    try {
+      if (typeof value === "string") text = value;
+      else text = JSON.stringify(value, undefined, 2) ?? String(value);
+    } catch {
+      text = String(value);
+    }
+    return text;
   }
-  if (mode === "pretty") return text;
-  const clean = text.replace(/\s+/g, " ").trim();
+  const clean = compactArgs(value);
   const limit = Math.max(12, max);
   // Cells, not characters: 20 emoji are 40 cells and must not blow past
   // the budget.
