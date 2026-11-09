@@ -345,9 +345,9 @@ describe("renderTable — styled output", () => {
     const focused = renderTable(table, 80, true, 0);
     const unfocused = renderTable(table, 80, false, 0);
     // Light runes in both modes — focus is a color, not a weight change
-    expect(focused.join("")).toContain("╱");
+    expect(focused.join("")).toContain("│");
     expect(focused.join("")).toContain("─");
-    expect(unfocused.join("")).toContain("╱");
+    expect(unfocused.join("")).toContain("│");
     expect(unfocused.join("")).toContain("─");
     // Focused border carries the blue fg (ST.tableBorderFocused = #60a5fa)
     expect(focused.join("")).toContain("38;2;96;165;250");
@@ -395,8 +395,8 @@ describe("renderTable — styled output", () => {
   it("scrollX truncates leading cells from each line", () => {
     const noScroll = renderTable(table, 80, false, 0);
     const scrolled = renderTable(table, 80, false, 3);
-    // scrollX=3 slices the first 3 chars off data rows: "╱ Alice..." → "lice..."
-    expect(stripAnsi(noScroll[4]!).charAt(0)).toBe("╱");
+    // scrollX=3 slices the first 3 chars off data rows: "│ Alice..." → "lice..."
+    expect(stripAnsi(noScroll[4]!).charAt(0)).toBe("│");
     expect(stripAnsi(scrolled[4]!).startsWith("lice")).toBe(true);
     // The scrolled data row differs from the unscrolled one
     expect(scrolled[4]).not.toBe(noScroll[4]);
@@ -405,7 +405,7 @@ describe("renderTable — styled output", () => {
   it("scrollX replaces a straddling wide grapheme's visible half with blank cells", () => {
     // 🧠 is 2 cells; when its first cell is off-screen to the left, the
     // second cell must render as a space (not pull the whole glyph in).
-    // Row layout: ╱ 🧠 brain ╱ x ╱ — 🧠 occupies cells 2-3, so scrollX=3
+    // Row layout: │ 🧠 brain │ x │ — 🧠 occupies cells 2-3, so scrollX=3
     // cuts between its two cells: first cell gone, second → space.
     const md = `| Name | Value |\n| --- | --- |\n| 🧠 brain | x |`;
     const table = parseTable(md)!;
@@ -430,8 +430,8 @@ describe("renderTable — styled output", () => {
     // No embedded newline survives: every emitted row is one physical line
     for (const row of rows) expect(row).not.toContain("\n");
     // The single-line cell occupies BOTH physical lines (top-aligned)
-    expect(stripAnsi(rows[4]!)).toContain("╱");
-    expect(stripAnsi(rows[5]!)).toContain("╱");
+    expect(stripAnsi(rows[4]!)).toContain("│");
+    expect(stripAnsi(rows[5]!)).toContain("│");
   });
 
   it("keeps zebra stripes per logical row across <br> splits", () => {
@@ -491,7 +491,7 @@ describe("renderTable — styled output", () => {
     expect(t.columns[0]!.width).toBe(4); // widest line is "text"
     const rows = renderTable(t, 80, false, 0);
     // second physical line is blank inside the borders (w=4 cell → 6 spaces)
-    expect(stripAnsi(rows[5]!)).toBe("╱      ╱");
+    expect(stripAnsi(rows[5]!)).toBe("│      │");
   });
 
   it("measures width from rendered text, not raw emphasis markers", () => {
@@ -504,7 +504,7 @@ describe("renderTable — styled output", () => {
     // (strip ANSI — the white fg now wraps each dash)
     expect(stripAnsi(rows[1]!)).toContain("─".repeat(11));
     // padding matches: content line ends flush with the border
-    expect(stripAnsi(rows[4]!)).toContain("╱ Pour Over ╱");
+    expect(stripAnsi(rows[4]!)).toContain("│ Pour Over │");
   });
 
   it("keeps padded blank cells on continuation lines (dividers align)", () => {
@@ -513,10 +513,10 @@ describe("renderTable — styled output", () => {
     const line1 = stripAnsi(rows[4]!);
     const line2 = stripAnsi(rows[5]!);
     // Line 2: cell A shows its second break-line, cell B is blank padding
-    expect(line2).toMatch(/^╱ two ╱ {3}╱$/);
+    expect(line2).toMatch(/^│ two │ {3}│$/);
     // Dividers at the same offsets on both lines
-    const d1 = line1.indexOf("╱", 1);
-    const d2 = line2.indexOf("╱", 1);
+    const d1 = line1.indexOf("│", 1);
+    const d2 = line2.indexOf("│", 1);
     expect(d2).toBe(d1);
   });
 
