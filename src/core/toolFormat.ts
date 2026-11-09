@@ -103,6 +103,21 @@ export function formatRuntime(durationMs: number): string {
   if (hours > 0 || minutes > 0 || seconds > 0) out += `${seconds}s`;
   return out || `${ms}ms`;
 }
+/**
+ * Human-readable backoff duration for a 429 notice: `42s`, `2m27s`, `1h0m0s` — the same largest-nonzero-unit concatenation as `formatRuntime`, but ceiling-rounded to the next whole second so a sub-second wait never reads as `0s` and any fractional second always shows a wait.
+ */
+export function formatBackoff(delayMs: number): string {
+  if (!Number.isFinite(delayMs) || delayMs <= 0) return "0s";
+  const seconds = Math.ceil(delayMs / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+  let out = "";
+  if (hours > 0) out += `${hours}h`;
+  if (hours > 0 || minutes > 0) out += `${minutes}m`;
+  if (hours > 0 || minutes > 0 || secs > 0) out += `${secs}s`;
+  return out || `${seconds}s`;
+}
 
 /**
  * Abbreviate a token total (K/M with one decimal) — the shared formatter

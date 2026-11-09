@@ -12,6 +12,7 @@ import { parseToolArgs, type TurnEvents, type TokenUsage } from "../yogClient.ts
 import {
   compactArgs,
   formatRuntime,
+  formatBackoff,
   formatTokenTotal,
   prettyArgs,
   resultStatus,
@@ -195,6 +196,16 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         if (delta > 0) summary.push(`${formatTokenTotal(delta)} tokens`);
       }
       host.append("status", [summary.join(" · ")]);
+    },
+    onRateLimited: (info) => {
+      host.append(
+        "notice",
+        noticeLine(
+          "notice",
+          "warning",
+          `too many requests/tokens, backing off ${formatBackoff(info.delayMs)}`,
+        ),
+      );
     },
     onError: (code, message) => {
       host.append("error", noticeLine("error", "turn error", `${code}: ${message}`));

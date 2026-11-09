@@ -1171,6 +1171,96 @@ describe("YogClient token usage", () => {
       },
     ]);
   });
+
+  describe("YogClient.runTurn — rate_limited backoff", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("passes rate_limited events to onRateLimited and accumulates rateLimitRetries", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL | Request) => {
+          if (String(url).endsWith("/stream")) {
+            return sseResponse([
+              helloFrame(),
+              envFrame("turn.started", { turnId: "t1", model: "m" }),
+              envFrame("rate_limited", {
+                attempt: 1,
+                maxAttempts: 4,
+                delayMs: 147000,
+                retryAfterMs: 147000,
+                round: 0,
+                status: 429,
+              }),
+              envFrame("turn.finished", {
+                durationMs: 9,
+                rateLimitRetries: 1,
+              }),
+            ]);
+          }
+          return msgResponse("turn.start", { accepted: true }, 202);
+        }),
+      );
+      const client = new YogClient("http://test");
+      client.sessionId = "s1";
+      const rateLimited: Array<{ attempt: number; maxAttempts: number; delayMs: number }> = [];
+      const outcome = await client.runTurn("hello", "model-x", {
+        onRateLimited: (info) => rateLimited.push(info),
+      });
+      expect(outcome.ok).toBe(true);
+      expect(outcome.rateLimitRetries).toBe(1);
+      expect(rateLimited).toEqual([{ attempt: 1, maxAttempts: 4, delayMs: 147000 }]);
+    });
+
+    it("carries rateLimitRetries through turn-status recovery", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (url: string | URL | Request) => {
+          if (String(url).endsWith("/stream")) {
+            return failingResponse(
+              helloFrame() + envFrame("turn.started", { turnId: "t1", model: "m" }),
+              new Error("reset"),
+            );
+          }
+          if (String(url).endsWith("/messages")) {
+            return msgResponse("turn.get", {
+              turn: {
+                events: [
+                  { type: "turn.started", data: { turnId: "t1", model: "m" } },
+                  {
+                    type: "rate_limited",
+                    data: {
+                      attempt: 1,
+                      maxAttempts: 4,
+                      delayMs: 147000,
+                      round: 0,
+                      status: 429,
+                    },
+                  },
+                  {
+                    type: "turn.finished",
+                    data: { durationMs: 9, rateLimitRetries: 1 },
+                  },
+                ],
+              },
+            });
+          }
+          return msgResponse("turn.start", { accepted: true }, 202);
+        }),
+      );
+      const client = new YogClient("http://test");
+      client.sessionId = "s1";
+      const rateLimited: Array<{ attempt: number; maxAttempts: number; delayMs: number }> = [];
+      const outcome = await client.runTurn("hello", "model-x", {
+        onRateLimited: (info) => rateLimited.push(info),
+      });
+      expect(outcome.recovered).toBe(true);
+      expect(outcome.ok).toBe(true);
+      expect(outcome.rateLimitRetries).toBe(1);
+      expect(rateLimited).toEqual([{ attempt: 1, maxAttempts: 4, delayMs: 147000 }]);
+    });
+  });
 });
 
 describe("YogClient.abortTurn", () => {

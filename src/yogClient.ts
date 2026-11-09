@@ -122,6 +122,7 @@ export type TurnEventType =
   | "tool.result"
   | "turn.finished"
   | "turn.aborted"
+  | "rate_limited"
   | "error";
 
 /** One wire envelope: `{ id, type, version, ts, data }`. */
@@ -183,6 +184,8 @@ export interface TurnEvents {
   ): void;
   /** `turn.finished` — normal end, or a server-capped stop (`stopReason`). */
   onFinish?(durationMs: number, stopReason?: string, usage?: TokenUsage): void;
+  /** Non-terminal `rate_limited` backoff signal — the engine is waiting `delayMs` before retrying the same request. */
+  onRateLimited?(info: { attempt: number; maxAttempts: number; delayMs: number }): void;
   /** `turn.aborted` — the operator aborted the turn (terminal). */
   onAborted?(reason: string, usage?: TokenUsage): void;
   /** `error` — terminal failure reported by the server. */
@@ -218,6 +221,10 @@ export interface TurnOutcome {
    * recovered path.
    */
   stopReason?: string;
+  /**
+   * Terms used for 429 backoffs in this turn, when the server reported any (`rateLimitRetries` on the terminal `turn.finished`, or the per-`rate_limited` count on the recovery path). Absent on old servers that never rate-limit.
+   */
+  rateLimitRetries?: number;
   /** Token usage reported for the turn, when the server sent any. */
   usage?: TokenUsage;
   /** Human-readable failure when the transport itself broke. */
@@ -682,6 +689,7 @@ export class YogClient {
     let sawAborted = false;
     let stopReason: string | undefined;
     let serverError: string | undefined;
+    let rateLimitRetries = 0;
 
     // The session stream is LONG-LIVED: it stays open (with periodic
     // heartbeats) past the turn's terminal event. Settling `runTurn` must
@@ -733,6 +741,15 @@ export class YogClient {
           );
           return;
         }
+        case "rate_limited": {
+          const delayMs = typeof data["delayMs"] === "number" ? data["delayMs"] : 0;
+          const attempt =
+            typeof data["attempt"] === "number" ? data["attempt"] : rateLimitRetries + 1;
+          const maxAttempts = typeof data["maxAttempts"] === "number" ? data["maxAttempts"] : 0;
+          rateLimitRetries += 1;
+          events.onRateLimited?.({ attempt, maxAttempts, delayMs });
+          return;
+        }
         case "turn.finished": {
           sawFinished = true;
           // A stopReason (e.g. "max_rounds") means the server stopped the
@@ -740,6 +757,9 @@ export class YogClient {
           if (typeof data["stopReason"] === "string" && data["stopReason"] !== "") {
             stopReason = data["stopReason"];
           }
+          const parsedRetries =
+            typeof data["rateLimitRetries"] === "number" ? data["rateLimitRetries"] : undefined;
+          if (parsedRetries !== undefined) rateLimitRetries = parsedRetries;
           const parsedUsage = parseUsage(data["usage"]);
           if (parsedUsage !== undefined) usage = parsedUsage;
           events.onFinish?.(
@@ -815,6 +835,7 @@ export class YogClient {
         ...(serverError !== undefined ? { error: serverError } : {}),
         ...(recovered && sawFinished && stopReason !== undefined ? { stopReason } : {}),
         ...(recovered && sawFinished && usage !== undefined ? { usage } : {}),
+        ...(rateLimitRetries > 0 ? { rateLimitRetries } : {}),
         ...(recovered ? {} : { failure: "turn-status recovery failed" }),
       };
     }
@@ -847,6 +868,7 @@ export class YogClient {
             ...(serverError !== undefined ? { error: serverError } : {}),
             ...(sawFinished && stopReason !== undefined ? { stopReason } : {}),
             ...(sawFinished && usage !== undefined ? { usage } : {}),
+            ...(rateLimitRetries > 0 ? { rateLimitRetries } : {}),
           };
         }
       }
@@ -863,6 +885,7 @@ export class YogClient {
       aborted: false,
       ...(stopReason !== undefined ? { stopReason } : {}),
       ...(usage !== undefined ? { usage } : {}),
+      ...(rateLimitRetries > 0 ? { rateLimitRetries } : {}),
     };
   }
 

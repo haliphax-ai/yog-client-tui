@@ -7,7 +7,13 @@ import {
   resultPreview,
   totalRows,
 } from "../src/ui/render/index.ts";
-import { compactArgs, formatRuntime, prettyArgs, resultStatus } from "../src/core/toolFormat.ts";
+import {
+  compactArgs,
+  formatBackoff,
+  formatRuntime,
+  prettyArgs,
+  resultStatus,
+} from "../src/core/toolFormat.ts";
 import { createTurnPresenter } from "../src/core/turnPresenter.ts";
 import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/store.ts";
 import { statusBody } from "../src/ui/components/StatusComponent.ts";
@@ -466,6 +472,30 @@ describe("formatRuntime", () => {
       expect(formatRuntime(input)).toBe(expected);
     });
   }
+  describe("formatBackoff", () => {
+    const cases: Array<[number, string]> = [
+      [0, "0s"],
+      [-1, "0s"],
+      [1, "1s"],
+      [500, "1s"],
+      [999, "1s"],
+      [1000, "1s"],
+      [1500, "2s"],
+      [59_999, "1m0s"],
+      [60_000, "1m0s"],
+      [61_000, "1m1s"],
+      [121_000, "2m1s"],
+      [321_000, "5m21s"],
+      [3_600_000, "1h0m0s"],
+      [3_661_000, "1h1m1s"],
+      [7_322_000, "2h2m2s"],
+    ];
+    for (const [input, expected] of cases) {
+      it(`formats ${input}ms as ${expected}`, () => {
+        expect(formatBackoff(input)).toBe(expected);
+      });
+    }
+  });
 });
 
 describe("resultPreview", () => {
