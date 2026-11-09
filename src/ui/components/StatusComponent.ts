@@ -10,9 +10,8 @@ import { displayWidth, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
 import type { LogEntry } from "../../core/entries.ts";
 
 /** Emoji labels — all already full-width, so no variation selectors are
- *  needed (ℹ️ would have required one; 🔌 does not). */
+ *  needed (ℹ️ would have required one). */
 const USER_EMOJI = "\u{1F464}"; // 👤 bust in silhouette
-const SESSION_EMOJI = "\u{1F50C}"; // 🔌 electric plug
 const TURNS_EMOJI = "\u{1F504}"; // 🔄 refresh
 const TOOLS_EMOJI = "\u{1F527}"; // 🔧 wrench
 const TOKENS_EMOJI = "\u{1FA99}"; // 🪙 coin
@@ -71,17 +70,13 @@ export function statsSegment(
   return parts.join("  ");
 }
 
-/** Plain status body: session · stats, separated by vertical bars.
+/** Plain status body: model · stats, separated by vertical bars.
  *  Stats are separated by two spaces (🔄 2  🔧 27). */
 export function statusBody(): string {
   const state = getState();
   const stats = sessionStats(state.entries);
   const segments: string[] = [];
-  segments.push(
-    `${USER_EMOJI} ${state.model}  ${SESSION_EMOJI} ${
-      state.connection === "connected" ? "ok" : state.connection
-    }`,
-  );
+  segments.push(`${USER_EMOJI} ${state.model}`);
   segments.push(statsSegment(state, stats));
   return segments.join(" ╱ ");
 }
@@ -96,12 +91,7 @@ export class StatusComponent extends BaseComponent {
   override render(ctx: RenderContext): string {
     const state = getState();
     const stats = sessionStats(state.entries);
-    const session = [
-      ST.status.render(`${USER_EMOJI} ${state.model}`),
-      ST.status.render(
-        `${SESSION_EMOJI} ${state.connection === "connected" ? "ok" : state.connection}`,
-      ),
-    ].join(ST.status.render("  "));
+    const session = ST.status.render(`${USER_EMOJI} ${state.model}`);
     const statsLine = ST.status.render(statsSegment(state, stats));
     const row = [session, statsLine].join(ST.status.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);

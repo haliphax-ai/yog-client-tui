@@ -787,7 +787,6 @@ async function run(argv: readonly string[]): Promise<void> {
         }
       } catch (err) {
         turn.fail(err instanceof Error ? err.message : String(err));
-        setState({ connection: "error" });
       } finally {
         stopSpinner();
         turn.finish();

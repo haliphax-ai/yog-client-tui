@@ -33,19 +33,14 @@ describe("statusBody", () => {
   });
 
   it("shows session and stats segments separated by a vertical bar", () => {
-    const out = body({ model: "m-1", connection: "connected", entries: fixture(2, 27) });
-    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 2  🔧 27");
+    const out = body({ model: "m-1", entries: fixture(2, 27) });
+    expect(out).toBe("👤 m-1 ╱ 🔄 2  🔧 27");
   });
 
   it("stays on session + stats while busy (generating lives elsewhere)", () => {
-    const out = body({ busy: true, model: "m-1", connection: "connected" });
-    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 0  🔧 0");
+    const out = body({ busy: true, model: "m-1" });
+    expect(out).toBe("👤 m-1 ╱ 🔄 0  🔧 0");
     expect(out).not.toContain("generating");
-  });
-
-  it("reflects a non-connected state in the session segment", () => {
-    const out = body({ model: "m-1", connection: "error" });
-    expect(out).toMatch(/^👤 m-1  🔌 error ╱/);
   });
 
   it("counts turns and tool calls from the log entries", () => {
@@ -65,37 +60,34 @@ describe("statusBody", () => {
   it("shows the 🪙 token total in the stats segment once totals exist", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(2, 27),
       tokenTotals: { prompt: 1200, completion: 600, total: 1800 },
     });
-    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 2  🔧 27  🪙 1.8K tok");
+    expect(out).toBe("👤 m-1 ╱ 🔄 2  🔧 27  🪙 1.8K tok");
   });
 
   it("omits the 🪙 stat while totals are zero (no turns yet)", () => {
-    const out = body({ model: "m-1", connection: "connected", entries: fixture(0, 0) });
-    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 0  🔧 0");
+    const out = body({ model: "m-1", entries: fixture(0, 0) });
+    expect(out).toBe("👤 m-1 ╱ 🔄 0  🔧 0");
   });
 
   it("falls back to prompt+completion when total is absent", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(1, 0),
       tokenTotals: { prompt: 1000, completion: 500, total: 0 },
     });
-    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 1.5K tok");
+    expect(out).toBe("👤 m-1 ╱ 🔄 1  🔧 0  🪙 1.5K tok");
   });
 
   it("uses bright green for very low fill (<=10%)", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(1, 0),
       tokenTotals: { prompt: 1000, completion: 0, total: 1000 },
       contextWindow: 20000,
     });
-    expect(stripAnsi(out)).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 5.0%/20.0K");
+    expect(stripAnsi(out)).toBe("👤 m-1 ╱ 🔄 1  🔧 0  🪙 5.0%/20.0K");
     expect(out).toContain("38;2;0;255;0"); // CONTEXT_WINDOW.brightGreen
     expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
@@ -103,13 +95,12 @@ describe("statusBody", () => {
   it("uses green for low fill (<=25%)", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(1, 0),
       tokenTotals: { prompt: 1200, completion: 1800, total: 3000 },
       contextWindow: 20000,
     });
     // 3000 / 20000 = 15% → green band; window abbreviates to 20.0K.
-    expect(stripAnsi(out)).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 15.0%/20.0K");
+    expect(stripAnsi(out)).toBe("👤 m-1 ╱ 🔄 1  🔧 0  🪙 15.0%/20.0K");
     expect(out).toContain("38;2;0;200;0"); // CONTEXT_WINDOW.green
     expect(out).toContain("38;2;0;0;0"); // restored status-bar black
   });
@@ -117,7 +108,6 @@ describe("statusBody", () => {
   it("uses yellow for mid fill (<=50%)", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(1, 0),
       tokenTotals: { prompt: 0, completion: 0, total: 40000 },
       contextWindow: 100000,
@@ -130,7 +120,6 @@ describe("statusBody", () => {
   it("uses orange for high fill (<=75%)", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(1, 0),
       tokenTotals: { prompt: 0, completion: 0, total: 60000 },
       contextWindow: 100000,
@@ -143,7 +132,6 @@ describe("statusBody", () => {
   it("uses red for critical fill (>75%)", () => {
     const out = body({
       model: "m-1",
-      connection: "connected",
       entries: fixture(1, 0),
       tokenTotals: { prompt: 0, completion: 0, total: 80000 },
       contextWindow: 100000,
@@ -157,18 +145,15 @@ describe("statusBody", () => {
     const totals = { prompt: 1200, completion: 1800, total: 3000 };
     const base = {
       model: "m-1",
-      connection: "connected" as const,
       entries: fixture(1, 0),
       tokenTotals: totals,
     };
-    expect(stripAnsi(body(base))).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 3.0K tok");
-    expect(stripAnsi(body({ ...base, contextWindow: 0 }))).toBe(
-      "👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 3.0K tok",
-    );
+    expect(stripAnsi(body(base))).toBe("👤 m-1 ╱ 🔄 1  🔧 0  🪙 3.0K tok");
+    expect(stripAnsi(body({ ...base, contextWindow: 0 }))).toBe("👤 m-1 ╱ 🔄 1  🔧 0  🪙 3.0K tok");
   });
 
   it("removes the key legend segment", () => {
-    const out = body({ busy: true, model: "m-1", connection: "connected" });
+    const out = body({ busy: true, model: "m-1" });
     expect(out).not.toContain("Shift+Up/Down focus");
     expect(out).not.toContain("Enter send");
     expect(out).not.toContain("/quit exit");
@@ -189,14 +174,14 @@ describe("StatusComponent render", () => {
   });
 
   it("pads the status bar with 1 cell on each side inside the backing", () => {
-    setState({ model: "m-1", connection: "connected" });
+    setState({ model: "m-1" });
     const line = new StatusComponent().render({ cols: 80 });
     const plain = stripAnsi(line);
     expect(plain.startsWith(" 👤 m-1")).toBe(true);
     expect(plain.endsWith(" ")).toBe(true);
     expect(displayWidth(line)).toBe(80);
-    // Emoji regression: padding is measured in cells (👤/🔌 are 2 cells
-    // each), so the padded row is still exactly cols wide.
+    // Emoji regression: padding is measured in cells (👤 is 2 cells),
+    // so the padded row is still exactly cols wide.
     expect(plain).toContain("👤");
     // The backing runs the full width: every cell carries the status-bar
     // background, including the padding and trailing fill cells.
@@ -218,21 +203,21 @@ describe("StatusComponent render", () => {
   });
 
   it("truncates an overlong status body to the padded interior", () => {
-    setState({ model: "a-very-long-model-name-here", connection: "connected" });
+    setState({ model: "a-very-long-model-name-here" });
     const line = new StatusComponent().render({ cols: 10 });
     expect(displayWidth(line)).toBe(10);
     expect(stripAnsi(line).startsWith(" ")).toBe(true);
   });
 
   it("shows no generating label while busy", () => {
-    setState({ busy: true, model: "m-1", connection: "connected" });
+    setState({ busy: true, model: "m-1" });
     const line = new StatusComponent().render({ cols: 80 });
     expect(stripAnsi(line)).not.toContain("generating");
     expect(line).toContain("48;2;63;63;70"); // #3f3f46 background
   });
 
   it("emoji labels are two cells wide", () => {
-    for (const label of ["👤", "🔌", "🔄", "🔧", "🪙"]) {
+    for (const label of ["👤", "🔄", "🔧", "🪙"]) {
       expect(displayWidth(label)).toBe(2);
     }
   });
