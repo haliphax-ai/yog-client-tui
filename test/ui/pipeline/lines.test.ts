@@ -37,23 +37,29 @@ describe("composeMainPane — guaranteed single blank line between log and input
     expect(composeMainPane([], [], "▐ ", "status")).toEqual(["▐ ", "status"]);
   });
 
-  it("places non-empty drawer rows directly after the log (drawer padding is the gap)", () => {
+  it("consumes the viewport's trailing row for the drawer gap (no double blank)", () => {
+    // The viewport's trailing blank (entry separator / padding) is consumed
+    // so it does not stack with the drawer's top padding into two blanks.
     expect(composeMainPane(["line1", ""], ["drawer-a", "drawer-b"], "▐ ", "status")).toEqual([
       "line1",
-      "",
       "drawer-a",
       "drawer-b",
       "▐ ",
       "status",
     ]);
+    // A viewport ending in content donates its last row as the margin.
     expect(composeMainPane(["line1", "line2"], ["drawer"], "▐ ", "status")).toEqual([
       "line1",
-      "line2",
       "drawer",
       "▐ ",
       "status",
     ]);
     expect(composeMainPane([], ["drawer"], "▐ ", "status")).toEqual(["drawer", "▐ ", "status"]);
+    expect(composeMainPane(["only"], ["drawer"], "▐ ", "status")).toEqual([
+      "drawer",
+      "▐ ",
+      "status",
+    ]);
   });
 });
 

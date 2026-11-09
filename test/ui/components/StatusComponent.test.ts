@@ -198,6 +198,23 @@ describe("StatusComponent render", () => {
     // Emoji regression: padding is measured in cells (👤/🔌 are 2 cells
     // each), so the padded row is still exactly cols wide.
     expect(plain).toContain("👤");
+    // The backing runs the full width: every cell carries the status-bar
+    // background, including the padding and trailing fill cells.
+    let bg = false;
+    const covered: boolean[] = [];
+    // eslint-disable-next-line no-control-regex
+    for (const tok of line.split(/(\x1b\[[0-9;]*m)/)) {
+      if (tok.startsWith("\x1b[")) {
+        if (tok.includes("48;2;63;63;70")) bg = true;
+        if (tok === "\x1b[m") bg = false;
+        continue;
+      }
+      for (const ch of tok) {
+        for (let i = 0; i < displayWidth(ch); i++) covered.push(bg);
+      }
+    }
+    expect(covered).toHaveLength(80);
+    expect(covered.every(Boolean)).toBe(true);
   });
 
   it("truncates an overlong status body to the padded interior", () => {
