@@ -26,16 +26,20 @@ export function padFrame(frame: string, width: number): string {
 }
 
 /**
- * Compose the main pane rows (log viewport + drawer + input + status),
- * guaranteeing exactly one blank line between the log and the drawer/input
- * without shrinking the frame. When the viewport's last row is already
- * blank (the log's trailing entry separator, or padding for short content),
- * that blank IS the gap and nothing is added. When the last row is content
- * (scrolled away from the bottom), that row is consumed as the margin — the
- * viewport renders one row of content less and the blank takes its place, so
- * the frame still fits the terminal exactly.
- * The drawer rows (empty when the drawer is fully collapsed) sit between the
- * gap and the input, so a collapsed drawer composes exactly like before.
+ * Compose the main pane rows (log viewport + drawer + input + status).
+ *
+ * The gap between the log and what follows it is owned by the drawer when
+ * the drawer is visible: the drawer's own top padding IS that blank line,
+ * so no separate gap row is added (adding one would stack two blank lines
+ * between the log and the drawer's content). When the drawer is fully
+ * collapsed (no rows), the composition guarantees exactly one blank line
+ * between the log and the input without shrinking the frame: when the
+ * viewport's last row is already blank (the log's trailing entry separator,
+ * or padding for short content), that blank IS the gap and nothing is
+ * added; when the last row is content (scrolled away from the bottom),
+ * that row is consumed as the margin — the viewport renders one row of
+ * content less and the blank takes its place, so the frame still fits the
+ * terminal exactly.
  */
 export function composeMainPane(
   viewportRows: readonly string[],
@@ -43,9 +47,12 @@ export function composeMainPane(
   inputRow: string,
   statusRow: string,
 ): string[] {
+  if (drawerRows.length > 0) {
+    return [...viewportRows, ...drawerRows, inputRow, statusRow];
+  }
   const last = viewportRows[viewportRows.length - 1];
   if (stripAnsi(last ?? "").trim() !== "") {
-    return [...viewportRows.slice(0, -1), "", ...drawerRows, inputRow, statusRow];
+    return [...viewportRows.slice(0, -1), "", inputRow, statusRow];
   }
-  return [...viewportRows, ...drawerRows, inputRow, statusRow];
+  return [...viewportRows, inputRow, statusRow];
 }

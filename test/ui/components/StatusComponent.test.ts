@@ -188,6 +188,25 @@ describe("StatusComponent render", () => {
     expect(displayWidth(stripAnsi(line))).toBe(80);
   });
 
+  it("pads the status bar with 1 cell on each side inside the backing", () => {
+    setState({ model: "m-1", connection: "connected" });
+    const line = new StatusComponent().render({ cols: 80 });
+    const plain = stripAnsi(line);
+    expect(plain.startsWith(" 👤 m-1")).toBe(true);
+    expect(plain.endsWith(" ")).toBe(true);
+    expect(displayWidth(line)).toBe(80);
+    // Emoji regression: padding is measured in cells (👤/🔌 are 2 cells
+    // each), so the padded row is still exactly cols wide.
+    expect(plain).toContain("👤");
+  });
+
+  it("truncates an overlong status body to the padded interior", () => {
+    setState({ model: "a-very-long-model-name-here", connection: "connected" });
+    const line = new StatusComponent().render({ cols: 10 });
+    expect(displayWidth(line)).toBe(10);
+    expect(stripAnsi(line).startsWith(" ")).toBe(true);
+  });
+
   it("shows no generating label while busy", () => {
     setState({ busy: true, model: "m-1", connection: "connected" });
     const line = new StatusComponent().render({ cols: 80 });

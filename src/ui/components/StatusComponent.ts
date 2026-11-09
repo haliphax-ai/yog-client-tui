@@ -6,7 +6,7 @@ import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, type UiState } from "../../core/store.ts";
 import { formatTokenTotal } from "../../core/toolFormat.ts";
 import { ST, CONTEXT_WINDOW } from "../theme.ts";
-import { displayWidth, stripAnsi } from "../../util/ansi.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
 import type { LogEntry } from "../../core/entries.ts";
 
 /** Emoji labels — all already full-width, so no variation selectors are
@@ -92,21 +92,25 @@ export class StatusComponent extends BaseComponent {
   }
 
   /** One styled status row: dark grey backing across the full width, black
-   *  text by default. */
+   *  text by default, with 1-cell horizontal padding inside the backing. */
   override render(ctx: RenderContext): string {
     const state = getState();
     const stats = sessionStats(state.entries);
     const session = [
-      ST.status.render(`${USER_EMOJI} ${state.model}`),
-      ST.status.render(
+      ST.statusText.render(`${USER_EMOJI} ${state.model}`),
+      ST.statusText.render(
         `${SESSION_EMOJI} ${state.connection === "connected" ? "ok" : state.connection}`,
       ),
-    ].join(ST.status.render("  "));
-    const statsLine = ST.status.render(statsSegment(state, stats));
-    const row = [session, statsLine].join(ST.status.render(" ╱ "));
+    ].join(ST.statusText.render("  "));
+    const statsLine = ST.statusText.render(statsSegment(state, stats));
+    const row = [session, statsLine].join(ST.statusText.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);
-    const pad = Math.max(0, cols - displayWidth(stripAnsi(row)));
-    return row + ST.status.render(" ".repeat(pad));
+    // The padded style's width includes its 1-cell padding, so the body
+    // budget is cols - 2 and the trailing fill is part of it.
+    const inner = Math.max(0, cols - 2);
+    const body = truncateAnsi(row, inner);
+    const pad = Math.max(0, inner - displayWidth(stripAnsi(body)));
+    return ST.status.width(cols).render(body + " ".repeat(pad));
   }
 
   /** Rows this component occupies: always a single line. */
