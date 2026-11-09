@@ -683,6 +683,17 @@ export class YogClient {
     let stopReason: string | undefined;
     let serverError: string | undefined;
 
+    // The session stream is LONG-LIVED: it stays open (with periodic
+    // heartbeats) past the turn's terminal event. Settling `runTurn` must
+    // therefore race the stream's death against the arrival of a terminal
+    // event — awaiting the closed stream alone would hang forever once
+    // `turn.finished`/`turn.aborted`/`error` has already landed (which
+    // is what left the UI spinner spinning after a successful turn).
+    let resolveTerminal: () => void = () => {};
+    const terminal = new Promise<void>((resolve) => {
+      resolveTerminal = resolve;
+    });
+
     /** Apply one envelope to the callbacks; used by stream and recovery. */
     const handle = (ev: TurnEnvelope): void => {
       const data = ev.data ?? {};
@@ -736,16 +747,19 @@ export class YogClient {
             stopReason,
             usage,
           );
+          resolveTerminal();
           return;
         }
         case "turn.aborted": {
           sawAborted = true;
           events.onAborted?.(str(data["reason"]) || "turn aborted", parseUsage(data["usage"]));
+          resolveTerminal();
           return;
         }
         case "error": {
           serverError = str(data["message"]) || "unknown error";
           events.onError?.(str(data["code"]) || "error", serverError);
+          resolveTerminal();
           return;
         }
         default:
@@ -775,12 +789,13 @@ export class YogClient {
     // clean end with `undefined`, so a stream that ends after the terminal
     // event is indistinguishable from one that ends before it; the flags
     // above (checked after `streamDone` settles) decide which it was.
-    const streamError = await streamDone;
-    // (The stream has already settled, or is about to: `streamDone` above
-    // is the single await — the flags decide clean vs. interrupted.)
+    const [streamError, terminalWon] = await Promise.race([
+      streamDone.then((err) => [err, false] as const),
+      terminal.then(() => [undefined, true] as const),
+    ]);
     stream.close();
 
-    if (streamError !== undefined) {
+    if (!terminalWon && streamError !== undefined) {
       // The stream died mid-turn: replay the stored turn events.
       if (turnId === undefined) {
         return {

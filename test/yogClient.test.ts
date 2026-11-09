@@ -50,6 +50,23 @@ function helloFrame(streamId = "stream-1"): string {
   return envFrame("stream.hello", { streamId, sessionId: "s1" }, 0);
 }
 
+/**
+ * An SSE response whose body streams the given chunks and then STAYS OPEN
+ * (never closes) — like the real long-lived session stream after
+ * `stream.hello`. Used to prove `runTurn` settles on the terminal event
+ * alone, without waiting for the stream to end (the pre-fix hang).
+ */
+function openSseResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < chunks.length) controller.enqueue(encoder.encode(chunks[i++] as string));
+    },
+  });
+  return new Response(stream);
+}
+
 /** Build a Response whose body stream throws the given error mid-read. */
 function failingResponse(firstChunk: string, error: unknown): Response {
   const encoder = new TextEncoder();
@@ -679,6 +696,35 @@ describe("YogClient.runTurn payload", () => {
     expect(outcome.ok).toBe(false);
     expect(outcome.aborted).toBe(true);
     expect(aborted).toEqual(["turn aborted by operator"]);
+  });
+
+  it("settles runTurn on turn.finished even if the session stream never closes (spinner regression)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return openSseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.finished", { durationMs: 7 }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: number[] = [];
+    const outcome = await Promise.race([
+      client.runTurn("hello", "model-x", {
+        onFinish: (durationMs) => finished.push(durationMs),
+      }),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error("runTurn hung awaiting the stream")), 1_000),
+      ),
+    ]);
+    expect(outcome.ok).toBe(true);
+    expect(finished).toEqual([7]);
   });
 
   it("propagates stopReason from turn.finished on the direct path", async () => {
