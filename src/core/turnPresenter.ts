@@ -10,6 +10,7 @@
  */
 import { parseToolArgs, type TurnEvents, type TokenUsage } from "../yogClient.ts";
 import {
+  compactArgs,
   formatRuntime,
   formatTokenTotal,
   prettyArgs,
@@ -265,18 +266,13 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
  * rehydration so rehydrated rows are the same rich entries a live turn
  * produces.
  */
-export function toolCallEntry(id: string, name: string, args: unknown, cols: number): LogEntry {
+export function toolCallEntry(_id: string, name: string, args: unknown, _cols: number): LogEntry {
   const label = `⚙️ ${name || "tool"}`;
   const full =
     args === undefined || args === null
       ? undefined
       : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
-  // The rebuilt row (label + ✅ + space + args + 2 padding) must fit
-  // cols exactly: reserve 3 cells for the check landing in the label.
-  const argsCompact =
-    full === undefined
-      ? undefined
-      : prettyArgs(args, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
+  const argsCompact = full === undefined ? undefined : compactArgs(args);
   const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
   return { kind: "tool", lines: [shown], label, argsCompact, full, expanded: false };
 }
@@ -327,7 +323,7 @@ export function toolResultChunk(name: string, result: unknown, tokenNote = ""): 
 export function toolResultEntry(
   name: string,
   result: unknown,
-  cols: number,
+  _cols: number,
   tokenNote = "",
 ): LogEntry {
   const label = `🔚 ${name || "tool"}`;
@@ -335,10 +331,7 @@ export function toolResultEntry(
     result === undefined || result === null
       ? undefined
       : prettyArgs(result, Number.MAX_SAFE_INTEGER, "pretty");
-  const argsCompact =
-    full === undefined
-      ? undefined
-      : prettyArgs(result, Math.max(12, cols - displayWidth(label) - 3 - 1 - 2));
+  const argsCompact = full === undefined ? undefined : compactArgs(result);
   const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
   return {
     kind: "toolResult",

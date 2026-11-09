@@ -43,6 +43,34 @@ describe("toolCallEntry", () => {
     const entry = toolCallEntry("c1", "", {}, COLS);
     expect(entry.label).toBe("⚙️ tool");
   });
+
+  it("stores args uncapped regardless of build width", () => {
+    const entry = toolCallEntry(
+      "c1",
+      "bash",
+      parseToolArgs(JSON.stringify({ cmd: "x".repeat(200) })),
+      40,
+    );
+    expect(entry.argsCompact).toBe(`{"cmd":"${"x".repeat(200)}"}`);
+    expect(entry.lines[0]).toBe(`⚙️ bash ${entry.argsCompact}`);
+    const wide = toolCallEntry(
+      "c1",
+      "bash",
+      parseToolArgs(JSON.stringify({ cmd: "x".repeat(200) })),
+      120,
+    );
+    expect(wide.argsCompact).toBe(entry.argsCompact);
+  });
+
+  it("stores emoji args uncapped", () => {
+    const entry = toolCallEntry(
+      "c1",
+      "bash",
+      parseToolArgs(JSON.stringify({ cmd: "✅".repeat(50) })),
+      40,
+    );
+    expect(entry.argsCompact).toContain("✅".repeat(50));
+  });
 });
 
 describe("annotateToolCall", () => {
@@ -102,6 +130,12 @@ describe("toolResultEntry / toolResultEntries", () => {
     expect(entry.argsCompact).toContain("did nothing");
     expect(entry.full).toContain('"note"');
     expect(entry.lines[0]).toBe(`${entry.label} ${entry.argsCompact}`);
+  });
+
+  it("stores the result payload UNCAPPED regardless of build width", () => {
+    const entry = toolResultEntry("noop", { note: "y".repeat(200) }, 40);
+    expect(entry.argsCompact).toBe(`{"note":"${"y".repeat(200)}"}`);
+    expect(entry.argsCompact).not.toContain("…");
   });
 
   it("keeps the bash output chunk for bash-shaped results", () => {
