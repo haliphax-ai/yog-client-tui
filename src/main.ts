@@ -59,7 +59,13 @@ import {
   perTurnDeltas,
   toTranscriptEntries,
 } from "./core/transcript.ts";
-import { createTurnPresenter, transcriptLogEntries } from "./core/turnPresenter.ts";
+import {
+  createTurnPresenter,
+  placeholderLogEntries,
+  rehydrateGroupIndices,
+  rehydrateGroups,
+  transcriptLogEntries,
+} from "./core/turnPresenter.ts";
 import { noticeLine } from "./core/notices.ts";
 import { formatTokenTotal } from "./core/toolFormat.ts";
 import {
@@ -262,6 +268,19 @@ async function run(argv: readonly string[]): Promise<void> {
   let resumedTokenWeight = 0;
   /** The resume-time transcript dump (for reconnect turn pickup). */
   let resumeDump: TranscriptResult | undefined;
+  /**
+   * Pending bottom-up rehydration job (#67): placeholders are already in
+   * `seedEntries`; `driveRehydrate` (after the first frame) swaps each
+   * group for its real entries, last group first.
+   */
+  let pendingRehydrate:
+    | {
+        transcriptEntries: ReturnType<typeof toTranscriptEntries>;
+        groups: LogEntry[][];
+        indices: number[][];
+        logPos: number[];
+      }
+    | undefined;
   const resolveSession = async (): Promise<void> => {
     if (requested === undefined) {
       const id = await client.open();
@@ -285,11 +304,23 @@ async function run(argv: readonly string[]): Promise<void> {
       );
       const cols = process.stdout.columns ?? 80;
       const turnMetrics = perTurnDeltas(dump.turns);
-      for (const entry of transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
-        turns: turnMetrics,
-      })) {
+      // Placeholder-first rehydrate (#67): every transcript row gets a
+      // cheap placeholder *now* (O(1) per row, no glamour), so the first
+      // frame paints instantly. Real entries swap in bottom-up (last
+      // chunk first — the part the user sees) via `driveRehydrate`
+      // after the terminal is taken over.
+      const transcriptEntries = toTranscriptEntries(dump.messages);
+      const placeholderStart = seedEntries.length;
+      for (const entry of placeholderLogEntries(transcriptEntries, cols)) {
         seedEntries.push(entry);
       }
+      pendingRehydrate = {
+        transcriptEntries,
+        groups: rehydrateGroups(transcriptEntries, cols, { turns: turnMetrics }),
+        indices: rehydrateGroupIndices(transcriptEntries),
+        // Log position of each transcript row's placeholder at seed time.
+        logPos: transcriptEntries.map((_, i) => bannerEntries().length + placeholderStart + i),
+      };
       return;
     } catch (err) {
       if (!(err instanceof YogError) || err.code !== "unknown_session") throw err;
@@ -414,6 +445,77 @@ async function run(argv: readonly string[]): Promise<void> {
   const scheduler = createScheduler(draw);
   // The fatal handler draws its notice through the same flush timer.
   fatalScheduler = scheduler.request;
+
+  // ---- bottom-up rehydration driver (#67) ---------------------------------
+  /**
+   * Swap real entries in for placeholders, last transcript group first
+   * (bottom-up — the part the user actually sees materializes first).
+   * Each tick swaps a small batch, then `setState` coalesces one frame;
+   * far-head groups glamour later, never before the visible region.
+   * Runs to completion even if the user starts typing — swaps only
+   * replace placeholder positions, never user-appended live entries
+   * (live entries append after the rehydrated span, tracked via a
+   * generation check: if the log no longer holds our placeholders at
+   * the expected positions, the job aborts silently).
+   */
+  const driveRehydrate = (): void => {
+    if (pendingRehydrate === undefined) return;
+    const job = pendingRehydrate;
+    const { groups, indices, logPos } = job;
+    // Operate on the live log: re-read it each tick so a concurrent
+    // poll replacement (running-turn pickup) wins and aborts the job
+    // via the generation check, instead of being clobbered by a stale
+    // snapshot.
+    let log = getState().entries;
+    let nextGroup = groups.length - 1;
+    let cancelled = false;
+    const step = (): void => {
+      log = getState().entries;
+      if (log.length < logPos.length && nextGroup >= 0) {
+        // Log shrank (e.g. /new cleared it) — abort the job.
+        cancelled = true;
+        pendingRehydrate = undefined;
+        return;
+      }
+      if (cancelled || nextGroup < 0) {
+        pendingRehydrate = undefined;
+        return;
+      }
+      const started = performance.now();
+      let swapped = 0;
+      while (nextGroup >= 0 && swapped < 6) {
+        const group = groups[nextGroup] as LogEntry[];
+        const covered = indices[nextGroup] as number[];
+        const firstPos = logPos[covered[0] as number] as number;
+        // Generation check: the placeholder must still be there.
+        if (log[firstPos]?.kind !== "placeholder") {
+          cancelled = true;
+          pendingRehydrate = undefined;
+          return;
+        }
+        // Replace the covered placeholders (contiguous) with the group.
+        log.splice(firstPos, covered.length, ...group);
+        const delta = group.length - covered.length;
+        if (delta !== 0) {
+          for (let k = 0; k < logPos.length; k++) {
+            if ((logPos[k] as number) > (firstPos as number))
+              logPos[k] = (logPos[k] as number) + delta;
+          }
+        }
+        nextGroup -= 1;
+        swapped += 1;
+        if (performance.now() - started > 8) break;
+      }
+      setState({ entries: log });
+      if (nextGroup >= 0) {
+        setTimeout(step, 0);
+      } else {
+        pendingRehydrate = undefined;
+      }
+    };
+    // First tick after the placeholder frame has painted.
+    setTimeout(step, 0);
+  };
 
   // ---- turn submission ---------------------------------------------------
   /**
@@ -798,10 +900,13 @@ async function run(argv: readonly string[]): Promise<void> {
     process.stdin.on("data", handleData);
 
     const onResize = (): void => {
-      // The emit stage diffs rows against the previous frame — a cleared
-      // screen invalidates that baseline, so the next write repaints all.
+      // No blank-screen flash (#67): do NOT clear first. The mangled frame
+      // stays visible until the new frame is ready, then swaps as one
+      // diff-painted write. `resetFrameCache` drops the diff baseline so
+      // the next write is a full repaint (the terminal already reflowed
+      // its rows, so the old baseline is meaningless) — but the repaint
+      // itself is the swap: HOME + full frame, no intermediate blank.
       resetFrameCache();
-      process.stdout.write("\x1b[2J\x1b[H");
       draw();
     };
     process.stdout.on("resize", onResize);
@@ -827,6 +932,9 @@ async function run(argv: readonly string[]): Promise<void> {
   // 4. Take over the terminal and draw the first frame.
   enterTerminal();
   draw();
+  // 5. Placeholder-first rehydrate (#67): the first frame above painted
+  //    placeholders instantly; now swap real entries in bottom-up.
+  driveRehydrate();
 }
 
 main();

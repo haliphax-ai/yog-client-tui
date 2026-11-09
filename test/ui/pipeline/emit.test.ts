@@ -70,3 +70,23 @@ describe("emit — diff frame writer", () => {
     expect(write).toHaveBeenCalledWith("\x1b[Hone\r\ntwo");
   });
 });
+
+describe("emit — resize swap without blank (#67)", () => {
+  beforeEach(() => {
+    resetFrameCache();
+  });
+
+  it("repaints as one swap write after reset, never a blank intermediate", () => {
+    const write = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    writeFrame("old one\nold two");
+    resetFrameCache();
+    write.mockClear();
+    // The host's onResize path: reset + single draw. The emit must be a
+    // single HOME-anchored full repaint — no split blank-then-paint.
+    writeFrame("new one\nnew two");
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write).toHaveBeenCalledWith("\x1b[Hnew one\r\nnew two");
+    // No clear-screen sequence in the swap.
+    expect(String(write.mock.calls[0]?.[0])).not.toContain("\x1b[2J");
+  });
+});

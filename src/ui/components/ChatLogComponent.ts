@@ -15,9 +15,11 @@ import { ViewportComponent } from "./ViewportComponent.ts";
 import { FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "../../core/focus.ts";
 import { tableState, type LogEntry } from "../../core/entries.ts";
 import {
+  anchorEntryForRow,
   cachedRowData,
   cachedRows,
   focusUnits,
+  heightSummaryAnchored,
   heightSummaryOf,
   noteMutation,
   tableOffsetsOf,
@@ -337,16 +339,25 @@ export abstract class ChatLogComponent extends ViewportComponent {
    * cached height summary (binary search), then walks forward with per-entry
    * cached rows — visible-only rendering regardless of log size.
    */
+  /**
+   * Anchor-outward window producer (#67): the entry closest to the top of
+   * the viewport renders first. The anchor is the entry containing `top`
+   * (follow mode anchors on the last entry — the chunk the user actually
+   * sees), heights are filled outward from there (up and down
+   * simultaneously), and the walk proceeds downward from the window's
+   * first entry. Placeholder entries take the cheap exact height, so a
+   * placeholder-first log pays glamour only for the window, not the head.
+   */
   override produceVisible(
     top: number,
     bottom: number,
     cols: number,
   ): { lines: string[]; top: number } {
     const entries = this.entries;
-    const summary = heightSummaryOf(entries, cols);
-    if (entries.length === 0 || top >= summary.total) {
-      return { lines: [], top: 0 };
-    }
+    if (entries.length === 0) return { lines: [], top: 0 };
+    const anchor = this.follow ? entries.length - 1 : anchorEntryForRow(entries, cols, top);
+    const summary = heightSummaryAnchored(entries, cols, anchor);
+    if (top >= summary.total) return { lines: [], top: summary.total };
     const start = entryAt(summary.tops, top);
     const end = Math.min(entries.length - 1, entryAt(summary.tops, Math.max(0, bottom - 1)));
     const focusedEntry = this.focusTarget.entry;
@@ -366,7 +377,7 @@ export abstract class ChatLogComponent extends ViewportComponent {
     return { lines, top: summary.tops[start] as number };
   }
 
-  /** Rows the content occupies at `cols` (incl. separators). */
+  /** Rows the content occupies at `cols` (incl. separators). Exact. */
   override totalContentRows(cols: number = this.cols): number {
     return totalRows(this.entries, cols);
   }
