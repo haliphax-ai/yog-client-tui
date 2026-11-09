@@ -4,8 +4,13 @@ import { composeMainPane, padFrame, padLine } from "../../../src/ui/pipeline/lin
 
 describe("composeMainPane — guaranteed single blank line between log and input", () => {
   it("reuses the viewport's trailing blank (separator/padding) as the gap", () => {
-    expect(composeMainPane(["line1", ""], "▐ ", "status")).toEqual(["line1", "", "▐ ", "status"]);
-    expect(composeMainPane(["line1", "   "], "▐ ", "status")).toEqual([
+    expect(composeMainPane(["line1", ""], [], "▐ ", "status")).toEqual([
+      "line1",
+      "",
+      "▐ ",
+      "status",
+    ]);
+    expect(composeMainPane(["line1", "   "], [], "▐ ", "status")).toEqual([
       "line1",
       "   ",
       "▐ ",
@@ -14,13 +19,13 @@ describe("composeMainPane — guaranteed single blank line between log and input
   });
 
   it("consumes the bottom row as the gap when the viewport ends in content", () => {
-    expect(composeMainPane(["line1", "line2"], "▐ ", "status")).toEqual([
+    expect(composeMainPane(["line1", "line2"], [], "▐ ", "status")).toEqual([
       "line1",
       "",
       "▐ ",
       "status",
     ]);
-    expect(composeMainPane(["\x1b[31mline1\x1b[m", "line2"], "▐ ", "status")).toEqual([
+    expect(composeMainPane(["\x1b[31mline1\x1b[m", "line2"], [], "▐ ", "status")).toEqual([
       "\x1b[31mline1\x1b[m",
       "",
       "▐ ",
@@ -29,7 +34,26 @@ describe("composeMainPane — guaranteed single blank line between log and input
   });
 
   it("tolerates an empty viewport (no content yet)", () => {
-    expect(composeMainPane([], "▐ ", "status")).toEqual(["▐ ", "status"]);
+    expect(composeMainPane([], [], "▐ ", "status")).toEqual(["▐ ", "status"]);
+  });
+
+  it("places non-empty drawer rows between the gap and the input", () => {
+    expect(composeMainPane(["line1", ""], ["drawer-a", "drawer-b"], "▐ ", "status")).toEqual([
+      "line1",
+      "",
+      "drawer-a",
+      "drawer-b",
+      "▐ ",
+      "status",
+    ]);
+    expect(composeMainPane(["line1", "line2"], ["drawer"], "▐ ", "status")).toEqual([
+      "line1",
+      "",
+      "drawer",
+      "▐ ",
+      "status",
+    ]);
+    expect(composeMainPane([], ["drawer"], "▐ ", "status")).toEqual(["drawer", "▐ ", "status"]);
   });
 });
 

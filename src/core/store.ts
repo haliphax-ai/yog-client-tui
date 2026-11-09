@@ -16,7 +16,6 @@ export interface UiState {
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
-  busyFrame: number;
   connection: "connecting" | "connected" | "error";
   model: string;
   statusNote: string;
@@ -40,7 +39,6 @@ function initialState(): UiState {
     scrollOffset: 0,
     follow: true,
     busy: false,
-    busyFrame: 0,
     connection: "connected",
     model: "",
     statusNote: "",

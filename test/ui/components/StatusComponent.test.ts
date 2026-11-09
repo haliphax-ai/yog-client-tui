@@ -37,10 +37,10 @@ describe("statusBody", () => {
     expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 2  🔧 27");
   });
 
-  it("prepends the spinner + generating as its own segment while busy", () => {
-    const out = body({ busy: true, busyFrame: 0, model: "m-1", connection: "connected" });
-    expect(out).toMatch(/^⠋ generating ╱ 👤 m-1  🔌 ok ╱ 🔄 0  🔧 0/);
-    expect(out).not.toMatch(/·.*⠋|⠋.*·.*generating/);
+  it("stays on session + stats while busy (generating lives elsewhere)", () => {
+    const out = body({ busy: true, model: "m-1", connection: "connected" });
+    expect(out).toBe("👤 m-1  🔌 ok ╱ 🔄 0  🔧 0");
+    expect(out).not.toContain("generating");
   });
 
   it("joins the transient note into the activity segment", () => {
@@ -193,12 +193,11 @@ describe("StatusComponent render", () => {
     expect(displayWidth(stripAnsi(line))).toBe(80);
   });
 
-  it("renders the spinner + generating in bright purple while busy", () => {
-    setState({ busy: true, busyFrame: 0, model: "m-1", connection: "connected" });
+  it("shows no generating label while busy", () => {
+    setState({ busy: true, model: "m-1", connection: "connected" });
     const line = new StatusComponent().render({ cols: 80 });
-    expect(line).toContain("38;2;192;132;252"); // #c084fc bright purple
-    expect(stripAnsi(line)).toContain("⠋ generating");
-    expect(line).toContain("38;2;0;0;0"); // default black restored after the span
+    expect(stripAnsi(line)).not.toContain("generating");
+    expect(line).toContain("48;2;63;63;70"); // #3f3f46 background
   });
 
   it("emoji labels are two cells wide", () => {
