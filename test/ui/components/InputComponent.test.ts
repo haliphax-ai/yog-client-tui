@@ -425,3 +425,44 @@ describe("InputComponent — 5000-character cap", () => {
     expect(component.render({ cols: 80 }).split("\n").length).toBe(MAX_LINES);
   });
 });
+
+describe("InputComponent — render caching (#68)", () => {
+  beforeEach(() => resetForTests());
+
+  it("measure()+render() in one frame share a single production", () => {
+    const component = new InputComponent();
+    component.paste("x".repeat(2000));
+    // First production warms the cache; between edits measure/render are
+    // pure cache hits and must return identical strings.
+    component.render({ cols: 80 });
+    const viaMeasure = component.measure(80);
+    const viaRender = component.render({ cols: 80 });
+    expect(viaMeasure).toBe(viaRender.split("\n").length);
+    expect(component.render({ cols: 80 })).toBe(viaRender);
+    // An edit invalidates: the new frame differs and is then re-cached.
+    component.handleChar("y");
+    const edited = component.render({ cols: 80 });
+    expect(edited).not.toBe(viaRender);
+    expect(component.render({ cols: 80 })).toBe(edited);
+  });
+
+  it("navigation does not rewrite the store input", () => {
+    const component = new InputComponent();
+    component.paste("hello world");
+    const before = getState().input;
+    component.handleKey("\x1b[D"); // left — cursor only, value unchanged
+    expect(getState().input).toBe(before);
+    component.handleKey("\x1b[C"); // right — back
+    expect(getState().input).toBe(before);
+  });
+
+  it("frame cache keys on width and focus style", () => {
+    const component = new InputComponent();
+    typeText(component, "hi");
+    const wide = component.render({ cols: 80 });
+    const narrow = component.render({ cols: 24 });
+    expect(narrow).not.toBe(wide);
+    // Back to the original width: byte-identical to the first production.
+    expect(component.render({ cols: 80 })).toBe(wide);
+  });
+});
