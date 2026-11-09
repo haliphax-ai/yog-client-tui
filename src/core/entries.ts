@@ -17,7 +17,18 @@ export type EntryKind =
   | "chunk"
   | "notice"
   | "status"
-  | "debug";
+  | "debug"
+  | "placeholder";
+
+/**
+ * Cheap stand-in immediately rendered for a transcript entry whose real
+ * component has not been built yet (placeholder-first rehydrate, #67).
+ * `lines[0]` is the single already-truncated label (`user: …`, `agent: …`,
+ * `tool: name`, `result: name`, …); the renderer draws it verbatim with no
+ * glamour / arg formatting, so building every placeholder is O(1) per row
+ * instead of a full markdown pass. Swapped for the real entry kind when
+ * rehydration reaches it; never focusable, never counted in session stats.
+ */
 
 /**
  * Per-table interaction state: whether the table is expanded and how far
@@ -64,6 +75,8 @@ export interface LogEntry {
   tokenNote?: string;
   /** Per-table state, keyed by the table's index within the entry. */
   tables?: Record<number, TableState>;
+  /** Placeholder kind only: the transcript role the real entry will carry. */
+  placeholderRole?: "user" | "assistant" | "tool" | "result" | "system" | "other";
 }
 
 /**

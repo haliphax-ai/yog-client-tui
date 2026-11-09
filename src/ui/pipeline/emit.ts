@@ -19,7 +19,9 @@ const HOME = "\x1b[H";
 let lastLines: string[] | null = null;
 
 /** Forget the cached frame: the next write is a full repaint. Call on
- *  resize (the host clears the screen; the diff baseline is gone). */
+ *  resize: the terminal has reflowed its rows, so the old diff baseline
+ *  is meaningless. The host no longer blanks first (#67) — the full
+ *  repaint below *is* the swap, with no intermediate blank frame. */
 export function resetFrameCache(): void {
   lastLines = null;
 }
