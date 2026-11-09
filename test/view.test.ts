@@ -9,7 +9,7 @@ import {
 } from "../src/ui/render/index.ts";
 import {
   compactArgs,
-  formatBackoff,
+  formatDuration,
   formatRuntime,
   prettyArgs,
   resultStatus,
@@ -472,10 +472,10 @@ describe("formatRuntime", () => {
       expect(formatRuntime(input)).toBe(expected);
     });
   }
-  describe("formatBackoff", () => {
+  describe("formatDuration with ceilSeconds", () => {
     const cases: Array<[number, string]> = [
       [0, "0s"],
-      [-1, "0s"],
+      [-1, "0ms"],
       [1, "1s"],
       [500, "1s"],
       [999, "1s"],
@@ -492,7 +492,7 @@ describe("formatRuntime", () => {
     ];
     for (const [input, expected] of cases) {
       it(`formats ${input}ms as ${expected}`, () => {
-        expect(formatBackoff(input)).toBe(expected);
+        expect(formatDuration(input, true)).toBe(expected);
       });
     }
   });
