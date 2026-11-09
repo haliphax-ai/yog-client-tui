@@ -1,20 +1,65 @@
 /**
  * yog HTTP/SSE client — every server interaction lives here.
  *
- * Flow: capabilities probe → resume-or-create session → prompt-only turns
- * and hydrates prior context itself, so a turn request carries only the new
- * prompt, and the session outlives the client: the server's DELETE is a
- * detach (dormant, kept), and only a server-side purge truly ends a session.
+ * Wire contract (v1 messages/stream): the HTTP surface is four routes.
+ * `GET /v1/capabilities` and `POST /v1/sessions` bootstrap; every other
+ * interaction is a typed message on `POST /v1/sessions/{id}/messages`
+ * (`{ type, version?, requestId?, data? }` → `{ type, version, requestId?, data }`
+ * or the shared `{ error: { code, message } }`), and turn events arrive
+ * on the long-lived session stream `GET /v1/sessions/{id}/stream` (SSE,
+ * first frame `stream.hello` carrying the `streamId` turns can bind to).
+ *
+ * Flow: capabilities probe → resume-or-create session → open the session
+ * stream → `turn.start` messages; the server hydrates prior context
+ * itself, so a turn message carries only the new prompt, and the session
+ * outlives the client: the server's `session.detach` is a detach
+ * (dormant, kept), and only a server-side purge truly ends a session.
  * Disconnects are cheap by contract (yog server, disconnect policy): the
  * turn is wire-independent — quitting (or any disconnect) never aborts the
  * in-flight turn; the server keeps running it to its terminal state,
  * persists the transcript, and the next launch rehydrates the result.
- * If the SSE stream dies after `turn.started`, the turn is replayed from the
- * turn-status endpoint so the turn still reaches a terminal state.
+ * If the session stream dies after `turn.started`, the turn is replayed
+ * from `turn.get` so the turn still reaches a terminal state.
  *
  * This module deals in plain data only: it knows nothing about the terminal,
  * styling, or rendering. The UI drives it through the `TurnEvents` callbacks.
  */
+
+import { randomUUID } from "node:crypto";
+
+/** Envelope version this client speaks (omitted on the wire means 1). */
+export const MESSAGE_VERSION = 1;
+
+/** Message `type`s the client sends on the messages channel. */
+export const MESSAGE_TYPES = [
+  "session.get",
+  "session.detach",
+  "transcript.get",
+  "turn.get",
+  "turn.abort",
+  "turn.start",
+  "compaction.run",
+  "transcript.shake",
+] as const;
+
+/** One message `type` the client can send. */
+export type MessageType = (typeof MESSAGE_TYPES)[number];
+
+/** Client → server envelope (`data` carries the per-type payload). */
+export interface MessageEnvelope {
+  type: MessageType;
+  version?: number;
+  requestId?: string;
+  data?: Record<string, unknown>;
+}
+
+/** Server → client envelope (`data` carries the per-type payload). */
+export interface MessageResponse {
+  type: string;
+  version?: number;
+  requestId?: string;
+  data: Record<string, unknown>;
+}
 
 /** Advertised server capabilities. */
 export interface Capabilities {
@@ -22,6 +67,8 @@ export interface Capabilities {
   models: string[];
   tools: string[];
   features: string[];
+  /** Message `type`s the server dispatches on the messages channel. */
+  messageTypes?: string[];
   /** Context window sizes for advertised models, keyed by model id. */
   contextWindowSizes?: Record<string, number>;
 }
@@ -68,6 +115,7 @@ export interface TranscriptResult {
 
 /** Well-known event types on the turn stream. */
 export type TurnEventType =
+  | "stream.hello"
   | "turn.started"
   | "message.delta"
   | "tool.call"
@@ -83,6 +131,35 @@ export interface TurnEnvelope {
   version?: string;
   ts?: string;
   data: Record<string, unknown>;
+}
+
+/**
+ * Handle for the long-lived session stream (`GET /v1/sessions/{id}/stream`).
+ * `streamId` is the `stream.hello` id (undefined until the hello lands).
+ * `closed` resolves when the stream ends or errors; the turn loop reads it
+ * to decide between a clean terminal and `turn.get` recovery.
+ */
+export interface SessionStream {
+  /** Server-assigned stream id from `stream.hello`, once known. */
+  readonly streamId: string | undefined;
+  /** Resolves with the stream failure (undefined on a clean end). */
+  readonly closed: Promise<Error | undefined>;
+  /** Detach the stream (aborts its fetch; the server treats it as a hang-up). */
+  close(): void;
+}
+
+/** Build the envelope for one message. */
+export function buildEnvelope(
+  type: MessageType,
+  data: Record<string, unknown> = {},
+  requestId?: string,
+): MessageEnvelope {
+  return {
+    type,
+    version: MESSAGE_VERSION,
+    ...(requestId !== undefined ? { requestId } : {}),
+    data,
+  };
 }
 
 /** Callbacks the UI registers for one in-flight turn. */
@@ -367,6 +444,83 @@ export class YogClient {
   private headers(extra?: Record<string, string>): Record<string, string> {
     return { ...authHeaders(), ...extra };
   }
+  /**
+   * One typed message on the messages channel. Generates a `requestId`
+   * (correlation + idempotent-retry handle) unless the caller supplies one,
+   * and unwraps the `{ type, version, requestId?, data }` response to its
+   * `data`. Non-2xx surfaces as a `YogError` (`unknown_session` included).
+   */
+  private async send(
+    sessionId: string,
+    type: MessageType,
+    data: Record<string, unknown> = {},
+    what = `${type} failed`,
+  ): Promise<Record<string, unknown>> {
+    const requestId = randomUUID();
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/messages`, {
+        method: "POST",
+        headers: this.headers({ "content-type": "application/json" }),
+        body: JSON.stringify(buildEnvelope(type, data, requestId)),
+      });
+    } catch (err) {
+      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+    }
+    if (!res.ok) throw await toYogError(res, what);
+    const body = (await res.json()) as MessageResponse;
+    return body.data ?? {};
+  }
+
+  /**
+   * Open the long-lived session stream (`GET /v1/sessions/{id}/stream`).
+   * The first frame is `stream.hello` (`data.streamId`); every envelope
+   * after it is fanned out to `onEvent` (including any running-turn replay
+   * the server sends before live events). The returned handle resolves
+   * `closed` when the stream ends or errors — the turn loop awaits it in
+   * parallel with the `turn.start` message, so a turn never blocks on a
+   * held-open stream. `close()` detaches the stream (the server treats
+   * the hang-up as a disconnect; lingered turns keep running).
+   */
+  openStream(sessionId: string, onEvent: (ev: TurnEnvelope) => void): SessionStream {
+    const controller = new AbortController();
+    let streamId: string | undefined;
+    let settle: (err: Error | undefined) => void = () => {};
+    const closed = new Promise<Error | undefined>((resolve) => {
+      settle = resolve;
+    });
+    void (async (): Promise<void> => {
+      let res: Response;
+      try {
+        res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/stream`, {
+          headers: this.headers(),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        settle(isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err));
+        return;
+      }
+      if (!res.ok) {
+        settle(await toYogError(res, "opening session stream failed"));
+        return;
+      }
+      const streamError = await readSseStream(res, (ev) => {
+        if (ev.type === "stream.hello") {
+          if (typeof ev.data["streamId"] === "string") streamId = ev.data["streamId"] as string;
+          return; // transport framing, not a turn event
+        }
+        onEvent(ev);
+      });
+      settle(streamError);
+    })();
+    return {
+      get streamId() {
+        return streamId;
+      },
+      closed,
+      close: () => controller.abort(),
+    };
+  }
 
   /**
    * Probe `GET /v1/capabilities?model={model}` to establish reachability with
@@ -412,55 +566,46 @@ export class YogClient {
 
   /**
    * Adopt an existing session after a cheap validity check (§5.2 of
-   * PLAN.md): `GET /v1/sessions/{id}` — 200 adopts the id, 404 clears it
-   * and resolves `undefined` so the caller falls back to `open()`.
-   * Dormancy is not an obstacle: reviving is implicit in the next turn and
-   * reads work on dormant sessions. Reusing the id *is* the reopen — the
-   * server keeps the transcript.
+   * PLAN.md): `session.get` — a reply adopts the id, `unknown_session`
+   * (404) clears it and resolves `undefined` so the caller falls back to
+   * `open()`. Dormancy is not an obstacle: reviving is implicit in the
+   * next turn and reads work on dormant sessions. Reusing the id *is* the
+   * reopen — the server keeps the transcript.
    */
   async reopen(sessionId: string): Promise<string | undefined> {
-    let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}`, {
-        headers: this.headers(),
-      });
+      await this.send(sessionId, "session.get", {}, "session reopen check failed");
     } catch (err) {
-      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
+      if (err instanceof YogError && err.status === 404) {
+        this.sessionId = undefined;
+        return undefined;
+      }
+      throw err;
     }
-    if (res.status === 404) {
-      this.sessionId = undefined;
-      return undefined;
-    }
-    if (!res.ok) throw await toYogError(res, "session reopen check failed");
     this.sessionId = sessionId;
     return sessionId;
   }
 
   /**
-   * Transcript rehydration dump: `GET /v1/sessions/{id}/transcript` with
-   * optional `after` / `limit` pagination (the TUI fetches the full dump;
-   * the params exist for future use). `unknown_session` (404) surfaces as a
+   * Transcript rehydration dump: `transcript.get` with optional
+   * `afterSeq` / `limit` pagination (the TUI fetches the full dump; the
+   * params exist for future use). `unknown_session` (404) surfaces as a
    * `YogError` so the caller can distinguish a stale id from a transport
    * failure. Works on dormant sessions — dormancy never blocks reads.
    */
   async getTranscript(after?: number, limit?: number): Promise<TranscriptResult> {
     if (!this.sessionId) throw new Error("getTranscript called before open() or reopen()");
     const sessionId = this.sessionId;
-    const params = new URLSearchParams();
-    if (after !== undefined) params.set("after", String(after));
-    if (limit !== undefined) params.set("limit", String(limit));
-    const qs = params.toString();
-    let res: Response;
-    try {
-      res = await fetch(
-        `${this.baseUrl}/v1/sessions/${sessionId}/transcript${qs === "" ? "" : `?${qs}`}`,
-        { headers: this.headers() },
-      );
-    } catch (err) {
-      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
-    }
-    if (!res.ok) throw await toYogError(res, "fetching transcript failed");
-    const body = (await res.json()) as {
+    const data: Record<string, unknown> = {
+      ...(after !== undefined ? { afterSeq: after } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+    };
+    const body = (await this.send(
+      sessionId,
+      "transcript.get",
+      data,
+      "fetching transcript failed",
+    )) as {
       session?: { id?: unknown; status?: unknown };
       messages?: unknown;
       turns?: unknown;
@@ -515,14 +660,18 @@ export class YogClient {
   }
 
   /**
-   * Run one turn: `POST /v1/sessions/{id}/turns` and consume its SSE stream,
-   * dispatching envelopes to `events`. The turn is wire-independent (yog
+   * Run one turn: open the long-lived session stream, POST `turn.start` on
+   * the messages channel (nested under `data`, prompt-only — history never
+   * rides along), and dispatch the stream's envelopes to `events`. The
+   * messages POST returns `202 { accepted }` at once; the turn itself runs
+   * server-side and frames its events on the stream, so this method never
+   * blocks on a held-open response. The turn is wire-independent (yog
    * contract, disconnect policy): when this process goes away mid-turn —
    * quitting the TUI, a crash, a lost connection — the server keeps the
    * turn running to its terminal state instead of aborting it, and the
-   * transcript persists for the next launch. When the stream dies
-   * after `turn.started`, the stored turn is replayed from the turn-status
-   * endpoint so the turn still reaches a terminal state.
+   * transcript persists for the next launch. When the session stream dies
+   * after `turn.started`, the stored turn is replayed from `turn.get` so
+   * the turn still reaches a terminal state.
    */
   async runTurn(prompt: string, model: string, events: TurnEvents): Promise<TurnOutcome> {
     if (!this.sessionId) throw new Error("runTurn called before open()");
@@ -604,19 +753,32 @@ export class YogClient {
       }
     };
 
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/turns`, {
-        method: "POST",
-        headers: this.headers({ "content-type": "application/json" }),
-        body: JSON.stringify({ prompt, model }),
-      });
-    } catch (err) {
-      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
-    }
-    if (!res.ok) throw await toYogError(res, "running turn failed");
-
-    const streamError = await readSseStream(res, handle);
+    // The session stream is a client-owned, long-lived channel: open it once,
+    // then `turn.start` on the messages channel. Events dispatched before
+    // the `turn.start` reply lands are buffered by openStream's queue.
+    const stream = this.openStream(sessionId, handle);
+    const streamDone = stream.closed.then((err) => err);
+    // `turn.start` is the only such message this client sends; its 202 is
+    // semantics; its 202 is an acceptance, not the turn's progress.
+    await this.send(
+      sessionId,
+      "turn.start",
+      {
+        prompt,
+        model,
+        ...(stream.streamId !== undefined ? { streamId: stream.streamId } : {}),
+      },
+      "running turn failed",
+    );
+    // Wait for the turn's terminal event on the stream, or for the stream
+    // itself to die — whichever comes first. `readSseStream` resolves on a
+    // clean end with `undefined`, so a stream that ends after the terminal
+    // event is indistinguishable from one that ends before it; the flags
+    // above (checked after `streamDone` settles) decide which it was.
+    const streamError = await streamDone;
+    // (The stream has already settled, or is about to: `streamDone` above
+    // is the single await — the flags decide clean vs. interrupted.)
+    stream.close();
 
     if (streamError !== undefined) {
       // The stream died mid-turn: replay the stored turn events.
@@ -646,7 +808,8 @@ export class YogClient {
       return { ok: false, recovered: false, error: serverError, aborted: false };
     if (sawAborted) return { ok: false, recovered: false, aborted: true };
     if (!sawFinished) {
-      // Clean stream end with no terminal event: a streamError would have
+      // Stream ended cleanly with no terminal event: a streamError would
+      // have taken the recovery path above, so the server ended the stream
       // taken the recovery path above, so this is a server-side gap (an
       // older server that silently drops the turn). Recover the stored turn
       // when its id is known — the events are persisted server-side — and
@@ -689,31 +852,20 @@ export class YogClient {
   }
 
   /**
-   * Abort the session's current turn (POST /v1/sessions/{id}/abort): the
-   * server kills the tool call in flight, closes the model stream, heals the
+   * Abort the session's current turn (`turn.abort` message): the server
+   * kills the tool call in flight, closes the model stream, heals the
    * transcript, and settles the turn. Idempotent — an idle session answers
    * `ok` with `requested: false` and nothing is touched.
    */
   async abortTurn(): Promise<AbortTurnResult> {
     if (!this.sessionId) throw new Error("abortTurn called before open()");
     const sessionId = this.sessionId;
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/abort`, {
-        method: "POST",
-        headers: this.headers(),
-      });
-    } catch (err) {
-      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
-    }
-    if (!res.ok) throw await toYogError(res, "aborting turn failed");
-    const body = (await res.json()) as {
-      ok?: unknown;
-      status?: unknown;
-      aborted?: { requested?: unknown; activeToolCall?: unknown };
-    };
-    const requested = body?.aborted?.requested === true;
-    const call = body?.aborted?.activeToolCall;
+    const body = await this.send(sessionId, "turn.abort", {}, "aborting turn failed");
+    const requested =
+      body["aborted"] !== null && typeof body["aborted"] === "object"
+        ? (body["aborted"] as Record<string, unknown>)["requested"] === true
+        : false;
+    const call = (body["aborted"] as Record<string, unknown> | undefined)?.["activeToolCall"];
     const activeToolCall =
       call !== null && typeof call === "object" && !Array.isArray(call)
         ? {
@@ -740,27 +892,22 @@ export class YogClient {
     return this.runCompaction("handoff", guidance);
   }
 
-  /** Shared implementation for the compaction/handoff endpoints. */
+  /** Shared implementation for compaction/handoff (`compaction.run`). */
   private async runCompaction(
     kind: "compact" | "handoff",
     guidance?: string,
   ): Promise<CompactionResult> {
     if (!this.sessionId) throw new Error(`runCompaction called before open()`);
     const sessionId = this.sessionId;
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/${kind}`, {
-        method: "POST",
-        headers: this.headers({ "content-type": "application/json" }),
-        body: JSON.stringify(
-          guidance !== undefined && guidance.trim() !== "" ? { guidance: guidance.trim() } : {},
-        ),
-      });
-    } catch (err) {
-      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
-    }
-    if (!res.ok) throw await toYogError(res, `${kind} failed`);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = await this.send(
+      sessionId,
+      "compaction.run",
+      {
+        kind,
+        ...(guidance !== undefined && guidance.trim() !== "" ? { guidance: guidance.trim() } : {}),
+      },
+      `${kind} failed`,
+    );
     if (body.ok !== true || typeof body.summary !== "string") {
       throw new Error(`${kind} failed: malformed response from server`);
     }
@@ -777,35 +924,25 @@ export class YogClient {
 
   /**
    * /shake — truncate oversized tool args/results in the current session's
-   * transcript (server-side, no model call).
+   * transcript (`transcript.shake` message; server-side, no model call).
    */
   async shake(): Promise<ShakeResult> {
     if (!this.sessionId) throw new Error("shake called before open()");
     const sessionId = this.sessionId;
-    let res: Response;
-    try {
-      res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/shake`, {
-        method: "POST",
-        headers: this.headers(),
-      });
-    } catch (err) {
-      throw isUnreachable(err) ? unreachableError(this.baseUrl, err) : toError(err);
-    }
-    if (!res.ok) throw await toYogError(res, "shake failed");
-    const body = (await res.json()) as Record<string, unknown>;
-    if (body.ok !== true) {
+    const body = await this.send(sessionId, "transcript.shake", {}, "shake failed");
+    if (body["ok"] !== true) {
       throw new Error("shake failed: malformed response from server");
     }
     return {
       ok: true,
-      argsTruncated: typeof body.argsTruncated === "number" ? body.argsTruncated : 0,
-      resultsTruncated: typeof body.resultsTruncated === "number" ? body.resultsTruncated : 0,
-      contextSize: typeof body.contextSize === "number" ? body.contextSize : 0,
+      argsTruncated: typeof body["argsTruncated"] === "number" ? body["argsTruncated"] : 0,
+      resultsTruncated: typeof body["resultsTruncated"] === "number" ? body["resultsTruncated"] : 0,
+      contextSize: typeof body["contextSize"] === "number" ? body["contextSize"] : 0,
     };
   }
   /**
-   * Recovery path: `GET /v1/sessions/{id}/turns/{turnId}` and replay its
-   * stored `{ type, data }` rows through the same handler.
+   * Recovery path: `turn.get` and replay its stored `{ type, data }` rows
+   * through the same handler.
    */
   private async recoverTurn(
     sessionId: string,
@@ -813,14 +950,9 @@ export class YogClient {
     handle: (ev: TurnEnvelope) => void,
   ): Promise<boolean> {
     try {
-      const res = await fetch(`${this.baseUrl}/v1/sessions/${sessionId}/turns/${turnId}`, {
-        headers: this.headers(),
-      });
-      if (!res.ok) return false;
-      const body = (await res.json()) as {
-        turn?: { events?: { type?: unknown; data?: unknown }[] };
-      };
-      for (const row of body?.turn?.events ?? []) {
+      const body = await this.send(sessionId, "turn.get", { turnId }, "recovering turn failed");
+      const turn = body["turn"] as { events?: { type?: unknown; data?: unknown }[] } | undefined;
+      for (const row of turn?.events ?? []) {
         if (typeof row.type !== "string") continue;
         handle({
           type: row.type,
