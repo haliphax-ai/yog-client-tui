@@ -26,23 +26,26 @@ export function padFrame(frame: string, width: number): string {
 }
 
 /**
- * Compose the main pane rows (log viewport + input + status), guaranteeing
- * exactly one blank line between the log and the input without shrinking the
- * frame. When the viewport's last row is already blank (the log's trailing
- * entry separator, or padding for short content), that blank IS the gap and
- * nothing is added. When the last row is content (scrolled away from the
- * bottom), that row is consumed as the margin — the viewport renders one
- * row of content less and the blank takes its place, so the frame still
- * fits the terminal exactly.
+ * Compose the main pane rows (log viewport + drawer + input + status),
+ * guaranteeing exactly one blank line between the log and the drawer/input
+ * without shrinking the frame. When the viewport's last row is already
+ * blank (the log's trailing entry separator, or padding for short content),
+ * that blank IS the gap and nothing is added. When the last row is content
+ * (scrolled away from the bottom), that row is consumed as the margin — the
+ * viewport renders one row of content less and the blank takes its place, so
+ * the frame still fits the terminal exactly.
+ * The drawer rows (empty when the drawer is fully collapsed) sit between the
+ * gap and the input, so a collapsed drawer composes exactly like before.
  */
 export function composeMainPane(
   viewportRows: readonly string[],
+  drawerRows: readonly string[],
   inputRow: string,
   statusRow: string,
 ): string[] {
   const last = viewportRows[viewportRows.length - 1];
   if (stripAnsi(last ?? "").trim() !== "") {
-    return [...viewportRows.slice(0, -1), "", inputRow, statusRow];
+    return [...viewportRows.slice(0, -1), "", ...drawerRows, inputRow, statusRow];
   }
-  return [...viewportRows, inputRow, statusRow];
+  return [...viewportRows, ...drawerRows, inputRow, statusRow];
 }

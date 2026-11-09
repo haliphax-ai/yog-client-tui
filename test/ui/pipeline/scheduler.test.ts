@@ -22,7 +22,7 @@ describe("frame coalescing", () => {
     const run = vi.fn();
     createScheduler(run);
     expect(run).not.toHaveBeenCalled();
-    setState({ statusNote: "go" }); // arms the coalescing timer
+    setState({ input: "go" }); // arms the coalescing timer
     vi.advanceTimersByTime(FRAME_MS);
     expect(run).toHaveBeenCalledTimes(1);
   });
@@ -32,11 +32,11 @@ describe("frame coalescing", () => {
     createScheduler(run);
 
     // A stream of store changes (e.g. SSE deltas) inside one window.
-    setState({ statusNote: "a" });
-    setState({ busyFrame: 1 });
-    setState({ busyFrame: 2 });
-    setState({ statusNote: "b" });
-    setState({ busyFrame: 1 });
+    setState({ input: "a" });
+    setState({ input: "tick-1" });
+    setState({ input: "tick-2" });
+    setState({ input: "b" });
+    setState({ input: "tick-1" });
     expect(run).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(FRAME_MS);
@@ -51,11 +51,11 @@ describe("frame coalescing", () => {
     const run = vi.fn();
     createScheduler(run);
 
-    setState({ busyFrame: 1 });
+    setState({ input: "tick-1" });
     vi.advanceTimersByTime(FRAME_MS);
     expect(run).toHaveBeenCalledTimes(1);
 
-    setState({ busyFrame: 2 });
+    setState({ input: "tick-2" });
     vi.advanceTimersByTime(FRAME_MS - 1);
     expect(run).toHaveBeenCalledTimes(1); // not yet — window still pending
     vi.advanceTimersByTime(1);
@@ -65,7 +65,7 @@ describe("frame coalescing", () => {
   it("arms the timer from the store subscription", () => {
     const run = vi.fn();
     createScheduler(run);
-    setState({ statusNote: "changed" });
+    setState({ input: "changed" });
     vi.advanceTimersByTime(FRAME_MS);
     expect(run).toHaveBeenCalledTimes(1);
   });
@@ -73,7 +73,7 @@ describe("frame coalescing", () => {
   it("cancel() drops a pending flush without running it", () => {
     const run = vi.fn();
     const scheduler = createScheduler(run);
-    setState({ busyFrame: 3 });
+    setState({ input: "tick-3" });
     scheduler.cancel();
     vi.advanceTimersByTime(FRAME_MS * 3);
     expect(run).not.toHaveBeenCalled();
@@ -84,7 +84,7 @@ describe("frame coalescing", () => {
     const scheduler = createScheduler(run);
     scheduler.dispose();
 
-    setState({ busyFrame: 4 }); // no subscriber left — nothing armed
+    setState({ input: "tick-4" }); // no subscriber left — nothing armed
     vi.advanceTimersByTime(FRAME_MS * 3);
     expect(run).not.toHaveBeenCalled();
   });
@@ -92,7 +92,7 @@ describe("frame coalescing", () => {
   it("flush() runs immediately and clears the pending timer", () => {
     const run = vi.fn();
     const scheduler = createScheduler(run);
-    setState({ busyFrame: 5 });
+    setState({ input: "tick-5" });
     scheduler.flush();
     expect(run).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(FRAME_MS * 3);
@@ -102,7 +102,7 @@ describe("frame coalescing", () => {
   it("honours a custom window for tests", () => {
     const run = vi.fn();
     createScheduler(run, 5);
-    setState({ busyFrame: 6 });
+    setState({ input: "tick-6" });
     vi.advanceTimersByTime(5);
     expect(run).toHaveBeenCalledTimes(1);
   });

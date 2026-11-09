@@ -66,8 +66,10 @@ export const ST = {
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
   /** Status bar: dark grey backing, black text by default. */
   status: newStyle().background("#3f3f46").foreground("#000000"),
-  /** Status bar busy label: spinner + "generating" in bright purple. */
-  generating: newStyle().background("#3f3f46").foreground("#c084fc").bold(true),
+  /** Busy label: spinner + "generating" in bright purple. */
+  generating: newStyle().foreground("#c084fc").bold(true),
+  /** Drawer block: 1-cell padding on every side. */
+  drawer: newStyle().padding(1),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Focused table border: blue runes (the focus indicator — not a row bg). */

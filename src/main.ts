@@ -80,6 +80,9 @@ import type { Component } from "./ui/components/Component.ts";
 import { ChatViewport } from "./ui/components/ChatViewport.ts";
 import { InputComponent } from "./ui/components/InputComponent.ts";
 import { StatusComponent } from "./ui/components/StatusComponent.ts";
+import { DrawerComponent } from "./ui/components/DrawerComponent.ts";
+import { GeneratingComponent } from "./ui/components/GeneratingComponent.ts";
+import { registerDrawerChild } from "./ui/components/drawerRegistry.ts";
 import {
   composeMainPane,
   createScheduler,
@@ -332,20 +335,19 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   // ---- busy spinner ------------------------------------------------------
-  let spinnerTimer: NodeJS.Timeout | undefined;
+  // The generating notification is a self-contained producer component
+  // (Bubbles spinner model, own tick timer) registered into the drawer; the
+  // drawer itself stays a generic container. The composition root flips the
+  // store's `busy` flag and the component's timer together.
+  const generating = new GeneratingComponent();
+  registerDrawerChild(generating);
   const startSpinner = (): void => {
-    if (spinnerTimer !== undefined) return;
     setState({ busy: true });
-    spinnerTimer = setInterval(() => {
-      setState({ busyFrame: getState().busyFrame + 1 });
-    }, 90);
+    generating.start();
   };
   const stopSpinner = (): void => {
     setState({ busy: false });
-    if (spinnerTimer !== undefined) {
-      clearInterval(spinnerTimer);
-      spinnerTimer = undefined;
-    }
+    generating.stop();
   };
 
   await resolveSession();
@@ -427,14 +429,22 @@ async function run(argv: readonly string[]): Promise<void> {
       width: cols,
       setMetrics: () => {
         // The log gets the remainder after the input bar (which grows by
-        // one row when the slash-command autocomplete menu is open) and the
-        // status line. The blank line between the log and the input is
-        // provided by the composition (the log's own trailing separator at
-        // the bottom, or a dedicated margin row when scrolled away).
-        viewport.setViewportRows(Math.max(1, rows - input.measure(cols) - status.measure(cols)));
+        // one row when the slash-command autocomplete menu is open), the
+        // drawer (zero rows when fully collapsed), and the status line. The
+        // blank line between the log and the drawer/input is provided by the
+        // composition (the log's own trailing separator at the bottom, or a
+        // dedicated margin row when scrolled away).
+        viewport.setViewportRows(
+          Math.max(1, rows - input.measure(cols) - drawer.measure(cols) - status.measure(cols)),
+        );
       },
       paint: () =>
-        composeMainPane(viewport.render({ cols }), input.render({ cols }), status.render({ cols })),
+        composeMainPane(
+          viewport.render({ cols }),
+          drawer.render({ cols }),
+          input.render({ cols }),
+          status.render({ cols }),
+        ),
       emit: writeFrame,
     });
   };
@@ -591,7 +601,6 @@ async function run(argv: readonly string[]): Promise<void> {
               scrollOffset: 0,
               follow: true,
               focusTarget: FOCUS_NONE_TARGET,
-              statusNote: "",
               tokenTotals: { prompt: 0, completion: 0, total: 0 },
             });
             await saveState(stateFilePath(), { lastSessionId: id });
@@ -760,7 +769,7 @@ async function run(argv: readonly string[]): Promise<void> {
     };
     turn.begin(prompt);
     input.reset();
-    setState({ statusNote: "", follow: true });
+    setState({ follow: true });
     startSpinner();
 
     void (async () => {
@@ -804,10 +813,11 @@ async function run(argv: readonly string[]): Promise<void> {
   const viewport = new ChatViewport();
   const input = new InputComponent();
   const status = new StatusComponent();
+  const drawer = new DrawerComponent();
   // Top-level focus ring: the log and the input are the two ring targets.
   viewport.ring = "log";
   input.ring = "input";
-  const chain: readonly Component[] = [viewport, input, status];
+  const chain: readonly Component[] = [viewport, input, drawer, status];
 
   /** Rows available to the log viewport in the current terminal layout. */
   const viewportRows = (): number =>
@@ -815,6 +825,7 @@ async function run(argv: readonly string[]): Promise<void> {
       1,
       (process.stdout.rows ?? 24) -
         input.measure(process.stdout.columns ?? 80) -
+        drawer.measure(process.stdout.columns ?? 80) -
         status.measure(process.stdout.columns ?? 80),
     );
 
@@ -830,13 +841,7 @@ async function run(argv: readonly string[]): Promise<void> {
   const quit = async (code: number): Promise<void> => {
     if (quitting) return;
     quitting = true;
-    setState({
-      statusNote: getState().busy
-        ? "turn still running on the server — bye"
-        : "session saved — bye",
-    });
-    scheduler.cancel(); // flush the note through the pipeline before exiting
-    if (spinnerTimer !== undefined) clearInterval(spinnerTimer);
+    generating.stop();
     restoreTerminal();
     process.exit(code);
   };
