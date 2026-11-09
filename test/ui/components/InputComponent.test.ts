@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { getState, resetForTests, setState } from "../../../src/core/store.ts";
+import { getState, resetForTests, setState, subscribe } from "../../../src/core/store.ts";
 import {
   InputComponent,
   MAX_INPUT_CHARS,
@@ -454,6 +454,86 @@ describe("InputComponent — render caching (#68)", () => {
     expect(getState().input).toBe(before);
     component.handleKey("\x1b[C"); // right — back
     expect(getState().input).toBe(before);
+  });
+
+  it("navigation still schedules a frame (cursor-only moves notify the store)", () => {
+    // Regression: the #68 sync optimization made a cursor-only move a
+    // store no-op, so the scheduler (which only flushes on a store
+    // notification) never redrew and the cursor appeared frozen.
+    const component = new InputComponent();
+    component.paste("hello world");
+    setState({ commandSel: 2 });
+    let notifications = 0;
+    const unsubscribe = subscribe(() => {
+      notifications += 1;
+    });
+    try {
+      component.handleKey("\x1b[D"); // left
+      expect(notifications).toBe(1);
+      // Pure navigation keeps both the value and the completion selection.
+      expect(getState().input).toBe("hello world");
+      expect(getState().commandSel).toBe(2);
+      component.handleKey("\x1b[H"); // home
+      expect(notifications).toBe(2);
+      component.handleKey("\x1b[F"); // end
+      expect(notifications).toBe(3);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("word / page / selection navigation also schedules a frame", () => {
+    const component = new InputComponent();
+    component.paste("one two three");
+    let notifications = 0;
+    const unsubscribe = subscribe(() => {
+      notifications += 1;
+    });
+    try {
+      // Ctrl+Left: word backward; Shift+Left: extend selection; PgUp: page.
+      for (const seq of ["\x1b[1;5D", "\x1b[1;2D", "\x1b[5~", "\x1b[6~", "\x1bb"]) {
+        const beforeNotifications = notifications;
+        expect(component.handleKey(seq)).toBe("handled");
+        expect(notifications).toBe(beforeNotifications + 1);
+      }
+    } finally {
+      unsubscribe();
+    }
+    expect(getState().input).toBe("one two three");
+  });
+
+  it("multi-line Up/Down navigation schedules a frame and moves the caret", () => {
+    const component = new InputComponent();
+    component.paste("a\nb\nc");
+    let notifications = 0;
+    const unsubscribe = subscribe(() => {
+      notifications += 1;
+    });
+    try {
+      expect(component.handleKey("\x1b[A")).toBe("handled"); // up
+      expect(notifications).toBe(1);
+      component.handleChar("X"); // edit proves the caret moved up a line
+      expect(getState().input).toBe("a\nbX\nc");
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("value-changing handleKey paths still notify exactly once", () => {
+    const component = new InputComponent();
+    component.paste("hello");
+    component.handleKey("\x1b[D"); // left: between hell|o (before subscribe)
+    let notifications = 0;
+    const unsubscribe = subscribe(() => {
+      notifications += 1;
+    });
+    try {
+      expect(component.handleKey("\x1b[3~")).toBe("handled"); // Delete 'o'
+      expect(getState().input).toBe("hell");
+      expect(notifications).toBe(1);
+    } finally {
+      unsubscribe();
+    }
   });
 
   it("frame cache keys on width and focus style", () => {
