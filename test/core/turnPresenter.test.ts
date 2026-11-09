@@ -218,6 +218,15 @@ describe("createTurnPresenter", () => {
       lines: ["❌ turn error", "boom_code: bad"],
     });
   });
+  it("logs a rate_limited backoff as a warning notice", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onRateLimited?.({ attempt: 1, maxAttempts: 4, delayMs: 147000 });
+    expect(entries.filter((e) => e.kind === "notice").at(-1)).toEqual({
+      kind: "notice",
+      lines: ["⚠️ warning", "too many requests/tokens, backing off 2m27s"],
+    });
+  });
 
   it("logs the abort as a notice entry with a shortened reason", () => {
     const { host, entries } = makeHost();

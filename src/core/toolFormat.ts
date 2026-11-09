@@ -86,22 +86,37 @@ export function isBashShaped(result: unknown): boolean {
 }
 
 /**
- * Human-readable runtime abbreviation for a duration in milliseconds:
- * `321ms`, `42s`, `5m21s`, `1h0m0s` — units are concatenated from the
- * largest nonzero component down, so a sub-minute duration never shows an
- * irrelevant hour.
+ * Human-readable duration abbreviation for milliseconds:
+ * `321ms`, `42s`, `5m21s`, `1h0m0s` — units concatenated from the
+ * largest nonzero component down. Sub-second shows ms; sub-minute
+ * never shows an irrelevant hour.
+ * @param ms Duration in milliseconds
+ * @param ceilSeconds When true, ceiling-round to whole seconds (useful for backoff waits).
  */
-export function formatRuntime(durationMs: number): string {
-  if (!Number.isFinite(durationMs) || durationMs < 0) return "0ms";
-  const ms = Math.round(durationMs);
-  const hours = Math.floor(ms / 3_600_000);
-  const minutes = Math.floor((ms % 3_600_000) / 60_000);
-  const seconds = Math.floor((ms % 60_000) / 1000);
+export function formatDuration(ms: number, ceilSeconds = false): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0ms";
+  const totalMs = Math.round(ms);
+  if (!ceilSeconds && totalMs < 1000) return `${totalMs}ms`;
+  const seconds = ceilSeconds ? Math.ceil(ms / 1000) : Math.floor(totalMs / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
   let out = "";
   if (hours > 0) out += `${hours}h`;
   if (hours > 0 || minutes > 0) out += `${minutes}m`;
-  if (hours > 0 || minutes > 0 || seconds > 0) out += `${seconds}s`;
-  return out || `${ms}ms`;
+  if (hours > 0 || minutes > 0 || secs > 0) out += `${secs}s`;
+  return out || (ceilSeconds ? `${seconds}s` : `${totalMs}ms`);
+}
+
+/**
+ * Human-readable runtime abbreviation for a duration in milliseconds:
+ * `321ms`, `42s`, `5m21s`, `1h0m0s` — units concatenated from the
+ * largest nonzero component down, so a sub-minute duration never shows an
+ * irrelevant hour.
+ * Uses floor rounding for seconds.
+ */
+export function formatRuntime(durationMs: number): string {
+  return formatDuration(durationMs, false);
 }
 
 /**
