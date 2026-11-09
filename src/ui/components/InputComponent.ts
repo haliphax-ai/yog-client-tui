@@ -325,14 +325,17 @@ export class InputComponent extends BaseComponent {
 
   /**
    * Mirror the textarea value into the store (no completion reset).
+   * Returns whether the value changed (and was therefore synced, which
+   * already pokes the render scheduler via `setState`).
    * The whole-buffer `value()` join runs only when the value actually
    * changed since the last sync — navigation reuses the settled string.
    */
-  private syncInput(): void {
+  private syncInput(): boolean {
     const value = this.currentValue();
-    if (value === this.lastSyncedValue) return;
+    if (value === this.lastSyncedValue) return false;
     this.lastSyncedValue = value;
     setState({ input: value });
+    return true;
   }
 
   /** Mirror an edit into the store and reset the completion selection. */
@@ -584,7 +587,15 @@ export class InputComponent extends BaseComponent {
       return "unhandled";
     }
     this.feed(key);
-    this.syncInput(); // navigation only — keep the completion selection
+    // Navigation only — keep the completion selection. A pure cursor /
+    // scroll / selection move leaves the value unchanged, so `syncInput`
+    // writes nothing — but the view *did* change. The render scheduler
+    // only flushes on a store notification, so an unchanged value must
+    // still poke it (`setState({})`, as the Shift+Up path above does);
+    // without the poke no frame is ever drawn and the cursor appears
+    // frozen even though the model moved. When the value did change
+    // (Delete, case transforms, …) `syncInput` already notified.
+    if (!this.syncInput()) setState({});
     return "handled";
   }
 }
