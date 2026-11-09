@@ -110,7 +110,7 @@ describe("renderTable — expanded layout renders at the resolved widths", () =>
     // scrollX=5 eats the left border, both pads, and 'S u' of the cell.
     expect(stripAnsi(rows[4]!).startsWith("ercalifr")).toBe(true);
     // The border column is gone — the viewport re-slice covers that.
-    expect(stripAnsi(rows[4]!).startsWith("╱")).toBe(false);
+    expect(stripAnsi(rows[4]!).startsWith("│")).toBe(false);
     // Padded back to the full row width (so the viewport slice is stable).
     expect(displayWidth(stripAnsi(rows[4]!))).toBe(total);
   });
