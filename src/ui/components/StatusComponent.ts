@@ -1,5 +1,5 @@
 /**
- * Status line: busy spinner, note, session state, and session stats.
+ * Status line: session state and session stats.
  * Pure derivation from the store — no keys, no focus, single row.
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
@@ -8,15 +8,6 @@ import { formatTokenTotal } from "../../core/toolFormat.ts";
 import { ST, CONTEXT_WINDOW } from "../theme.ts";
 import { displayWidth, stripAnsi } from "../../util/ansi.ts";
 import type { LogEntry } from "../../core/entries.ts";
-import { MiniDot } from "@oakoliver/bubbles";
-
-/** Busy spinner frames (Bubbles `MiniDot` preset — byte-identical to our hand-rolled array). */
-export const SPINNER = MiniDot.frames;
-
-/** Spinner frame for the current `busyFrame` (undefined while idle). */
-export function spinnerFrame(): string {
-  return SPINNER[getState().busyFrame % SPINNER.length] as string;
-}
 
 /** Emoji labels — all already full-width, so no variation selectors are
  *  needed (ℹ️ would have required one; 🔌 does not). */
@@ -80,22 +71,12 @@ export function statsSegment(
   return parts.join("  ");
 }
 
-/** Activity items (spinner + note), empty while idle. */
-function activityItems(state: Readonly<UiState>): string[] {
-  const items: string[] = [];
-  if (state.busy) items.push(`${spinnerFrame()} generating`);
-  if (state.statusNote !== "") items.push(state.statusNote);
-  return items;
-}
-
-/** Plain status body: activity · session · stats, separated by vertical bars.
+/** Plain status body: session · stats, separated by vertical bars.
  *  Stats are separated by two spaces (🔄 2  🔧 27). */
 export function statusBody(): string {
   const state = getState();
   const stats = sessionStats(state.entries);
   const segments: string[] = [];
-  const activity = activityItems(state);
-  if (activity.length > 0) segments.push(activity.join(" · "));
   segments.push(
     `${USER_EMOJI} ${state.model}  ${SESSION_EMOJI} ${
       state.connection === "connected" ? "ok" : state.connection
@@ -111,14 +92,9 @@ export class StatusComponent extends BaseComponent {
   }
 
   /** One styled status row: dark grey backing across the full width, black
-   *  text by default, and the spinner/"generating" label in bright purple. */
+   *  text by default. */
   override render(ctx: RenderContext): string {
     const state = getState();
-    const activity: string[] = [];
-    if (state.busy) {
-      activity.push(ST.generating.render(`${spinnerFrame()} generating`));
-    }
-    if (state.statusNote !== "") activity.push(ST.status.render(state.statusNote));
     const stats = sessionStats(state.entries);
     const session = [
       ST.status.render(`${USER_EMOJI} ${state.model}`),
@@ -127,10 +103,7 @@ export class StatusComponent extends BaseComponent {
       ),
     ].join(ST.status.render("  "));
     const statsLine = ST.status.render(statsSegment(state, stats));
-    const segments: string[] = [];
-    if (activity.length > 0) segments.push(activity.join("  "));
-    segments.push(session, statsLine);
-    const row = segments.join(ST.status.render(" ╱ "));
+    const row = [session, statsLine].join(ST.status.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);
     const pad = Math.max(0, cols - displayWidth(stripAnsi(row)));
     return row + ST.status.render(" ".repeat(pad));

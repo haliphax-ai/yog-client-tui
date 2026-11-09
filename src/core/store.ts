@@ -16,10 +16,8 @@ export interface UiState {
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
-  busyFrame: number;
   connection: "connecting" | "connected" | "error";
   model: string;
-  statusNote: string;
   /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
   focusTarget: FocusTarget;
   /** Running session token totals (reset on /new). */
@@ -40,10 +38,8 @@ function initialState(): UiState {
     scrollOffset: 0,
     follow: true,
     busy: false,
-    busyFrame: 0,
     connection: "connected",
     model: "",
-    statusNote: "",
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     contextWindow: undefined,
     focusTarget: FOCUS_NONE_TARGET,

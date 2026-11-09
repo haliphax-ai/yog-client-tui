@@ -117,8 +117,8 @@ will land.
 | `Esc`                                               | In the log with an entry focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op)                                                                                                   |
 
 While a turn is in flight, Enter is ignored (one turn at a time); input editing
-continues. The status line shows a spinner and key hints — including `Esc abort`
-while busy.
+continues. The drawer above the input shows a spinner (including `Esc abort`
+while busy).
 
 The abort path lives on the input side of the ring: `Esc` while typing sends
 the server's `POST /v1/sessions/{id}/abort` endpoint, which kills the tool call
