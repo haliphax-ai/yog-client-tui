@@ -671,13 +671,13 @@ describe("turn usage reaches the session status bar", () => {
       total_tokens: 1500,
     });
     turn.finish();
-    setState({ entries, model: "m-1", connection: "connected" });
+    setState({ entries, model: "m-1" });
     // The per-turn summary line carries the turn's own stats; the session
     // status bar shows the 🪙 total from the same usage report.
     expect(entries.filter((e) => e.kind === "status").at(-1)?.lines[0]).toBe(
       "runtime 5m21s · 1 tool call · 1.5K tokens",
     );
-    expect(statusBody()).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 1  🪙 1.5K tok");
+    expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 1  🪙 1.5K tok");
   });
 
   it("flushes the cut-point usage to the status bar on abort", () => {
@@ -715,8 +715,8 @@ describe("turn usage reaches the session status bar", () => {
       completion_tokens: 500,
       total_tokens: 1500,
     });
-    setState({ entries, model: "m-1", connection: "connected" });
-    expect(statusBody()).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 0  🪙 1.5K tok");
+    setState({ entries, model: "m-1" });
+    expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 0  🪙 1.5K tok");
   });
 
   it("updates the 🪙 stat live as tool results arrive, before any finish", () => {
@@ -736,14 +736,14 @@ describe("turn usage reaches the session status bar", () => {
     turn.begin("hello");
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    setState({ entries, model: "m-1", connection: "connected" });
+    setState({ entries, model: "m-1" });
     // Still streaming — no finish yet — but the coin stat already climbs with
     // each completed tool call's attributed completion tokens.
     // Both call lines exist before any result lands, so the tool-call counter
     // is already 2; what moves live is the 🪙 token stat.
     turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 40);
-    expect(statusBody()).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 2");
+    expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 2");
     turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 40);
-    expect(statusBody()).toBe("👤 m-1  🔌 ok ╱ 🔄 1  🔧 2  🪙 40 tok");
+    expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 2  🪙 40 tok");
   });
 });

@@ -16,7 +16,6 @@ export interface UiState {
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
-  connection: "connecting" | "connected" | "error";
   model: string;
   /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
   focusTarget: FocusTarget;
@@ -38,7 +37,6 @@ function initialState(): UiState {
     scrollOffset: 0,
     follow: true,
     busy: false,
-    connection: "connected",
     model: "",
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     contextWindow: undefined,
