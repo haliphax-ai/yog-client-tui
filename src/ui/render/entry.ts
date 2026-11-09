@@ -397,7 +397,12 @@ function renderEntry(
         : (() => {
             // Collapsed: the note rides at the end of the (capped) line; the
             // cap shrinks by the note's width so both always fit the budget.
-            const line = entry.lines[0] ?? "";
+            const line =
+              entry.label !== undefined && entry.argsCompact !== undefined
+                ? entry.argsCompact === ""
+                  ? entry.label
+                  : `${entry.label} ${entry.argsCompact}`
+                : (entry.lines[0] ?? "");
             const note = entry.tokenNote === undefined ? "" : ` · ${entry.tokenNote}`;
             const cap = Math.max(1, cols - 2 - displayWidth(note));
             if (displayWidth(line) <= cap) return note === "" ? [line] : [`${line}${note}`];
@@ -497,7 +502,9 @@ function renderKeyOf(
           .join(",");
   return `${cols}|${focused ? 1 : 0}|${focusedTableIndex}|${entry.collapsed ? 1 : 0}|${
     entry.expanded ? 1 : 0
-  }|${contentKeyOf(entry)}|${entry.label ?? ""}|${entry.tokenNote ?? ""}|${tableState}`;
+  }|${contentKeyOf(entry)}|${entry.label ?? ""}|${entry.argsCompact?.length ?? 0}|${
+    entry.full?.length ?? 0
+  }|${entry.tokenNote ?? ""}|${tableState}`;
 }
 
 /**

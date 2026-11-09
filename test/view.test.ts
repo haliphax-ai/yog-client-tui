@@ -7,7 +7,7 @@ import {
   resultPreview,
   totalRows,
 } from "../src/ui/render/index.ts";
-import { formatRuntime, prettyArgs, resultStatus } from "../src/core/toolFormat.ts";
+import { compactArgs, formatRuntime, prettyArgs, resultStatus } from "../src/core/toolFormat.ts";
 import { createTurnPresenter } from "../src/core/turnPresenter.ts";
 import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/store.ts";
 import { statusBody } from "../src/ui/components/StatusComponent.ts";
@@ -81,6 +81,15 @@ describe("prettyArgs", () => {
   it("stringifies non-serializable primitives", () => {
     expect(prettyArgs(undefined, 100)).toBe("undefined");
     expect(prettyArgs(null, 100, "pretty")).toBe("null");
+  });
+});
+
+describe("compactArgs", () => {
+  it("returns uncapped compact text (no ellipsis, no width cap)", () => {
+    expect(compactArgs({ cmd: "x".repeat(200) })).toBe(`{"cmd":"${"x".repeat(200)}"}`);
+    expect(compactArgs("  hello   world  ")).toBe("hello world");
+    expect(compactArgs({ cmd: "✅".repeat(50) })).toContain("✅".repeat(50));
+    expect(compactArgs({ cmd: "x".repeat(200) })).not.toContain("…");
   });
 });
 

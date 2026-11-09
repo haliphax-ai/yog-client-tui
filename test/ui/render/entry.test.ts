@@ -399,6 +399,85 @@ describe("status entry", () => {
     expect(displayWidth(stripAnsi(rows[0] as string))).toBeLessThanOrEqual(20);
   });
 });
+describe("collapsed tool args grow and shrink on resize", () => {
+  it("grows when the window widens and shrinks when it narrows (tool call)", () => {
+    const entry: LogEntry = {
+      kind: "tool",
+      lines: ['⚙️ bash ✅ {"cmd":"xxxxxxxxxx…'],
+      label: "⚙️ bash ✅",
+      argsCompact: `{"cmd":"${"x".repeat(200)}"}`,
+      full: `{\n  "cmd": "${"x".repeat(200)}"\n}`,
+      expanded: false,
+    };
+    const narrow = stripAnsi(cachedRows(entry, 40)[0] as string);
+    expect(narrow).toContain("…");
+    expect(displayWidth(narrow)).toBeLessThanOrEqual(40);
+    const wide = stripAnsi(cachedRows(entry, 120)[0] as string);
+    expect(displayWidth(wide)).toBeLessThanOrEqual(120);
+    expect((wide.match(/x/g) ?? []).length).toBeGreaterThan((narrow.match(/x/g) ?? []).length);
+    const vwide = stripAnsi(cachedRows(entry, 250)[0] as string);
+    expect(vwide).not.toContain("…");
+    expect(vwide).toContain("x".repeat(200));
+    const narrowAgain = stripAnsi(cachedRows(entry, 40)[0] as string);
+    expect(narrowAgain).toContain("…");
+    expect(narrowAgain).toBe(narrow);
+  });
+
+  it("grows for toolResult payloads and keeps the token note at the end", () => {
+    const entry: LogEntry = {
+      kind: "toolResult",
+      lines: ['🔚 noop {"note":"yyyy…'],
+      label: "🔚 noop",
+      argsCompact: `{"note":"${"y".repeat(200)}"}`,
+      full: `{\n  "note": "${"y".repeat(200)}"\n}`,
+      expanded: false,
+      tokenNote: "172 tok",
+    };
+    const narrow = stripAnsi(cachedRows(entry, 40)[0] as string);
+    expect(narrow).toContain("· 172 tok");
+    expect(displayWidth(narrow)).toBeLessThanOrEqual(40);
+    const wide = stripAnsi(cachedRows(entry, 120)[0] as string);
+    expect(wide).toContain("· 172 tok");
+    expect((wide.match(/y/g) ?? []).length).toBeGreaterThan((narrow.match(/y/g) ?? []).length);
+    const vwide = stripAnsi(cachedRows(entry, 250)[0] as string);
+    expect(vwide).not.toContain("…");
+    expect(vwide).toContain("y".repeat(200));
+    expect(vwide).toContain("· 172 tok");
+    expect(displayWidth(vwide)).toBeLessThanOrEqual(250);
+  });
+
+  it("grows by CELLS for emoji args (regression)", () => {
+    const entry: LogEntry = {
+      kind: "tool",
+      lines: ["⚙️ bash ✅"],
+      label: "⚙️ bash ✅",
+      argsCompact: `{"cmd":"${"✅".repeat(50)}"}`,
+      full: `{\n  "cmd": "${"✅".repeat(50)}"\n}`,
+      expanded: false,
+    };
+    const narrow = stripAnsi(cachedRows(entry, 40)[0] as string);
+    const wide = stripAnsi(cachedRows(entry, 80)[0] as string);
+    const vwide = stripAnsi(cachedRows(entry, 200)[0] as string);
+    expect(displayWidth(narrow)).toBeLessThanOrEqual(40);
+    expect(displayWidth(wide)).toBeLessThanOrEqual(80);
+    expect((wide.match(/✅/g) ?? []).length).toBeGreaterThan((narrow.match(/✅/g) ?? []).length);
+    expect(vwide).toContain("✅".repeat(50));
+    expect(vwide).not.toContain("…");
+    expect(displayWidth(vwide)).toBeLessThanOrEqual(200);
+  });
+
+  it("still truncates orphan/manual lines without label+argsCompact", () => {
+    const entry: LogEntry = {
+      kind: "tool",
+      lines: [`⚙️ bash ❌ missing required field "script" ${"x".repeat(120)}`],
+    };
+    const narrow = cachedRows(entry, 40);
+    expect(narrow.length).toBe(1);
+    expect(stripAnsi(narrow[0] as string).trimEnd()).toMatch(/…$/);
+    expect(displayWidth(stripAnsi(narrow[0] as string))).toBeLessThanOrEqual(40);
+  });
+});
+
 describe("toolResult entry", () => {
   it("renders like a tool call: collapsed 🔚 line, expandable to the full JSON result", () => {
     const entry: LogEntry = {
@@ -418,7 +497,6 @@ describe("toolResult entry", () => {
     expect(stripAnsi(expanded.join("\n"))).toContain('"note"');
   });
 });
-
 describe("chunk tokenNote", () => {
   it("keeps the collapsed tail to the line count (no token note, no guidance)", () => {
     const entry: LogEntry = {
