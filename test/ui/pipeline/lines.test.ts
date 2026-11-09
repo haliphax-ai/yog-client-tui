@@ -37,7 +37,7 @@ describe("composeMainPane — guaranteed single blank line between log and input
     expect(composeMainPane([], [], "▐ ", "status")).toEqual(["▐ ", "status"]);
   });
 
-  it("places non-empty drawer rows between the gap and the input", () => {
+  it("places non-empty drawer rows directly after the log (drawer padding is the gap)", () => {
     expect(composeMainPane(["line1", ""], ["drawer-a", "drawer-b"], "▐ ", "status")).toEqual([
       "line1",
       "",
@@ -48,7 +48,7 @@ describe("composeMainPane — guaranteed single blank line between log and input
     ]);
     expect(composeMainPane(["line1", "line2"], ["drawer"], "▐ ", "status")).toEqual([
       "line1",
-      "",
+      "line2",
       "drawer",
       "▐ ",
       "status",
