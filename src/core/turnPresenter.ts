@@ -17,7 +17,7 @@ import {
   tokenCountNote,
   isBashShaped,
 } from "./toolFormat.ts";
-import { displayWidth } from "../util/ansi.ts";
+import { displayWidth, truncateAnsi } from "../util/ansi.ts";
 import type { LogEntry } from "./entries.ts";
 import { noticeLine } from "./notices.ts";
 import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
@@ -516,6 +516,248 @@ export function transcriptLogEntries(
   }
   maybeFlushTurn(null);
   return out;
+}
+
+/**
+ * One cheap placeholder per transcript entry (#67): rendered immediately
+ * for every row, then swapped for the real entry as rehydration
+ * completes. Shapes follow the issue: `user: <truncated prompt>`,
+ * `agent: <truncated response>`, `tool: <name>` (no args),
+ * `result: <name>` (no content), `system: <truncated text>` for
+ * anything else. Truncation is cell-based (`truncateAnsi` on the
+ * plain text, then the label prefix is measured in cells) so emoji
+ * never corrupts the budget — see AGENTS.md. One placeholder may
+ * expand to several log entries on swap (a tool-call row becomes a
+ * call line + result chunk); the swapper maps by transcript index,
+ * not by log index.
+ */
+export function placeholderForTranscriptEntry(entry: TranscriptEntry, cols: number): LogEntry {
+  const budget = Math.max(24, cols - 2);
+  const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const fit = (prefix: string, body: string): string => {
+    const room = Math.max(8, budget - displayWidth(prefix));
+    const short =
+      displayWidth(body) > room ? (room >= 2 ? `${truncateAnsi(body, room - 1)}…` : "") : body;
+    return short === "" ? prefix.trimEnd() : `${prefix}${short}`;
+  };
+  if (entry.role === "user") {
+    return {
+      kind: "placeholder",
+      placeholderRole: "user",
+      lines: [fit("user: ", oneLine(entry.text))],
+    };
+  }
+  if (entry.role === "assistant") {
+    const calls = decodeToolCalls(entry.raw.toolCalls);
+    if (calls.length > 0) {
+      const names = calls.map((c) => c.name || "tool").join(", ");
+      return {
+        kind: "placeholder",
+        placeholderRole: "tool",
+        lines: [fit("tool: ", names)],
+      };
+    }
+    return {
+      kind: "placeholder",
+      placeholderRole: "assistant",
+      lines: [fit("agent: ", oneLine(entry.text))],
+    };
+  }
+  if (entry.role === "tool") {
+    const name = entry.raw.name ?? entry.raw.toolCallId ?? "tool";
+    return {
+      kind: "placeholder",
+      placeholderRole: "result",
+      lines: [fit("result: ", name || "tool")],
+    };
+  }
+  return {
+    kind: "placeholder",
+    placeholderRole: "system",
+    lines: [fit("system: ", oneLine(entry.text))],
+  };
+}
+
+/** Every transcript row as a placeholder, in transcript order. */
+export function placeholderLogEntries(entries: TranscriptEntry[], cols: number): LogEntry[] {
+  return entries.map((e) => placeholderForTranscriptEntry(e, cols));
+}
+
+/**
+ * Bottom-up rehydration (#67): build the real log entries for transcript
+ * rows starting from the *last* chunk (the part the user actually sees)
+ * and walk backwards, so the visible region materializes first. Each
+ * step returns the real entries for one transcript row (expanding to
+ * call/result/status rows exactly as `transcriptLogEntries` does for
+ * that row group); `spliceInto` inserts them at the placeholder's
+ * position. The caller drives this in batches (e.g. one row per frame
+ * via the scheduler) and paints placeholders in between.
+ *
+ * Implementation: precompute the full `transcriptLogEntries` result in
+ * per-transcript-index groups via `rehydrateGroups`, then emit groups
+ * from the last index backwards. Grouping reuses the same pairing /
+ * orphan / turn-summary logic as the full converter by construction:
+ * the concatenation of groups in index order is exactly
+ * `transcriptLogEntries(entries, cols, opts)`.
+ */
+export function rehydrateGroups(
+  entries: TranscriptEntry[],
+  cols: number,
+  opts: TranscriptRehydrateOpts = {},
+): LogEntry[][] {
+  const groups: LogEntry[][] = [];
+  let i = 0;
+  let activeTurnId: number | null = null;
+  let turnCallCount = 0;
+  let pendingSummary: LogEntry[] = [];
+  const flushTurn = (nextTurnId: number | null): void => {
+    if (activeTurnId !== null && nextTurnId !== activeTurnId) {
+      const metrics = opts.turns?.get(activeTurnId);
+      if (
+        metrics !== undefined &&
+        (metrics.durationMs !== undefined || usageTotal(metrics.usage) > 0)
+      ) {
+        const parts: string[] = [];
+        if (metrics.durationMs !== undefined) {
+          parts.push(`runtime ${formatRuntime(metrics.durationMs)}`);
+        }
+        parts.push(`${turnCallCount} tool call${turnCallCount === 1 ? "" : "s"}`);
+        const total = usageTotal(metrics.usage);
+        if (total > 0) parts.push(`${formatTokenTotal(total)} tokens`);
+        pendingSummary.push({ kind: "status", lines: [parts.join(" · ")] });
+      }
+      turnCallCount = 0;
+    }
+    activeTurnId = nextTurnId;
+  };
+  while (i < entries.length) {
+    const group: LogEntry[] = [];
+    const e = entries[i]!;
+    const rawTurnId = e.raw.turnId;
+    let turnId: number | null = null;
+    if (typeof rawTurnId === "number") turnId = rawTurnId;
+    else if (typeof rawTurnId === "string" && rawTurnId.trim() !== "") {
+      const n = Number(rawTurnId);
+      if (Number.isFinite(n)) turnId = n;
+    }
+    // Turn summary belongs to the *previous* turn's last row group; keep
+    // it aligned with the full converter by appending it there.
+    flushTurn(turnId);
+    if (pendingSummary.length > 0) {
+      // Attach to the previous group (the turn that just ended).
+      const prev = groups[groups.length - 1];
+      if (prev !== undefined) prev.push(...pendingSummary);
+      else group.push(...pendingSummary);
+      pendingSummary = [];
+    }
+    const calls = e.role === "assistant" ? decodeToolCalls(e.raw.toolCalls) : [];
+    if (calls.length > 0) {
+      turnCallCount += calls.length;
+      const open = new Map<string, { entry: LogEntry; name: string }>();
+      for (const c of calls) {
+        const entry = toolCallEntry(c.id, c.name, parseToolArgs(c.arguments), cols);
+        group.push(entry);
+        open.set(c.id, { entry, name: c.name });
+      }
+      i += 1;
+      while (i < entries.length) {
+        const next = entries[i]!;
+        if (next.role !== "tool") break;
+        const id = next.raw.toolCallId;
+        if (id === undefined) break;
+        const call = open.get(id);
+        if (call === undefined) break;
+        open.delete(id);
+        const decoded = decodeToolResult(next.raw);
+        annotateToolCall(call.entry, decoded.ok, decoded.error);
+        if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
+          const idx = group.indexOf(call.entry);
+          const insertAt = idx !== -1 ? idx + 1 : group.length;
+          group.splice(
+            insertAt,
+            0,
+            ...toolResultEntries(
+              call.name,
+              decoded.value,
+              cols,
+              tokenCountNote(next.raw.resultTokens, { estimated: true }),
+            ),
+          );
+        }
+        // Fold the consumed result row into this group: its placeholder
+        // must not remain as a separate row. Mark it by advancing i and
+        // remembering that the next group index is skipped — handled by
+        // the caller via groupTranscriptIndices below.
+        i += 1;
+      }
+      groups.push(group);
+      continue;
+    }
+    if (e.role === "user" || e.role === "assistant") {
+      group.push({ kind: e.role, lines: [e.text] });
+    } else if (e.role === "tool") {
+      const decoded = decodeToolResult(e.raw);
+      const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
+      group.push({
+        kind: "tool",
+        lines: [
+          `${decoded.ok ? "✅" : "❌"} ${label}${decoded.ok ? "" : ` ${decoded.error ?? "failed"}`}`,
+        ],
+      });
+      if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
+        group.push(
+          ...toolResultEntries(
+            label,
+            decoded.value,
+            cols,
+            tokenCountNote(e.raw.resultTokens, { estimated: true }),
+          ),
+        );
+      }
+    } else {
+      group.push({ kind: "system", lines: [e.text] });
+    }
+    groups.push(group);
+    i += 1;
+  }
+  // Final turn summary attaches to the last group (full converter parity).
+  flushTurn(null);
+  if (pendingSummary.length > 0) {
+    const last = groups[groups.length - 1];
+    if (last !== undefined) last.push(...pendingSummary);
+    else groups.push(pendingSummary);
+  }
+  return groups;
+}
+
+/**
+ * Transcript indices covered by each rehydrate group: a tool-call group
+ * covers its call row plus every consumed result row, so the swapper
+ * knows which placeholders to remove when swapping one group.
+ */
+export function rehydrateGroupIndices(entries: TranscriptEntry[]): number[][] {
+  const idx: number[][] = [];
+  let i = 0;
+  while (i < entries.length) {
+    const e = entries[i]!;
+    const calls = e.role === "assistant" ? decodeToolCalls(e.raw.toolCalls) : [];
+    const covered = [i];
+    i += 1;
+    if (calls.length > 0) {
+      const open = new Set(calls.map((c) => c.id));
+      while (i < entries.length) {
+        const next = entries[i]!;
+        if (next.role !== "tool") break;
+        const id = next.raw.toolCallId;
+        if (id === undefined || !open.has(id)) break;
+        open.delete(id);
+        covered.push(i);
+        i += 1;
+      }
+    }
+    idx.push(covered);
+  }
+  return idx;
 }
 
 /** Human-readable "N prompt · N completion · N total" segments for a terminal
