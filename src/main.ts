@@ -430,12 +430,18 @@ async function run(argv: readonly string[]): Promise<void> {
       setMetrics: () => {
         // The log gets the remainder after the input bar (which grows by
         // one row when the slash-command autocomplete menu is open), the
-        // drawer (zero rows when fully collapsed), and the status line. The
-        // blank line between the log and the drawer/input is provided by the
-        // composition (the log's own trailing separator at the bottom, or a
-        // dedicated margin row when scrolled away).
+        // drawer (zero rows when fully collapsed), and the status line —
+        // plus the row the composition consumes for the log gap when the
+        // drawer is visible (its top padding is that gap).
         viewport.setViewportRows(
-          Math.max(1, rows - input.measure(cols) - drawer.measure(cols) - status.measure(cols)),
+          Math.max(
+            1,
+            rows -
+              input.measure(cols) -
+              drawer.measure(cols) -
+              status.measure(cols) +
+              drawerGap(cols),
+          ),
         );
       },
       paint: () =>
@@ -819,6 +825,12 @@ async function run(argv: readonly string[]): Promise<void> {
   input.ring = "input";
   const chain: readonly Component[] = [viewport, input, drawer, status];
 
+  /** Rows the composition consumes from the viewport for the log gap: the
+   *  drawer's top padding is that gap when the drawer is visible (one row),
+   *  and the composition's own blank row is the gap when it is collapsed
+   *  (zero — the blank reuses or replaces a viewport row in place). */
+  const drawerGap = (cols: number): number => (drawer.measure(cols) > 0 ? 1 : 0);
+
   /** Rows available to the log viewport in the current terminal layout. */
   const viewportRows = (): number =>
     Math.max(
@@ -826,7 +838,8 @@ async function run(argv: readonly string[]): Promise<void> {
       (process.stdout.rows ?? 24) -
         input.measure(process.stdout.columns ?? 80) -
         drawer.measure(process.stdout.columns ?? 80) -
-        status.measure(process.stdout.columns ?? 80),
+        status.measure(process.stdout.columns ?? 80) +
+        drawerGap(process.stdout.columns ?? 80),
     );
 
   /**

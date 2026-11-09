@@ -97,20 +97,23 @@ export class StatusComponent extends BaseComponent {
     const state = getState();
     const stats = sessionStats(state.entries);
     const session = [
-      ST.statusText.render(`${USER_EMOJI} ${state.model}`),
-      ST.statusText.render(
+      ST.status.render(`${USER_EMOJI} ${state.model}`),
+      ST.status.render(
         `${SESSION_EMOJI} ${state.connection === "connected" ? "ok" : state.connection}`,
       ),
-    ].join(ST.statusText.render("  "));
-    const statsLine = ST.statusText.render(statsSegment(state, stats));
-    const row = [session, statsLine].join(ST.statusText.render(" ╱ "));
+    ].join(ST.status.render("  "));
+    const statsLine = ST.status.render(statsSegment(state, stats));
+    const row = [session, statsLine].join(ST.status.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);
-    // The padded style's width includes its 1-cell padding, so the body
-    // budget is cols - 2 and the trailing fill is part of it.
+    // 1-cell horizontal padding, styled as part of the backing: body budget
+    // is cols - 2, with one styled space on each side. (A lipgloss
+    // padding style on the whole row would leave the trailing fill
+    // unstyled where the pre-styled segments reset — the backing must run
+    // the full width, so the padding cells are styled spans themselves.)
     const inner = Math.max(0, cols - 2);
     const body = truncateAnsi(row, inner);
     const pad = Math.max(0, inner - displayWidth(stripAnsi(body)));
-    return ST.status.width(cols).render(body + " ".repeat(pad));
+    return ST.status.render(" ") + body + ST.status.render(" ".repeat(pad + 1));
   }
 
   /** Rows this component occupies: always a single line. */

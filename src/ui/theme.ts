@@ -64,10 +64,8 @@ export const ST = {
   /** Input text when the input is blurred (log holds the top-level ring). */
   inputTextBlur: newStyle().foreground("#52525b"),
   cursor: newStyle().background("#7c3aed").foreground("#ffffff").bold(true),
-  /** Status text: black on the status-bar backing (per-segment coloring). */
-  statusText: newStyle().background("#3f3f46").foreground("#000000"),
-  /** Status bar: dark grey backing with 1-cell horizontal padding. */
-  status: newStyle().background("#3f3f46").foreground("#000000").padding(0, 1),
+  /** Status bar: dark grey backing, black text by default. */
+  status: newStyle().background("#3f3f46").foreground("#000000"),
   /** Busy label: spinner + "generating" in bright purple. */
   generating: newStyle().foreground("#c084fc").bold(true),
   /** Drawer block: 1-cell padding on every side. */
