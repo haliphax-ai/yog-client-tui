@@ -43,11 +43,6 @@ describe("statusBody", () => {
     expect(out).not.toContain("generating");
   });
 
-  it("joins the transient note into the activity segment", () => {
-    const out = body({ statusNote: "session saved — bye", model: "m-1", connection: "connected" });
-    expect(out).toMatch(/^session saved — bye ╱ 👤 m-1  🔌 ok ╱/);
-  });
-
   it("reflects a non-connected state in the session segment", () => {
     const out = body({ model: "m-1", connection: "error" });
     expect(out).toMatch(/^👤 m-1  🔌 error ╱/);

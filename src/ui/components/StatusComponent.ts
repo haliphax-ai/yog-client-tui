@@ -1,5 +1,5 @@
 /**
- * Status line: note, session state, and session stats.
+ * Status line: session state and session stats.
  * Pure derivation from the store — no keys, no focus, single row.
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
@@ -71,21 +71,12 @@ export function statsSegment(
   return parts.join("  ");
 }
 
-/** Activity items (the transient note), empty while idle. */
-function activityItems(state: Readonly<UiState>): string[] {
-  const items: string[] = [];
-  if (state.statusNote !== "") items.push(state.statusNote);
-  return items;
-}
-
-/** Plain status body: activity · session · stats, separated by vertical bars.
+/** Plain status body: session · stats, separated by vertical bars.
  *  Stats are separated by two spaces (🔄 2  🔧 27). */
 export function statusBody(): string {
   const state = getState();
   const stats = sessionStats(state.entries);
   const segments: string[] = [];
-  const activity = activityItems(state);
-  if (activity.length > 0) segments.push(activity.join(" · "));
   segments.push(
     `${USER_EMOJI} ${state.model}  ${SESSION_EMOJI} ${
       state.connection === "connected" ? "ok" : state.connection
@@ -104,8 +95,6 @@ export class StatusComponent extends BaseComponent {
    *  text by default. */
   override render(ctx: RenderContext): string {
     const state = getState();
-    const activity: string[] = [];
-    if (state.statusNote !== "") activity.push(ST.status.render(state.statusNote));
     const stats = sessionStats(state.entries);
     const session = [
       ST.status.render(`${USER_EMOJI} ${state.model}`),
@@ -114,10 +103,7 @@ export class StatusComponent extends BaseComponent {
       ),
     ].join(ST.status.render("  "));
     const statsLine = ST.status.render(statsSegment(state, stats));
-    const segments: string[] = [];
-    if (activity.length > 0) segments.push(activity.join("  "));
-    segments.push(session, statsLine);
-    const row = segments.join(ST.status.render(" ╱ "));
+    const row = [session, statsLine].join(ST.status.render(" ╱ "));
     const cols = Math.max(1, ctx.cols);
     const pad = Math.max(0, cols - displayWidth(stripAnsi(row)));
     return row + ST.status.render(" ".repeat(pad));

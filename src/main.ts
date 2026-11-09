@@ -601,7 +601,6 @@ async function run(argv: readonly string[]): Promise<void> {
               scrollOffset: 0,
               follow: true,
               focusTarget: FOCUS_NONE_TARGET,
-              statusNote: "",
               tokenTotals: { prompt: 0, completion: 0, total: 0 },
             });
             await saveState(stateFilePath(), { lastSessionId: id });
@@ -770,7 +769,7 @@ async function run(argv: readonly string[]): Promise<void> {
     };
     turn.begin(prompt);
     input.reset();
-    setState({ statusNote: "", follow: true });
+    setState({ follow: true });
     startSpinner();
 
     void (async () => {
@@ -842,12 +841,6 @@ async function run(argv: readonly string[]): Promise<void> {
   const quit = async (code: number): Promise<void> => {
     if (quitting) return;
     quitting = true;
-    setState({
-      statusNote: getState().busy
-        ? "turn still running on the server — bye"
-        : "session saved — bye",
-    });
-    scheduler.cancel(); // flush the note through the pipeline before exiting
     generating.stop();
     restoreTerminal();
     process.exit(code);
