@@ -19,15 +19,15 @@ with `@oakoliver/glamour` markdown rendering.
 The code is split into responsibility domains with enforced dependency rules
 (dependency-cruiser checks them in `npm run depcruise`):
 
-| Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                              |
-| ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                               |
-| `config`         | `src/config.ts`    | Config parsing and validation: `model` and `baseUrl` (both required); config/state file locations resolved from `XDG_CONFIG_HOME` → `HOME` → `PWD`.                                                                                                                                                                                                                                         |
-| `core`           | `src/core/`        | The domain: the log-entry shape (`core/entries`), the tiny state store (`getState` / `setState` / `subscribe`), the focus ring (`core/focus`), scroll math, tool-argument/result formatting (`core/toolFormat`), transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering). Never imports the presentation layer. |
-| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → prompt-only `POST /v1/sessions/{id}/turns` with `{prompt, model}` → SSE event consumption → turn-status recovery → transcript rehydration (`GET /v1/sessions/{id}/transcript`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem.    |
-| `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, the table engine — parse / layout / render / scroll, the memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem.                                           |
-| `util`           | `src/util/`        | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain.                                                                                                                                                                                                                                                                                                 |
-| `ui/pipeline`    | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer.                                                                                                                                                                                                                                                                |
+| Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                                                                            |
+| `config`         | `src/config.ts`    | Config parsing and validation: `model` and `baseUrl` (both required); config/state file locations resolved from `XDG_CONFIG_HOME` → `HOME` → `PWD`.                                                                                                                                                                                                                                                                                      |
+| `core`           | `src/core/`        | The domain: the log-entry shape (`core/entries`), the tiny state store (`getState` / `setState` / `subscribe`), the focus ring (`core/focus`), scroll math, tool-argument/result formatting (`core/toolFormat`), transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering). Never imports the presentation layer.                                              |
+| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → open the session stream (`GET /v1/sessions/{id}/stream`) → prompt-only `turn.start` messages on `POST /v1/sessions/{id}/messages` → stream event consumption → `turn.get` recovery → transcript rehydration (`transcript.get`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem. |
+| `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, the table engine — parse / layout / render / scroll, the memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem.                                                                                        |
+| `util`           | `src/util/`        | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain.                                                                                                                                                                                                                                                                                                                                              |
+| `ui/pipeline`    | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer.                                                                                                                                                                                                                                                                                                             |
 
 `client/` never touches the terminal and `ui/` never touches the transport, so
 presentation can change without affecting transport logic (and vice versa).
@@ -121,7 +121,7 @@ continues. The drawer above the input shows a spinner (including `Esc abort`
 while busy).
 
 The abort path lives on the input side of the ring: `Esc` while typing sends
-the server's `POST /v1/sessions/{id}/abort` endpoint, which kills the tool call
+the server's `turn.abort` message, which kills the tool call
 in flight, closes the model stream, heals the transcript, and settles the turn
 (the TUI logs a `⏹️ turn aborted` line).
 The input bar is a multi-line textarea: it grows and shrinks to fit its
@@ -217,10 +217,10 @@ The server owns the canonical conversation. At startup the client:
 2. Resolves the session: `--session <id>` from the command line, else the
    stored `lastSessionId` in `state.json`, else a fresh session (`--new` forces a
    fresh one regardless). A resumable id is validated with
-   `GET /v1/sessions/{id}`; a stale id (`unknown_session`) falls back to a
+   `session.get`; a stale id (`unknown_session`) falls back to a
    fresh session with a one-line note.
 3. Rehydrates the visible conversation from the server's transcript dump
-   (`GET /v1/sessions/{id}/transcript`) — every message kind, full fidelity:
+   (`transcript.get`) — every message kind, full fidelity:
    tool calls render as the same rich, expandable entries a live turn
    produces, annotated with their results, before the first frame is drawn.
    When the server captured per-turn usage, each rehydrated turn ends with
@@ -236,10 +236,11 @@ The server owns the canonical conversation. At startup the client:
 
 On each turn the client then:
 
-5. `POST /v1/sessions/{id}/turns` with `{ prompt, model }` only — the server
-   hydrates prior context from its canonical transcript, so no history ever
-   rides along (retries after a failed turn replay from the last turn
-   boundary server-side).
+5. Opens the session stream (`GET /v1/sessions/{id}/stream`) and sends
+   `turn.start` on `POST /v1/sessions/{id}/messages` with `{ prompt, model }`
+   only — the server hydrates prior context from its canonical transcript,
+   so no history ever rides along (retries after a failed turn replay from
+   the last turn boundary server-side).
 6. Consumes the SSE stream, rendering deltas into the assistant entry, tool
    call lines with an inline ✅/❌ indicator and syntax-highlighted args,
    collapsible (Tab + Enter) result chunks for tool output, and error events
@@ -250,21 +251,21 @@ On each turn the client then:
    status bar's 🪙 session total once per round — it climbs while tools run,
    and the terminal usage report later replaces those provisional totals with
    the authoritative full-context numbers.
-7. If the stream drops, recovers the turn outcome from the turn-status endpoint
+7. If the stream drops, recovers the turn outcome from `turn.get`
    (a "🪧 recovered · stream interrupted — resumed from turn status" note is
    logged).
 8. Esc (with nothing focused) aborts the active turn via
-   `POST /v1/sessions/{id}/abort` — a `⏹️ turn aborted` note is logged from
+   `turn.abort` — a `⏹️ turn aborted` note is logged from
    the stream's terminal `turn.aborted` event, carrying the cut-point token
    counts and the per-turn summary line when the provider reported usage
    before the cut.
 9. On quit, keeps the session AND any in-flight turn: turns are
    wire-independent (yog contract's disconnect policy), so the server keeps
    running the turn to its terminal state after the client hangs up instead
-   of aborting it. The session's DELETE is a detach (status `open` →
-   `dormant`) and the transcript is kept, so the next launch resumes where
-   this one left off — including the finished turn's result. Only a
-   server-side purge (`DELETE ?purge=true`) or the 30-day retention prune
-   truly ends a session.
+   of aborting it. The hang-up is a detach (status `open` → `dormant`) and
+   the transcript is kept, so the next launch resumes where this one left
+   off — including the finished turn's result. Only a server-side purge
+   (the messages channel's `session.detach` with `purge`) or the 30-day
+   retention prune truly ends a session.
 
 The bundled `config.example.json` points at the local daemon `http://127.0.0.1:8111`.

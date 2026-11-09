@@ -798,8 +798,8 @@ async function run(argv: readonly string[]): Promise<void> {
   };
 
   /**
-   * Abort the in-flight turn (Esc with no focused entry): POST the abort
-   * endpoint. The turn's SSE stream frames the terminal `turn.aborted`
+   * Abort the in-flight turn (Esc with no focused entry): send the
+   * `turn.abort` message. The session stream frames the terminal `turn.aborted`
    * event, which settles `runTurn` and stops the spinner through the normal
    * completion path — the abort call itself only fires the request. A
    * transport failure here is logged; the turn keeps running either way.
@@ -846,8 +846,8 @@ async function run(argv: readonly string[]): Promise<void> {
    * in-flight turn, if any, is NOT aborted — turns are wire-independent (yog
    * contract, disconnect policy), so the server keeps running the turn to
    * its terminal state after the client hangs up, and the next launch
-   * rehydrates the transcript including this turn's result (the DELETE
-   * endpoint is a detach, and a hard end is a future server-side purge
+   * rehydrates the transcript including this turn's result (the bare hang-up
+   * is what detaches the session, and a hard end is a future server-side purge
    * command, not the quit path).
    */
   const quit = async (code: number): Promise<void> => {

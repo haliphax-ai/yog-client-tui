@@ -26,6 +26,47 @@ function sseResponse(chunks: string[]): Response {
   return new Response(stream);
 }
 
+/**
+ * Wrap a `data` payload in the messages-channel response envelope
+ * (`{ type, version, data }`); pass `status: 202` for streaming types.
+ */
+function msgResponse(type: string, data: unknown, status = 200): Response {
+  return new Response(JSON.stringify({ type, version: 1, data }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * Build an SSE `data` line for a full wire envelope (the server frames
+ * `{ id, type, version, ts, data }` with the event name matching `type`).
+ */
+function envFrame(type: string, data: Record<string, unknown>, id = 1): string {
+  return `event: ${type}\ndata: ${JSON.stringify({ id, type, version: 1, ts: 1, data })}\n\n`;
+}
+
+/** The `stream.hello` frame every session stream starts with. */
+function helloFrame(streamId = "stream-1"): string {
+  return envFrame("stream.hello", { streamId, sessionId: "s1" }, 0);
+}
+
+/**
+ * An SSE response whose body streams the given chunks and then STAYS OPEN
+ * (never closes) — like the real long-lived session stream after
+ * `stream.hello`. Used to prove `runTurn` settles on the terminal event
+ * alone, without waiting for the stream to end (the pre-fix hang).
+ */
+function openSseResponse(chunks: string[]): Response {
+  const encoder = new TextEncoder();
+  let i = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (i < chunks.length) controller.enqueue(encoder.encode(chunks[i++] as string));
+    },
+  });
+  return new Response(stream);
+}
+
 /** Build a Response whose body stream throws the given error mid-read. */
 function failingResponse(firstChunk: string, error: unknown): Response {
   const encoder = new TextEncoder();
@@ -398,14 +439,20 @@ describe("YogClient.reopen", () => {
 
   it("adopts an existing session id on HTTP 200", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ session: { id: "s1", status: "open" } }, 200),
+      msgResponse("session.get", { session: { id: "s1", status: "open" } }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = new YogClient("http://test");
     const adopted = await client.reopen("s1");
     expect(adopted).toBe("s1");
     expect(client.sessionId).toBe("s1");
-    expect(fetchMock).toHaveBeenCalledWith("http://test/v1/sessions/s1", expect.anything());
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://test/v1/sessions/s1/messages",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"type":"session.get"'),
+      }),
+    );
   });
 
   it("clears the id and resolves undefined on a 404 unknown_session", async () => {
@@ -455,18 +502,15 @@ describe("YogClient.getTranscript", () => {
     await expect(client.getTranscript()).rejects.toThrow(/before open/);
   });
 
-  it("fetches the full dump with no query string when no params are given", async () => {
+  it("fetches the full dump with no pagination when no params are given", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse(
-        {
-          session: { id: "s1", status: "dormant" },
-          messages: [
-            { seq: 1, role: "user", content: "q" },
-            { seq: 2, role: "assistant", content: "a" },
-          ],
-        },
-        200,
-      ),
+      msgResponse("transcript.get", {
+        session: { id: "s1", status: "dormant" },
+        messages: [
+          { seq: 1, role: "user", content: "q" },
+          { seq: 2, role: "assistant", content: "a" },
+        ],
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = new YogClient("http://test");
@@ -480,18 +524,25 @@ describe("YogClient.getTranscript", () => {
         { seq: 2, role: "assistant", content: "a" },
       ],
     });
-    const [url] = fetchMock.mock.calls[0] as unknown as [string, unknown];
-    expect(url).toBe("http://test/v1/sessions/s1/transcript");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://test/v1/sessions/s1/messages");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({ type: "transcript.get", data: {} });
   });
 
-  it("builds ?after= and ?limit= query params when given", async () => {
-    const fetchMock = vi.fn(async () => jsonResponse({ session: { id: "s1" }, messages: [] }, 200));
+  it("sends afterSeq/limit in data when given", async () => {
+    const fetchMock = vi.fn(async () =>
+      msgResponse("transcript.get", { session: { id: "s1" }, messages: [] }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const client = new YogClient("http://test");
     client.sessionId = "s1";
     await client.getTranscript(7, 3);
-    const [url] = fetchMock.mock.calls[0] as unknown as [string, unknown];
-    expect(url).toBe("http://test/v1/sessions/s1/transcript?after=7&limit=3");
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      type: "transcript.get",
+      data: { afterSeq: 7, limit: 3 },
+    });
   });
 
   it("maps a 404 unknown_session to a YogError with that code", async () => {
@@ -536,24 +587,21 @@ describe("YogClient.getTranscript", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        jsonResponse(
-          {
-            session: { id: "s1", status: "open" },
-            messages: [],
-            turns: [
-              {
-                turnId: 1,
-                status: "finished",
-                usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-                durationMs: 1200,
-              },
-              { turnId: 2, usage: { total_tokens: "nope" } }, // malformed usage → dropped
-              { turnId: "not-a-number", usage: { total_tokens: 9 } }, // malformed id → dropped
-              null, // malformed row → dropped
-            ],
-          },
-          200,
-        ),
+        msgResponse("transcript.get", {
+          session: { id: "s1", status: "open" },
+          messages: [],
+          turns: [
+            {
+              turnId: 1,
+              status: "finished",
+              usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              durationMs: 1200,
+            },
+            { turnId: 2, usage: { total_tokens: "nope" } }, // malformed usage → dropped
+            { turnId: "not-a-number", usage: { total_tokens: 9 } }, // malformed id → dropped
+            null, // malformed row → dropped
+          ],
+        }),
       ),
     );
     const client = new YogClient("http://test");
@@ -573,14 +621,11 @@ describe("YogClient.getTranscript", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        jsonResponse(
-          {
-            session: { id: "s1", status: "open" },
-            messages: [],
-            turns: [{ turnId: 7, status: "running" }],
-          },
-          200,
-        ),
+        msgResponse("transcript.get", {
+          session: { id: "s1", status: "open" },
+          messages: [],
+          turns: [{ turnId: 7, status: "running" }],
+        }),
       ),
     );
     const client = new YogClient("http://test");
@@ -598,35 +643,49 @@ describe("YogClient.runTurn payload", () => {
     vi.unstubAllGlobals();
   });
 
-  it("posts only { prompt, model } — history never rides along", async () => {
-    // A clean terminal stream: turn.started → turn.finished.
+  it("sends turn.start with only { prompt, model } — history never rides along", async () => {
+    // A clean terminal stream: stream.hello → turn.started → turn.finished.
+    // The messages POST answers 202 { accepted } and the stream carries the rest.
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: turn.finished\ndata: {"durationMs":5}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame("stream-1"),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.finished", { durationMs: 5 }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
     const outcome = await client.runTurn("hello", "model-x", {});
     expect(outcome.ok).toBe(true);
     const fetchMock = vi.mocked(fetch);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({ prompt: "hello", model: "model-x" });
+    const msgCall = fetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("/messages"),
+    ) as unknown as [string, RequestInit];
+    expect(JSON.parse(String(msgCall[1].body))).toMatchObject({
+      type: "turn.start",
+      data: { prompt: "hello", model: "model-x" },
+    });
   });
 
   it("reports aborted: true and fires onAborted on a turn.aborted event", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: turn.aborted\ndata: {"reason":"turn aborted by operator"}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.aborted", { reason: "turn aborted by operator" }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -639,15 +698,48 @@ describe("YogClient.runTurn payload", () => {
     expect(aborted).toEqual(["turn aborted by operator"]);
   });
 
+  it("settles runTurn on turn.finished even if the session stream never closes (spinner regression)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return openSseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.finished", { durationMs: 7 }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: number[] = [];
+    const outcome = await Promise.race([
+      client.runTurn("hello", "model-x", {
+        onFinish: (durationMs) => finished.push(durationMs),
+      }),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error("runTurn hung awaiting the stream")), 1_000),
+      ),
+    ]);
+    expect(outcome.ok).toBe(true);
+    expect(finished).toEqual([7]);
+  });
+
   it("propagates stopReason from turn.finished on the direct path", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: turn.finished\ndata: {"durationMs":9,"stopReason":"max_rounds"}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.finished", { durationMs: 9, stopReason: "max_rounds" }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -668,15 +760,16 @@ describe("YogClient.runTurn payload", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
-        if (String(url).endsWith("/turns")) {
+        if (String(url).endsWith("/stream")) {
           return sseResponse([
-            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-            'event: message.delta\ndata: {"text":"partial"}\n\n',
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("message.delta", { text: "partial" }),
             // stream ends cleanly — no terminal event
           ]);
         }
-        return jsonResponse(
-          {
+        if (String(url).endsWith("/messages")) {
+          return msgResponse("turn.get", {
             turn: {
               events: [
                 { type: "turn.started", data: { turnId: "t1", model: "m" } },
@@ -684,9 +777,9 @@ describe("YogClient.runTurn payload", () => {
                 { type: "turn.finished", data: { durationMs: 5, stopReason: "max_rounds" } },
               ],
             },
-          },
-          200,
-        );
+          });
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
       }),
     );
     const client = new YogClient("http://test");
@@ -705,18 +798,21 @@ describe("YogClient.runTurn payload", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
-        if (String(url).endsWith("/turns")) {
-          return sseResponse(['event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n']);
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+          ]);
         }
         // Turn exists but stores no terminal event either.
-        return jsonResponse(
-          {
+        if (String(url).endsWith("/messages")) {
+          return msgResponse("turn.get", {
             turn: {
               events: [{ type: "turn.started", data: { turnId: "t1", model: "m" } }],
             },
-          },
-          200,
-        );
+          });
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
       }),
     );
     const client = new YogClient("http://test");
@@ -731,25 +827,25 @@ describe("YogClient.runTurn payload", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
-        if (String(url).endsWith("/turns")) {
+        if (String(url).endsWith("/stream")) {
           // Stream that starts then dies mid-turn.
           return failingResponse(
-            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            helloFrame() + envFrame("turn.started", { turnId: "t1", model: "m" }),
             new Error("reset"),
           );
         }
         // Turn-status replay: the stored terminal event is turn.aborted.
-        return jsonResponse(
-          {
+        if (String(url).endsWith("/messages")) {
+          return msgResponse("turn.get", {
             turn: {
               events: [
                 { type: "turn.started", data: { turnId: "t1", model: "m" } },
                 { type: "turn.aborted", data: { reason: "turn aborted by operator" } },
               ],
             },
-          },
-          200,
-        );
+          });
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
       }),
     );
     const client = new YogClient("http://test");
@@ -773,12 +869,19 @@ describe("YogClient token usage", () => {
   it("parses usage from turn.finished on the direct path into onFinish and the outcome", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: turn.finished\ndata: {"durationMs":9,"usage":{"prompt_tokens":100,"completion_tokens":50,"total_tokens":150}}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.finished", {
+              durationMs: 9,
+              usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+            }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -800,12 +903,19 @@ describe("YogClient token usage", () => {
   it("tolerates absent or malformed usage (drops it, never throws)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: turn.finished\ndata: {"durationMs":9,"usage":{"prompt_tokens":"NaN","total_tokens":[1]}}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.finished", {
+              durationMs: 9,
+              usage: { prompt_tokens: "NaN", total_tokens: [1] },
+            }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -818,14 +928,14 @@ describe("YogClient token usage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
-        if (String(url).endsWith("/turns")) {
+        if (String(url).endsWith("/stream")) {
           return failingResponse(
-            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            helloFrame() + envFrame("turn.started", { turnId: "t1", model: "m" }),
             new Error("reset"),
           );
         }
-        return jsonResponse(
-          {
+        if (String(url).endsWith("/messages")) {
+          return msgResponse("turn.get", {
             turn: {
               events: [
                 { type: "turn.started", data: { turnId: "t1", model: "m" } },
@@ -839,9 +949,9 @@ describe("YogClient token usage", () => {
                 },
               ],
             },
-          },
-          200,
-        );
+          });
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
       }),
     );
     const client = new YogClient("http://test");
@@ -865,14 +975,25 @@ describe("YogClient token usage", () => {
   it("passes round usage through tool.result on the direct path", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: tool.call\ndata: {"id":"c1","name":"bash","args":"{}"}\n\n',
-          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"result":{"exitCode":0},"usage":{"prompt_tokens":11,"completion_tokens":7,"total_tokens":18},"resultTokens":362}\n\n',
-          'event: turn.finished\ndata: {"durationMs":1}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("tool.call", { id: "c1", name: "bash", args: "{}" }),
+            envFrame("tool.result", {
+              id: "c1",
+              name: "bash",
+              ok: true,
+              result: { exitCode: 0 },
+              usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+              resultTokens: 362,
+            }),
+            envFrame("turn.finished", { durationMs: 1 }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -902,13 +1023,17 @@ describe("YogClient token usage", () => {
   it("tolerates malformed per-call tokens (none passed through)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: tool.result\ndata: {"id":"c1","name":"bash","ok":true,"usage":"NaN"}\n\n',
-          'event: turn.finished\ndata: {"durationMs":1}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("tool.result", { id: "c1", name: "bash", ok: true, usage: "NaN" }),
+            envFrame("turn.finished", { durationMs: 1 }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -924,14 +1049,14 @@ describe("YogClient token usage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
-        if (String(url).endsWith("/turns")) {
+        if (String(url).endsWith("/stream")) {
           return failingResponse(
-            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            helloFrame() + envFrame("turn.started", { turnId: "t1", model: "m" }),
             new Error("reset"),
           );
         }
-        return jsonResponse(
-          {
+        if (String(url).endsWith("/messages")) {
+          return msgResponse("turn.get", {
             turn: {
               events: [
                 { type: "turn.started", data: { turnId: "t1", model: "m" } },
@@ -948,9 +1073,9 @@ describe("YogClient token usage", () => {
                 { type: "turn.finished", data: { durationMs: 5 } },
               ],
             },
-          },
-          200,
-        );
+          });
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
       }),
     );
     const client = new YogClient("http://test");
@@ -973,12 +1098,19 @@ describe("YogClient token usage", () => {
   it("passes cut-point usage through turn.aborted on the direct path", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
-          'event: turn.aborted\ndata: {"reason":"turn aborted by operator","usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}\n\n',
-        ]),
-      ),
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return sseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "t1", model: "m" }),
+            envFrame("turn.aborted", {
+              reason: "turn aborted by operator",
+              usage: { prompt_tokens: 10, completion_tokens: 8, total_tokens: 18 },
+            }),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
     );
     const client = new YogClient("http://test");
     client.sessionId = "s1";
@@ -999,14 +1131,14 @@ describe("YogClient token usage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL | Request) => {
-        if (String(url).endsWith("/turns")) {
+        if (String(url).endsWith("/stream")) {
           return failingResponse(
-            'event: turn.started\ndata: {"turnId":"t1","model":"m"}\n\n',
+            helloFrame() + envFrame("turn.started", { turnId: "t1", model: "m" }),
             new Error("reset"),
           );
         }
-        return jsonResponse(
-          {
+        if (String(url).endsWith("/messages")) {
+          return msgResponse("turn.get", {
             turn: {
               events: [
                 { type: "turn.started", data: { turnId: "t1", model: "m" } },
@@ -1019,9 +1151,9 @@ describe("YogClient token usage", () => {
                 },
               ],
             },
-          },
-          200,
-        );
+          });
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
       }),
     );
     const client = new YogClient("http://test");
@@ -1051,21 +1183,18 @@ describe("YogClient.abortTurn", () => {
     await expect(client.abortTurn()).rejects.toThrow(/before open/);
   });
 
-  it("POSTs to the session abort endpoint and reports an unwound turn", async () => {
+  it("sends turn.abort and reports an unwound turn", async () => {
     const fetchMock = vi.fn(async () =>
-      jsonResponse(
-        {
-          ok: true,
-          status: "aborted",
-          aborted: {
-            requested: true,
-            sessionId: "s1",
-            activeToolCall: { id: "c1", name: "bash" },
-          },
-          session: { id: "s1" },
+      msgResponse("turn.abort", {
+        ok: true,
+        status: "aborted",
+        aborted: {
+          requested: true,
+          sessionId: "s1",
+          activeToolCall: { id: "c1", name: "bash" },
         },
-        200,
-      ),
+        session: { id: "s1" },
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const client = new YogClient("http://test");
@@ -1075,23 +1204,21 @@ describe("YogClient.abortTurn", () => {
     expect(result.status).toBe("aborted");
     expect(result.activeToolCall).toEqual({ id: "c1", name: "bash" });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("http://test/v1/sessions/s1/abort");
+    expect(url).toBe("http://test/v1/sessions/s1/messages");
     expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({ type: "turn.abort" });
   });
 
   it("reports idle with no activeToolCall when nothing was running", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        jsonResponse(
-          {
-            ok: true,
-            status: "idle",
-            aborted: { requested: false, sessionId: "s1", activeToolCall: null },
-            session: { id: "s1" },
-          },
-          200,
-        ),
+        msgResponse("turn.abort", {
+          ok: true,
+          status: "idle",
+          aborted: { requested: false, sessionId: "s1", activeToolCall: null },
+          session: { id: "s1" },
+        }),
       ),
     );
     const client = new YogClient("http://test");
@@ -1147,10 +1274,10 @@ describe("YogClient compaction/handoff", () => {
     });
   }
 
-  it("POSTs /compact and parses the result", async () => {
+  it("sends compaction.run (compact) and parses the result", async () => {
     const client = clientWithSession();
     const fetchMock = vi.fn(async () =>
-      jsonResponse({
+      msgResponse("compaction.run", {
         ok: true,
         kind: "compact",
         summary: "# S",
@@ -1166,14 +1293,14 @@ describe("YogClient compaction/handoff", () => {
     expect(result.model).toBe("m");
     expect(result.sessionId).toBe("fresh");
     expect(result.truncated).toBe(true);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://test/v1/sessions/s1/compact",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({ "content-type": "application/json" }),
-        body: JSON.stringify({ guidance: "focus on x" }),
-      }),
-    );
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe("http://test/v1/sessions/s1/messages");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      type: "compaction.run",
+      data: { kind: "compact", guidance: "focus on x" },
+    });
   });
 
   it("POSTs /handoff and surfaces server errors", async () => {
@@ -1197,14 +1324,15 @@ describe("YogClient compaction/handoff", () => {
   it("sends an empty body when no guidance is given", async () => {
     const client = clientWithSession();
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ ok: true, kind: "handoff", summary: "# H" }),
+      msgResponse("compaction.run", { ok: true, kind: "handoff", summary: "# H" }),
     );
     vi.stubGlobal("fetch", fetchMock);
     await client.handoff(undefined);
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/handoff"),
-      expect.objectContaining({ body: JSON.stringify({}) }),
-    );
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      type: "compaction.run",
+      data: { kind: "handoff" },
+    });
   });
 });
 
@@ -1212,19 +1340,24 @@ describe("YogClient shake", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
-  it("POSTs /shake and parses truncation counts", async () => {
+  it("sends transcript.shake and parses truncation counts", async () => {
     const client = new YogClient("http://test");
     client.sessionId = "s1";
     const fetchMock = vi.fn(async () =>
-      jsonResponse({ ok: true, argsTruncated: 2, resultsTruncated: 1, contextSize: 9500 }, 200),
+      msgResponse("transcript.shake", {
+        ok: true,
+        argsTruncated: 2,
+        resultsTruncated: 1,
+        contextSize: 9500,
+      }),
     );
     vi.stubGlobal("fetch", fetchMock);
     const result = await client.shake();
     expect(result).toEqual({ ok: true, argsTruncated: 2, resultsTruncated: 1, contextSize: 9500 });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "http://test/v1/sessions/s1/shake",
-      expect.objectContaining({ method: "POST" }),
-    );
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://test/v1/sessions/s1/messages");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toMatchObject({ type: "transcript.shake" });
   });
 
   it("surfaces server errors", async () => {
