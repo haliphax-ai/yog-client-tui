@@ -51,6 +51,11 @@ import {
 } from "../../core/commands.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 
+/** Slash-command lookup by "/name" — stable, built once (render hot path). */
+const SLASH_BY_NAME = new Map<string, SlashCommand>(
+  SLASH_COMMANDS.map((command) => ["/" + command.name, command]),
+);
+
 /** Rows the input's visible viewport grows to before it scrolls internally. */
 export const MAX_LINES = 10;
 
@@ -260,6 +265,19 @@ function inputStyles(blurred: boolean): TextareaStyles {
 export class InputComponent extends BaseComponent {
   private readonly textarea: TextareaModel;
   private lastCols = 0;
+  /**
+   * Monotonic edit counter: bumped by every method that can mutate the
+   * textarea (key/char/paste/reset/completion). The frame cache and the
+   * store sync both key on it, so unchanged buffers never re-join /
+   * re-render. Navigation also bumps it (cursor/scroll change the view).
+   */
+  private version = 0;
+  /** Last frame produced by `render`, with the key it was produced under. */
+  private frameCache: { key: string; value: string } | null = null;
+  /** Last menu string, keyed by (input, commandSel, cols). */
+  private menuCache: { key: string; value: string } | null = null;
+  /** Last value synced into the store, to skip redundant joins/writes. */
+  private lastSyncedValue = "";
   /** Style sets for the two ring states (focused vs blurred). */
   private readonly stylesFocused: TextareaStyles;
   private readonly stylesBlurred: TextareaStyles;
@@ -302,16 +320,41 @@ export class InputComponent extends BaseComponent {
     this.textarea.update(
       new KeyPressMsg({ text: key.text ?? "", mod: key.mod ?? KeyMod.None, code: key.code }),
     );
+    this.version += 1;
   }
 
-  /** Mirror the textarea value into the store (no completion reset). */
+  /**
+   * Mirror the textarea value into the store (no completion reset).
+   * The whole-buffer `value()` join runs only when the value actually
+   * changed since the last sync — navigation reuses the settled string.
+   */
   private syncInput(): void {
-    setState({ input: this.textarea.value() });
+    const value = this.currentValue();
+    if (value === this.lastSyncedValue) return;
+    this.lastSyncedValue = value;
+    setState({ input: value });
   }
 
   /** Mirror an edit into the store and reset the completion selection. */
   private commitEdit(): void {
-    setState({ input: this.textarea.value(), commandSel: 0 });
+    const value = this.currentValue();
+    this.lastSyncedValue = value;
+    setState({ input: value, commandSel: 0 });
+  }
+
+  /**
+   * Current textarea value, memoized on `version`. `value()` joins the
+   * whole buffer, so callers that only need to know *whether* it changed
+   * (sync paths, the Up/Down gate) should go through `version` first.
+   */
+  private cachedValue: { version: number; value: string } | null = null;
+  private currentValue(): string {
+    if (this.cachedValue !== null && this.cachedValue.version === this.version) {
+      return this.cachedValue.value;
+    }
+    const value = this.textarea.value();
+    this.cachedValue = { version: this.version, value };
+    return value;
   }
 
   /** Apply the current terminal width to the textarea (soft-wrap/dynamic height). */
@@ -321,13 +364,54 @@ export class InputComponent extends BaseComponent {
     this.textarea.setWidth(Math.max(1, cols));
   }
 
+  /**
+   * Frame cache key: everything that can change the rendered rows.
+   * `view()` re-wraps/re-styles the whole buffer, so `measure()` (layout
+   * stage) and `render()` (paint stage) in the same frame share one
+   * production instead of each running a full render.
+   */
+  private frameKey(cols: number): string {
+    // Grounded in the store-synced string by reference + length, not by
+    // value: joining the whole input into the key would be O(buffer) per
+    // render — the exact cost this cache exists to avoid. Every path that
+    // changes the textarea bumps `version`, and the store input is only
+    // ever written from here, so (version, synced length) is exact.
+    const synced = this.lastSyncedValue;
+    return [
+      this.version,
+      cols,
+      this.activeStyles === this.stylesFocused ? "f" : "b",
+      this.textarea.line(),
+      this.textarea.column(),
+      this.textarea.scrollYOffset(),
+      synced.length,
+      getState().commandSel,
+    ].join(":");
+  }
+
   /** One styled input block: textarea rows + optional slash-command menu row. */
   render(ctx: RenderContext): string {
     this.syncFocusStyle();
     this.layout(ctx.cols);
+    const key = this.frameKey(ctx.cols);
+    if (this.frameCache !== null && this.frameCache.key === key) {
+      return this.frameCache.value;
+    }
     const inputView = this.textarea.view();
     const menu = this.renderMenu(ctx.cols);
-    return menu === "" ? inputView : `${inputView}\n${menu}`;
+    const value = menu === "" ? inputView : `${inputView}\n${menu}`;
+    this.frameCache = { key, value };
+    return value;
+  }
+
+  /**
+   * Row count without a second full render: reuses the frame cache, so the
+   * layout stage never triggers a redundant `textarea.view()`.
+   */
+  override measure(width: number): number {
+    const cols = Math.max(0, Math.floor(width));
+    const rendered = this.render({ cols });
+    return rendered === "" ? 0 : rendered.split("\n").length;
   }
   /** Total characters currently in the input. */
   textLength(): number {
@@ -341,6 +425,21 @@ export class InputComponent extends BaseComponent {
    */
   private renderMenu(cols: number): string {
     const state = getState();
+    // Key on length + prefix only: the menu depends on the slash token at
+    // the head of the input, and joining a 5000-char buffer into the key
+    // per frame would reintroduce the O(buffer) cost this cache avoids.
+    const input = state.input;
+    const menuKey = `${input.length}:${input.slice(0, 64)}:${state.commandSel}:${cols}`;
+    if (this.menuCache !== null && this.menuCache.key === menuKey) {
+      return this.menuCache.value;
+    }
+    const value = this.renderMenuUncached(state.input, state.commandSel, cols);
+    this.menuCache = { key: menuKey, value };
+    return value;
+  }
+
+  private renderMenuUncached(input: string, commandSel: number, cols: number): string {
+    const state = { input, commandSel };
     const resolved = resolveSlash(state.input);
     // Once the command token resolves — typed exactly or with args — show the
     // args view instead of the fuzzy list. The list only returns when the
@@ -352,8 +451,7 @@ export class InputComponent extends BaseComponent {
     if (candidates.length === 0) return "";
     const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
     const shown = candidates.slice(0, MAX_MENU_ROWS);
-    const byName = new Map<string, SlashCommand>();
-    for (const command of SLASH_COMMANDS) byName.set("/" + command.name, command);
+    const byName = SLASH_BY_NAME;
     const labels = shown.map((candidate) =>
       candidate.startsWith("/") ? candidate.slice(1) : candidate,
     );
@@ -390,18 +488,22 @@ export class InputComponent extends BaseComponent {
     const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     if (normalized === "") return;
     this.textarea.update({ type: "textarea.paste", content: normalized });
+    this.version += 1;
     this.commitEdit();
   }
 
   /** Clear the input (used after submit / slash commands). */
   reset(): void {
     this.textarea.reset();
+    this.version += 1;
+    this.lastSyncedValue = "";
     setState({ input: "", commandSel: 0 });
   }
 
   /** Feed a control character (Ctrl+letter) to the textarea model. */
   private feedControl(code: number): void {
     this.textarea.update(new KeyPressMsg({ text: "", mod: KeyMod.Ctrl, code }));
+    this.version += 1;
     this.commitEdit();
   }
 
@@ -435,6 +537,7 @@ export class InputComponent extends BaseComponent {
         code: ch.codePointAt(0) ?? 0,
       }),
     );
+    this.version += 1;
     this.commitEdit();
     return "handled";
   }
@@ -457,6 +560,8 @@ export class InputComponent extends BaseComponent {
     const replaced = candidate + state.input.slice(end);
     this.textarea.setValue(replaced);
     this.textarea.setCursorColumn(candidate.length);
+    this.version += 1;
+    this.lastSyncedValue = replaced;
     setState({ input: replaced, commandSel: sel });
     return true;
   }
@@ -475,10 +580,7 @@ export class InputComponent extends BaseComponent {
     if (key === undefined) return "unhandled";
     // Up/Down move the caret only when the input spans multiple lines; a
     // single-line input leaves them to the log-scroll globals.
-    if (
-      (key.code === KeyCode.Up || key.code === KeyCode.Down) &&
-      !this.textarea.value().includes("\n")
-    ) {
+    if ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1) {
       return "unhandled";
     }
     this.feed(key);

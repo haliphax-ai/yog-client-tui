@@ -1,5 +1,5 @@
 diff --git a/node_modules/@oakoliver/bubbles/dist/index.cjs b/node_modules/@oakoliver/bubbles/dist/index.cjs
-index 3ebb165..a705419 100644
+index 3ebb165..2544a8b 100644
 --- a/node_modules/@oakoliver/bubbles/dist/index.cjs
 +++ b/node_modules/@oakoliver/bubbles/dist/index.cjs
 @@ -1965,6 +1965,7 @@ function cut(str, start, end) {
@@ -26,8 +26,23 @@ index 3ebb165..a705419 100644
    const code = ch.codePointAt(0);
    if (code >= 4352 && code <= 4447 || code >= 11904 && code <= 12350 || code >= 12353 && code <= 13247 || code >= 13312 && code <= 19903 || code >= 19968 && code <= 40959 || code >= 40960 && code <= 42191 || code >= 43360 && code <= 43391 || code >= 44032 && code <= 55295 || code >= 63744 && code <= 64255 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 126976 && code <= 130047 || code >= 131072 && code <= 196607 || code >= 196608 && code <= 262143) {
      return 2;
+@@ -4628,9 +4631,11 @@ var Model11 = class {
+     if (this._value[this._row] === void 0) {
+       this._value[this._row] = [];
+     }
+-    if (this.maxHeight > 0 && this.maxHeight !== this._cache.capacity()) {
+-      this._cache = new WrapCache(this.maxHeight);
+-    }
++    // #68: keep the constructor-sized wrap cache (MAX_LINES) instead of
++    // shrinking it to maxHeight (10). A 10-entry cache thrashes on any
++    // buffer with >10 logical lines and re-wraps unchanged rows on every
++    // keystroke; the cache is content-keyed, so a larger capacity only
++    // turns misses into hits.
+     if (typeof msg === "object" && msg !== null && ("type" in msg || "_tag" in msg)) {
+       const m = msg;
+       if ((m.type === "textarea.paste" || m.type === "paste" || m._tag === "PasteMsg") && typeof m.content === "string") {
 diff --git a/node_modules/@oakoliver/bubbles/dist/index.js b/node_modules/@oakoliver/bubbles/dist/index.js
-index ac01ffa..16b7fa3 100644
+index ac01ffa..b2aef24 100644
 --- a/node_modules/@oakoliver/bubbles/dist/index.js
 +++ b/node_modules/@oakoliver/bubbles/dist/index.js
 @@ -1801,6 +1801,7 @@ function cut(str, start, end) {
@@ -54,3 +69,18 @@ index ac01ffa..16b7fa3 100644
    const code = ch.codePointAt(0);
    if (code >= 4352 && code <= 4447 || code >= 11904 && code <= 12350 || code >= 12353 && code <= 13247 || code >= 13312 && code <= 19903 || code >= 19968 && code <= 40959 || code >= 40960 && code <= 42191 || code >= 43360 && code <= 43391 || code >= 44032 && code <= 55295 || code >= 63744 && code <= 64255 || code >= 65072 && code <= 65135 || code >= 65281 && code <= 65376 || code >= 65504 && code <= 65510 || code >= 126976 && code <= 130047 || code >= 131072 && code <= 196607 || code >= 196608 && code <= 262143) {
      return 2;
+@@ -4472,9 +4475,11 @@ var Model11 = class {
+     if (this._value[this._row] === void 0) {
+       this._value[this._row] = [];
+     }
+-    if (this.maxHeight > 0 && this.maxHeight !== this._cache.capacity()) {
+-      this._cache = new WrapCache(this.maxHeight);
+-    }
++    // #68: keep the constructor-sized wrap cache (MAX_LINES) instead of
++    // shrinking it to maxHeight (10). A 10-entry cache thrashes on any
++    // buffer with >10 logical lines and re-wraps unchanged rows on every
++    // keystroke; the cache is content-keyed, so a larger capacity only
++    // turns misses into hits.
+     if (typeof msg === "object" && msg !== null && ("type" in msg || "_tag" in msg)) {
+       const m = msg;
+       if ((m.type === "textarea.paste" || m.type === "paste" || m._tag === "PasteMsg") && typeof m.content === "string") {
