@@ -819,14 +819,20 @@ export function rehydrateGroups(
       continue;
     }
     if (e.role === "user" || e.role === "assistant") {
-      // Copy identity: the transcript row seq is the item id —
-      // identical to the full converter.
+      // Copy identity: the transcript row seq is the item id — identical
+      // to the full converter. Assistant runs stamp the whole-message
+      // copy on the run's last row (same rule as transcriptLogEntries).
+      const run = proseRunOf(entries, i);
       group.push({
         kind: e.role,
         lines: [e.text],
         copyText: e.text,
-        copyIds: { itemId: String(e.raw.seq) },
+        copyIds:
+          run.whole === null
+            ? { itemId: String(e.raw.seq) }
+            : { itemId: String(e.raw.seq), wholeMessage: run.whole },
       });
+      i += run.length - 1;
     } else if (e.role === "tool") {
       const decoded = decodeToolResult(e.raw);
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
@@ -881,7 +887,16 @@ export function rehydrateGroupIndices(entries: TranscriptEntry[]): number[][] {
     const calls = e.role === "assistant" ? decodeToolCalls(e.raw.toolCalls) : [];
     const covered = [i];
     i += 1;
-    if (calls.length > 0) {
+    if (calls.length === 0 && e.role === "assistant") {
+      // Pure-prose rows of one logical message share a group (the run
+      // collapses into a single entry — see rehydrateGroups).
+      while (i < entries.length) {
+        const next = entries[i]!;
+        if (next.role !== "assistant" || decodeToolCalls(next.raw.toolCalls).length > 0) break;
+        covered.push(i);
+        i += 1;
+      }
+    } else if (calls.length > 0) {
       const open = new Set(calls.map((c) => c.id));
       while (i < entries.length) {
         const next = entries[i]!;
