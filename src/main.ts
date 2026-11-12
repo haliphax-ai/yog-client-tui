@@ -107,7 +107,11 @@ import {
   keyLogPath,
   setKeyDumpSink,
 } from "./ui/debugLog.ts";
-import { appendFileSync } from "node:fs";
+import { type CopyRequest, toolCopyRequest, proseCopyRequest } from "./core/copyText.ts";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { ToastComponent } from "./ui/components/ToastComponent.ts";
+import { runWlCopy } from "./ui/clipboard.ts";
 
 /**
  * Last-resort crash handler: an error escaping an async callback (a scheduler
@@ -814,6 +818,42 @@ async function run(argv: readonly string[]): Promise<void> {
     });
   };
 
+  // ---- copy / output sinks (#109) ----------------------------------------
+  /** Toast: a one-row drawer child (registered like the spinner) that shows
+   *  the copy/save confirmation for 3 seconds, then collapses to nothing. */
+  const toast = new ToastComponent();
+  registerDrawerChild(toast);
+  /** Clipboard sink (#109): write the content with wl-copy. A missing
+   *  wl-copy (or a spawn failure) surfaces as an error notice; a successful
+   *  copy shows the 📋 toast. */
+  const copyToClipboard = (request: CopyRequest): void => {
+    const outcome = runWlCopy(request.content);
+    if (outcome.ok) {
+      toast.show(`📋 entry \`${request.itemId}\` copied to the system clipboard`);
+      setState({}); // redraw the drawer with the toast
+      return;
+    }
+    pushLines("error", noticeLine("error", "copy failed", outcome.error));
+  };
+
+  /** File sink (#109): write `out/<session id>_<item id>.md` relative to
+   *  the cwd (the file lives under the directory yog-client-tui runs in,
+   *  not under ~/.config), then show the 💾 toast. */
+  const outputToFile = (request: CopyRequest): void => {
+    const filename = `${request.itemId}.md`;
+    try {
+      mkdirSync("out", { recursive: true });
+      writeFileSync(join("out", filename), request.content, "utf8");
+    } catch (err) {
+      pushLines(
+        "error",
+        noticeLine("error", "output failed", err instanceof Error ? err.message : String(err)),
+      );
+      return;
+    }
+    toast.show(`💾 entry \`${request.itemId}\` saved to \`out/${filename}\``);
+    setState({}); // redraw the drawer with the toast
+  };
   // ---- components --------------------------------------------------------
   const viewport = new ChatViewport();
   const input = new InputComponent();
@@ -824,6 +864,24 @@ async function run(argv: readonly string[]): Promise<void> {
   input.ring = "input";
   const chain: readonly Component[] = [viewport, input, drawer, status];
 
+  /** The copy/output dispatch the viewport asks for (#109): build the
+   *  request from the focused entry, then run the sink. The sinks live
+   *  here because fs/process access is composition-root-only. */
+  const requestCopy = (entry: LogEntry, upper: boolean): CopyRequest | null => {
+    const sessionId = client.sessionId;
+    if (entry.kind === "tool" || entry.kind === "toolResult" || entry.kind === "chunk") {
+      return toolCopyRequest(entry, sessionId, upper);
+    }
+    if (entry.kind === "user" || entry.kind === "assistant") {
+      return proseCopyRequest(entry, sessionId, upper);
+    }
+    return null;
+  };
+  viewport.copyActions = {
+    request: requestCopy,
+    copy: (request) => copyToClipboard(request),
+    output: (request) => outputToFile(request),
+  };
   /** Rows the composition consumes from the viewport for the log gap: the
    *  drawer's top padding is that gap when the drawer is visible (one row),
    *  and the composition's own blank row is the gap when it is collapsed

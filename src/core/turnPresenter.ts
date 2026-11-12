@@ -90,7 +90,7 @@ export interface TurnPresenter {
 export function createTurnPresenter(host: TurnHost): TurnPresenter {
   // Tool call id → its log entry, so results can annotate the call line.
   const pendingToolCalls = new Map<string, LogEntry>();
-  const assistant: { entry?: LogEntry } = {}; // holder avoids closure narrowing
+  const assistant: { entry?: LogEntry; whole?: string } = {}; // holder avoids closure narrowing
   // Tool calls announced during this turn (reset per presenter = per turn).
   let toolCallsThisTurn = 0;
 
@@ -116,6 +116,11 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       const lastIdx = lines.length - 1;
       const merged = `${lines[lastIdx] ?? ""}${text}`;
       lines.splice(lastIdx, 1, ...merged.split("\n"));
+      // Copy snapshot (#109): keep the verbatim delta so C copies the raw
+      // Markdown even while the entry is still streaming. The whole-
+      // message text accumulates across the logical message's chunks.
+      entry.copyText = `${entry.copyText ?? ""}${text}`;
+      assistant.whole = `${assistant.whole ?? ""}${text}`;
       host.requestRender();
     },
     onToolCall: (id, name, args) => {
@@ -125,9 +130,17 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       // tail guard below is the generic backstop).
       if (assistant.entry !== undefined) {
         assistant.entry.streaming = false;
+        // Close-of-block copy stamp (#109): the prose chunk keeps its own
+        // raw-delta copyText; the whole-message text rides the LAST chunk
+        // of the logical message so Shift+C copies everything so far.
+        assistant.entry.copyIds = {
+          itemId: assistant.entry.copyIds?.itemId ?? "",
+          wholeMessage: assistant.whole,
+        };
         assistant.entry = undefined;
       }
       const entry = toolCallEntry(id, name, args, host.width());
+      entry.copyIds = { itemId: id };
       host.entries.push(entry);
       pendingToolCalls.set(id, entry);
       host.requestRender();
@@ -151,21 +164,32 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
         if (ok && result !== undefined && result !== null) {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
-          host.entries.splice(insertAt, 0, ...toolResultEntries(name, result, host.width(), count));
+          const results = toolResultEntries(name, result, host.width(), count);
+          // Results copy identity (#109): the tool-call id is the item id
+          // — args and result are one transcript item.
+          for (const resultEntry of results) {
+            if (resultEntry.kind === "status") continue; // not a copyable item
+            resultEntry.copyIds = { itemId: id };
+          }
+          host.entries.splice(insertAt, 0, ...results);
         }
       } else {
         host.append("tool", [
           `${ok ? "✅" : "❌"} ${name || "tool"}${ok ? "" : ` ${error ?? "failed"}`}`,
         ]);
         if (ok && result !== undefined && result !== null) {
-          host.entries.push(
-            ...toolResultEntries(
-              name,
-              result,
-              host.width(),
-              tokenCountNote(resultTokens, { estimated: true }),
-            ),
+          const results = toolResultEntries(
+            name,
+            result,
+            host.width(),
+            tokenCountNote(resultTokens, { estimated: true }),
           );
+          // Orphan-result copy identity (#109): the call id is the item id.
+          for (const resultEntry of results) {
+            if (resultEntry.kind === "status") continue; // not a copyable item
+            resultEntry.copyIds = { itemId: id };
+          }
+          host.entries.push(...results);
         }
       }
       host.requestRender();
@@ -247,7 +271,15 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       assistant.entry = undefined;
     },
     finish: () => {
-      if (assistant.entry) assistant.entry.streaming = false;
+      if (assistant.entry) {
+        assistant.entry.streaming = false;
+        // Final close-of-block stamp (#109): the whole-message text rides
+        // the last prose chunk so Shift+C copies the entire message.
+        assistant.entry.copyIds = {
+          itemId: assistant.entry.copyIds?.itemId ?? "",
+          wholeMessage: assistant.whole,
+        };
+      }
     },
     fail: (detail) => {
       host.append("error", noticeLine("error", "turn failed", detail));
@@ -269,7 +301,23 @@ export function toolCallEntry(_id: string, name: string, args: unknown, _cols: n
       : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
   const argsCompact = full === undefined ? undefined : compactArgs(args);
   const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
-  return { kind: "tool", lines: [shown], label, argsCompact, full, expanded: false };
+  // Copy snapshot (#109): keep the verbatim args JSON so the copy path
+  // (core/copyText) can apply the tool's own copy semantics; `copyIds`
+  // is stamped by the caller (live turn / rehydration), which owns ids.
+  return {
+    kind: "tool",
+    lines: [shown],
+    label,
+    argsCompact,
+    full,
+    expanded: false,
+    argsRaw:
+      typeof args === "string"
+        ? args
+        : args === undefined || args === null
+          ? undefined
+          : JSON.stringify(args),
+  };
 }
 
 /**
@@ -306,6 +354,9 @@ export function toolResultChunk(name: string, result: unknown, tokenNote = ""): 
     collapsed: true,
     result,
     tokenNote: tokenNote === "" ? undefined : tokenNote,
+    // Copy snapshot (#109): keep the verbatim result JSON alongside the
+    // raw payload so the copy path can apply the tool's own semantics.
+    argsRaw: typeof result === "string" ? result : JSON.stringify(result),
   };
 }
 /**
@@ -337,6 +388,9 @@ export function toolResultEntry(
     expanded: false,
     result,
     tokenNote: tokenNote,
+    // Copy snapshot (#109): keep the verbatim result JSON (see
+    // toolResultChunk).
+    argsRaw: typeof result === "string" ? result : JSON.stringify(result),
   };
 }
 
@@ -368,6 +422,20 @@ export function toolResultEntries(
   const entries: LogEntry[] = [toolResultEntry(name, result, cols, tokenNote)];
   const summary = toolResultSummary(result);
   if (summary !== undefined) entries.push({ kind: "status", lines: [summary] });
+  return entries;
+}
+
+/** Stamp the tool-call id as the copy item id on a result entry group
+ *  (#109): args and result are one transcript item, so the result block
+ *  copies under the same id as its call line. Status lines are not
+ *  copyable items and stay unstamped; an undefined id leaves the group
+ *  uncopyable rather than inventing one. */
+function stampResultCopy(entries: LogEntry[], id: string | undefined): LogEntry[] {
+  if (id === undefined) return entries;
+  for (const entry of entries) {
+    if (entry.kind === "status") continue;
+    entry.copyIds = { itemId: id };
+  }
   return entries;
 }
 
@@ -435,6 +503,7 @@ export function transcriptLogEntries(
       const open = new Map<string, { entry: LogEntry; name: string }>();
       for (const c of calls) {
         const entry = toolCallEntry(c.id, c.name, parseToolArgs(c.arguments), cols);
+        entry.copyIds = { itemId: c.id };
         out.push(entry);
         open.set(c.id, { entry, name: c.name });
       }
@@ -456,11 +525,14 @@ export function transcriptLogEntries(
           out.splice(
             insertAt,
             0,
-            ...toolResultEntries(
-              call.name,
-              decoded.value,
-              cols,
-              tokenCountNote(next.raw.resultTokens, { estimated: true }),
+            ...stampResultCopy(
+              toolResultEntries(
+                call.name,
+                decoded.value,
+                cols,
+                tokenCountNote(next.raw.resultTokens, { estimated: true }),
+              ),
+              id,
             ),
           );
         }
@@ -470,7 +542,13 @@ export function transcriptLogEntries(
       continue;
     }
     if (e.role === "user" || e.role === "assistant") {
-      out.push({ kind: e.role, lines: [e.text] });
+      // Copy identity (#109): the transcript row seq is the item id.
+      out.push({
+        kind: e.role,
+        lines: [e.text],
+        copyText: e.text,
+        copyIds: { itemId: String(e.raw.seq) },
+      });
     } else if (e.role === "tool") {
       // Orphan result row (its call row predates the transcript). Success:
       // standalone status line + output chunk. Failure: nothing beyond the
@@ -478,19 +556,25 @@ export function transcriptLogEntries(
       // The row's own token count rides its own result block.
       const decoded = decodeToolResult(e.raw);
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
-      out.push({
+      const orphanLine: LogEntry = {
         kind: "tool",
         lines: [
           `${decoded.ok ? "✅" : "❌"} ${label}${decoded.ok ? "" : ` ${decoded.error ?? "failed"}`}`,
         ],
-      });
+      };
+      const orphanId = typeof e.raw.toolCallId === "string" ? e.raw.toolCallId : undefined;
+      if (orphanId !== undefined) orphanLine.copyIds = { itemId: orphanId };
+      out.push(orphanLine);
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
         out.push(
-          ...toolResultEntries(
-            label,
-            decoded.value,
-            cols,
-            tokenCountNote(e.raw.resultTokens, { estimated: true }),
+          ...stampResultCopy(
+            toolResultEntries(
+              label,
+              decoded.value,
+              cols,
+              tokenCountNote(e.raw.resultTokens, { estimated: true }),
+            ),
+            orphanId,
           ),
         );
       }
@@ -644,6 +728,7 @@ export function rehydrateGroups(
       const open = new Map<string, { entry: LogEntry; name: string }>();
       for (const c of calls) {
         const entry = toolCallEntry(c.id, c.name, parseToolArgs(c.arguments), cols);
+        entry.copyIds = { itemId: c.id };
         group.push(entry);
         open.set(c.id, { entry, name: c.name });
       }
@@ -664,11 +749,14 @@ export function rehydrateGroups(
           group.splice(
             insertAt,
             0,
-            ...toolResultEntries(
-              call.name,
-              decoded.value,
-              cols,
-              tokenCountNote(next.raw.resultTokens, { estimated: true }),
+            ...stampResultCopy(
+              toolResultEntries(
+                call.name,
+                decoded.value,
+                cols,
+                tokenCountNote(next.raw.resultTokens, { estimated: true }),
+              ),
+              id,
             ),
           );
         }
@@ -682,23 +770,36 @@ export function rehydrateGroups(
       continue;
     }
     if (e.role === "user" || e.role === "assistant") {
-      group.push({ kind: e.role, lines: [e.text] });
+      // Copy identity (#109): the transcript row seq is the item id —
+      // identical to the full converter.
+      group.push({
+        kind: e.role,
+        lines: [e.text],
+        copyText: e.text,
+        copyIds: { itemId: String(e.raw.seq) },
+      });
     } else if (e.role === "tool") {
       const decoded = decodeToolResult(e.raw);
       const label = e.raw.name ?? e.raw.toolCallId ?? "tool";
-      group.push({
+      const orphanLine: LogEntry = {
         kind: "tool",
         lines: [
           `${decoded.ok ? "✅" : "❌"} ${label}${decoded.ok ? "" : ` ${decoded.error ?? "failed"}`}`,
         ],
-      });
+      };
+      const orphanId = typeof e.raw.toolCallId === "string" ? e.raw.toolCallId : undefined;
+      if (orphanId !== undefined) orphanLine.copyIds = { itemId: orphanId };
+      group.push(orphanLine);
       if (decoded.ok && decoded.value !== undefined && decoded.value !== null) {
         group.push(
-          ...toolResultEntries(
-            label,
-            decoded.value,
-            cols,
-            tokenCountNote(e.raw.resultTokens, { estimated: true }),
+          ...stampResultCopy(
+            toolResultEntries(
+              label,
+              decoded.value,
+              cols,
+              tokenCountNote(e.raw.resultTokens, { estimated: true }),
+            ),
+            orphanId,
           ),
         );
       }

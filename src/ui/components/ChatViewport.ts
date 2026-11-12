@@ -26,6 +26,7 @@ import {
   tableScrollChar,
   tableScrollKey,
 } from "../render/table/index.ts";
+import { type CopyActions } from "../../core/copyText.ts";
 
 /** Shift+Down encodings — move top-level focus from the log to the input. */
 const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
@@ -33,6 +34,12 @@ const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
   "\x1b[66;2u", // CSI-u / Kitty
 ]);
 
+/** Shift+C encodings — copy the whole message / whole item (#109). */
+const SHIFT_C_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[67;2u", // Kitty/CSI-u
+  "\x1b[1;2C", // xterm modifyOtherKeys
+  "\x1bC", // legacy
+]);
 /** Shift+T encodings — cycle backward through the focused entry's tables. */
 const TABLE_CYCLE_SEQS: ReadonlySet<string> = new Set([
   "\x1b[84;2u", // Kitty/CSI-u
@@ -65,6 +72,14 @@ function focusedTableLayout(
 }
 
 export class ChatViewport extends ChatLogComponent {
+  /**
+   * Copy/output dispatch (#109): the composition root wires the clipboard
+   * and `out/` writers; the viewport builds the request (per core/
+   * copyText semantics) and hands it back. Undefined until wired — the
+   * copy keys stay inert in tests that never wire a sink.
+   */
+  copyActions?: CopyActions;
+
   /** Pull store state (entries, scroll, follow, focus ring) into the log. */
   private syncFromStore(): void {
     const state = getState();
@@ -162,6 +177,8 @@ export class ChatViewport extends ChatLogComponent {
       setState({}); // notify the scheduler so the input un-blurs
       return "handled";
     }
+    // Shift+C copies the whole message / whole item (#109).
+    if (SHIFT_C_SEQS.has(seq)) return this.requestCopy(true, false);
     // Shift+T cycles backward through the focused entry's tables.
     if (TABLE_CYCLE_SEQS.has(seq)) return this.cycleTable(-1);
     const focused = this.focusedTable();
@@ -183,6 +200,12 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   override handleChar(ch: string): "handled" | "unhandled" {
+    // C / O copy or output the focused entry's raw Markdown (#109);
+    // Shift+C copies the whole message / whole item.
+    if (ch === "c") return this.requestCopy(false, false);
+    if (ch === "C") return this.requestCopy(true, false);
+    if (ch === "o") return this.requestCopy(false, true);
+    if (ch === "O") return this.requestCopy(true, true);
     // T: cycle forward through the focused prose entry's tables.
     if (ch === "t") return this.cycleTable(1);
     if (ch === "h" || ch === "l") {
@@ -253,6 +276,29 @@ export class ChatViewport extends ChatLogComponent {
     this.focusTarget = { entry: this.focusTarget.entry, table: next };
     this.commit();
     this.reveal();
+    return "handled";
+  }
+
+  /**
+   * C / Shift+C / O (#109): build the copy request for the focused entry
+   * and run the wired sink. `upper` = Shift (whole message / whole item);
+   * `output` = O (write out/<session id>_<item id>.md instead of the
+   * clipboard). Unhandled when nothing is focused, the entry carries no
+   * copy identity, or no sink is wired (tests).
+   */
+  private requestCopy(upper: boolean, output: boolean): "handled" | "unhandled" {
+    const actions = this.copyActions;
+    if (actions === undefined) return "unhandled";
+    this.syncFromStore();
+    if (this.focusTarget.entry < 0) return "unhandled";
+    // A focused table copies the entry that contains it: the prose around
+    // a table IS the raw Markdown the table belongs to.
+    const entry = this.entries[this.focusTarget.entry];
+    if (entry === undefined) return "unhandled";
+    const request = actions.request(entry, upper);
+    if (request === null) return "unhandled";
+    if (output) actions.output(request);
+    else actions.copy(request);
     return "handled";
   }
 
