@@ -11,7 +11,7 @@
  *
  * Tools are given a universal way to provide their copyable payloads: a
  * registry of per-tool providers below. A tool without a provider falls
- * back to the universal whole-JSON blob (args and result together).
+ * back to the universal whole-call JSON blob.
  */
 import { parseToolArgs } from "../yogClient.ts";
 import type { LogEntry } from "./entries.ts";
@@ -89,18 +89,22 @@ function bashResultsProvider(payload: unknown): string | null {
 }
 
 /**
- * The universal fallback: the ENTIRE JSON blob (args and result together,
- * pretty-printed) — every tool can always be copied something meaningful.
- * This is also what `Shift+C` copies on a tool entry: the whole item
- * (providers are skipped, mirroring prose's whole-message copy).
+ * The universal fallback: the ENTIRE tool-call JSON the model sent —
+ * `{ "name": <tool>, "arguments": <args> }` pretty-printed, exactly the
+ * pre-routing `tool.call` envelope. Every tool can always be copied
+ * something meaningful. This is also what `Shift+C` copies on a tool
+ * entry: the whole call (providers are skipped, mirroring prose's
+ * whole-message copy).
  */
 export function universalJsonCopy(entry: LogEntry): string {
-  const blob: Record<string, unknown> = {};
-  if (typeof entry.argsRaw === "string") {
-    blob["args"] = parseToolArgs(entry.argsRaw);
-  }
-  blob["result"] = entry.result ?? null;
-  return JSON.stringify(blob, undefined, 2);
+  return JSON.stringify(
+    {
+      name: entryToolName(entry),
+      arguments: typeof entry.argsRaw === "string" ? parseToolArgs(entry.argsRaw) : null,
+    },
+    undefined,
+    2,
+  );
 }
 
 /** The payload a provider sees: the call's raw args for a call entry,

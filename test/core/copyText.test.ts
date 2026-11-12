@@ -52,27 +52,23 @@ describe("bash copy providers", () => {
 });
 
 describe("universal tool copy", () => {
-  it("copies the entire JSON blob (args and result together) as the fallback", () => {
+  it("copies the entire tool-call JSON (name + arguments) as the fallback", () => {
     const entry: LogEntry = {
       kind: "tool",
       lines: ["⚙️ noop"],
       label: "⚙️ noop",
       argsRaw: '{"x":1}',
+      // A result on the entry must NOT leak into the call copy.
       result: { ok: true },
     };
     expect(universalJsonCopy(entry)).toBe(
-      '{\n  "args": {\n    "x": 1\n  },\n  "result": {\n    "ok": true\n  }\n}',
+      '{\n  "name": "noop",\n  "arguments": {\n    "x": 1\n  }\n}',
     );
   });
 
-  it("keeps a non-string result verbatim and a missing one null", () => {
-    const entry: LogEntry = { kind: "chunk", lines: ["x →"], result: { a: [1, 2] } };
-    expect(universalJsonCopy(entry)).toBe(
-      '{\n  "result": {\n    "a": [\n      1,\n      2\n    ]\n  }\n}',
-    );
-    expect(universalJsonCopy({ kind: "tool", lines: [] } as LogEntry)).toBe(
-      '{\n  "result": null\n}',
-    );
+  it("copies null arguments when the call carried none", () => {
+    const entry: LogEntry = { kind: "tool", lines: ["⚙️ noop"], label: "⚙️ noop" };
+    expect(universalJsonCopy(entry)).toBe('{\n  "name": "noop",\n  "arguments": null\n}');
   });
 });
 
@@ -105,7 +101,7 @@ describe("toolCopyRequest", () => {
     expect(request?.content).toBe("---\nruntime: 120ms\n---\n\n## stdout\n\nhello\nthere\n");
   });
 
-  it("Shift+C on a tool entry copies the entire JSON blob (whole item)", () => {
+  it("Shift+C on a tool entry copies the entire tool-call JSON (whole item)", () => {
     const entry: LogEntry = {
       kind: "tool",
       lines: ["⚙️ bash ✅"],
@@ -115,7 +111,7 @@ describe("toolCopyRequest", () => {
     };
     const request = toolCopyRequest(entry, sessionId, true);
     expect(request?.content).toBe(
-      '{\n  "args": {\n    "command": "echo hi"\n  },\n  "result": null\n}',
+      '{\n  "name": "bash",\n  "arguments": {\n    "command": "echo hi"\n  }\n}',
     );
   });
 
@@ -128,7 +124,7 @@ describe("toolCopyRequest", () => {
       copyIds: { itemId: "c2" },
     };
     const request = toolCopyRequest(entry, undefined, false);
-    expect(request?.content).toContain('"args"');
+    expect(request?.content).toContain('"name": "read"');
     expect(request?.content).toContain('"path"');
     // No session id: the bare item id (the sink resolves the session).
     expect(request?.itemId).toBe("c2");
