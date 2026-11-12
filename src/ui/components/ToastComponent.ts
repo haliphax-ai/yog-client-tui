@@ -2,10 +2,13 @@
  * Toast: a transient one-row drawer child.
  *
  * `show(message)` pins the message for 3 seconds, then the component
- * collapses back to zero rows (the drawer disappears with it). One
- * message at a time — a new `show` replaces the text and restarts the
- * timer — and `hide()` drops it immediately (not needed by the copy
- * feature, but it keeps the component honest for future producers).
+ * collapses back to zero rows (the drawer disappears with it). The
+ * message word-wraps to the drawer's interior width — a long item id
+ * wraps into more rows, never truncates (the drawer truncates per row,
+ * so the component must pre-wrap). One message at a time — a new `show`
+ * replaces the text and restarts the timer — and `hide()` drops it
+ * immediately (not needed by the copy feature, but it keeps the
+ * component honest for future producers).
  *
  * Self-contained like the spinner: it knows nothing about the drawer it
  * is drawn in; the composition root registers it and pokes the render
@@ -13,6 +16,7 @@
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
+import { wrapText } from "../../util/ansi.ts";
 import { ST } from "../theme.ts";
 
 /** How long a toast stays visible. */
@@ -48,9 +52,16 @@ export class ToastComponent extends BaseComponent {
     this.message = "";
   }
 
-  /** One styled row while a toast is visible; zero rows otherwise. */
-  override render(_ctx: RenderContext): string[] {
+  /**
+   * The visible toast, WORD-WRAPPED to the drawer's interior width —
+   * a long item id must wrap into more rows, never truncate (the
+   * drawer truncates per row, so the component must pre-wrap). Zero
+   * rows while hidden.
+   */
+  override render(ctx: RenderContext): string[] {
     if (this.message === "" || !getState()) return [];
-    return [ST.noticeSystem.render(this.message)];
+    return wrapText(this.message, Math.max(1, ctx.cols - 2)).map((row) =>
+      ST.noticeSystem.render(row),
+    );
   }
 }
