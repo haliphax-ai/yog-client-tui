@@ -52,6 +52,15 @@ const TABLE_CYCLE_SEQS: ReadonlySet<string> = new Set([
   "\x1bT", // legacy
 ]);
 /**
+ * Shift+O encodings — output the whole message / whole item to `out/`. Same
+ * scheme as Shift+C: Kitty sends the lowercase codepoint (o = 111).
+ */
+const SHIFT_O_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[111;2u", // Kitty/CSI-u (lowercase codepoint o)
+  "\x1b[27;2;79~", // xterm modifyOtherKeys
+  "\x1bO", // legacy
+]);
+/**
  * Scroll geometry of the focused table at the log's width: the viewport-body
  * width and the table's total rendered width. Same `resolveTableLayout` the
  * entry renderer uses, and the SAME table (the focused one, not the first),
@@ -184,6 +193,8 @@ export class ChatViewport extends ChatLogComponent {
     }
     // Shift+C copies the whole message / whole item.
     if (SHIFT_C_SEQS.has(seq)) return this.requestCopy(true, false);
+    // Shift+O outputs the whole message / whole item to `out/` (#109).
+    if (SHIFT_O_SEQS.has(seq)) return this.requestCopy(true, true);
     // Shift+T cycles backward through the focused entry's tables.
     if (TABLE_CYCLE_SEQS.has(seq)) return this.cycleTable(-1);
     const focused = this.focusedTable();
