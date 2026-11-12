@@ -99,6 +99,7 @@ import {
   completeSlash,
 } from "./core/commands.ts";
 import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
+import { splitTableSections } from "./ui/render/table/index.ts";
 import { createInputDecoder } from "./ui/components/inputDecode.ts";
 import {
   emitDebug,
@@ -107,7 +108,12 @@ import {
   keyLogPath,
   setKeyDumpSink,
 } from "./ui/debugLog.ts";
-import { type CopyRequest, toolCopyRequest, proseCopyRequest } from "./core/copyText.ts";
+import {
+  type CopyRequest,
+  tableCopyRequest,
+  toolCopyRequest,
+  proseCopyRequest,
+} from "./core/copyText.ts";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ToastComponent } from "./ui/components/ToastComponent.ts";
@@ -894,8 +900,20 @@ async function run(argv: readonly string[]): Promise<void> {
     }
     return null;
   };
+  /** Table copy: the TABLE is the copy unit at the inner ring — its raw
+   *  Markdown re-serialized from the parsed columns/rows, under the
+   *  containing entry's item id. Plain and Shift are identical (a table
+   *  has no inner children), and neither bubbles to the parent entry. */
+  const requestTableCopy = (entry: LogEntry, table: number): CopyRequest | null => {
+    if (entry.kind !== "user" && entry.kind !== "assistant") return null;
+    const sections = splitTableSections(entry.lines.join("\n")).filter((s) => s.kind === "table");
+    const section = sections[table];
+    if (section === undefined || section.kind !== "table") return null;
+    return tableCopyRequest(entry, section.table, client.sessionId);
+  };
   viewport.copyActions = {
     request: requestCopy,
+    requestTable: (entry, table) => requestTableCopy(entry, table),
     copy: (request) => copyToClipboard(request),
     output: (request) => outputToFile(request),
   };

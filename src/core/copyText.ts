@@ -15,6 +15,7 @@
  */
 import { parseToolArgs } from "../yogClient.ts";
 import type { LogEntry } from "./entries.ts";
+import type { ParsedTable } from "./tableShape.ts";
 
 /** The focused-entry identity: item id for the toast and the `O`
  *  filename, session id for the `<session id>_<item id>` prefix. Set by
@@ -140,6 +141,39 @@ export function wholeMessageCopyText(entry: LogEntry): string | null {
   if (entry.kind === "user") return entryCopyText(entry);
   return null;
 }
+/**
+ * One table's raw Markdown, re-serialized GFM: the header row, the
+ * delimiter row (alignment restored), and every data row, cells joined
+ * with ` | ` and the usual outer pipes. Cell pipes are escaped so the
+ * output re-parses to the same table; multi-line cells (<br> display
+ * breaks) flatten to spaces — a pipe row must stay one line.
+ */
+export function tableMarkdown(table: ParsedTable): string {
+  const escape = (cell: string): string => cell.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+  const row = (cells: string[]): string => `| ${cells.map(escape).join(" | ")} |`;
+  const align = (a: "left" | "center" | "right"): string =>
+    a === "center" ? ":---:" : a === "right" ? "---:" : "---";
+  const head = table.columns.map((c) => c.title);
+  const delim = table.columns.map((c) => align(c.align));
+  return [row(head), row(delim), ...table.rows.map(row)].join("\n");
+}
+/** The copy request for one table of a prose entry (#109): the table IS
+ *  the copy unit — its re-serialized raw Markdown under the containing
+ *  entry's item id. Plain and Shift are identical (no inner children);
+ *  null when the table vanished or the entry carries no identity. */
+export function tableCopyRequest(
+  entry: LogEntry,
+  table: ParsedTable,
+  sessionId: string | undefined,
+): CopyRequest | null {
+  const id = copyItemId(entry);
+  if (id === undefined) return null;
+  return {
+    content: tableMarkdown(table),
+    itemId: sessionId === undefined ? id : `${sessionId}_${id}`,
+    provided: true,
+  };
+}
 
 /** Everything a copy sink needs: the content plus its identity. */
 export interface CopyRequest {
@@ -162,6 +196,11 @@ export function copyItemId(entry: LogEntry): string | undefined {
 export interface CopyActions {
   /** Build the copy request for the focused entry (null = uncopyable). */
   request(entry: LogEntry, upper: boolean): CopyRequest | null;
+  /** Build the copy request for the focused table (`table` = its index
+   *  within `entry`). The table is the copy unit at the inner ring —
+   *  neither plain nor Shift copies bubble to the parent entry (null =
+   *  uncopyable, e.g. a table that vanished between focus and keypress). */
+  requestTable(entry: LogEntry, table: number, upper: boolean): CopyRequest | null;
   /** Run the clipboard sink. */
   copy(request: CopyRequest): void;
   /** Run the `out/` file sink. */

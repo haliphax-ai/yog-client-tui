@@ -280,22 +280,27 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   /**
-   * C / Shift+C / O: build the copy request for the focused entry
-   * and run the wired sink. `upper` = Shift (whole message / whole item);
-   * `output` = O (write out/<session id>_<item id>.md instead of the
-   * clipboard). Unhandled when nothing is focused, the entry carries no
-   * copy identity, or no sink is wired (tests).
+   * C / Shift+C / O: copy the focused unit. The focus ring is two-level
+   * (the entry ring, then the inner ring of its children — currently
+   * tables), and the copy unit follows the ring: a focused TABLE copies
+   * the TABLE (its own raw Markdown, never bubbling to the parent
+   * entry, Shift or not — a table has no inner children to expand
+   * into); anything else copies per the entry-level semantics.
+   * `upper` = Shift; `output` = O (write out/<session id>_<item id>.md
+   * instead of the clipboard). Unhandled when nothing is focused, the
+   * entry carries no copy identity, or no sink is wired (tests).
    */
   private requestCopy(upper: boolean, output: boolean): "handled" | "unhandled" {
     const actions = this.copyActions;
     if (actions === undefined) return "unhandled";
     this.syncFromStore();
     if (this.focusTarget.entry < 0) return "unhandled";
-    // A focused table copies the entry that contains it: the prose around
-    // a table IS the raw Markdown the table belongs to.
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return "unhandled";
-    const request = actions.request(entry, upper);
+    const request =
+      this.focusTarget.table >= 0
+        ? actions.requestTable(entry, this.focusTarget.table, upper)
+        : actions.request(entry, upper);
     if (request === null) return "unhandled";
     if (output) actions.output(request);
     else actions.copy(request);
