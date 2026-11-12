@@ -34,16 +34,21 @@ const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
   "\x1b[66;2u", // CSI-u / Kitty
 ]);
 
-/** Shift+C encodings — copy the whole message / whole item. */
+/**
+ * Shift+C encodings — copy the whole message / whole item. Mirror the
+ * Shift+Enter set in the input: the Kitty CSI-u form (the base key is the
+ * LOWERCASE codepoint — c is 99), the xterm modifyOtherKeys
+ * `27;mod;codepoint~` form, and the legacy plain `ESC C`.
+ */
 const SHIFT_C_SEQS: ReadonlySet<string> = new Set([
-  "\x1b[67;2u", // Kitty/CSI-u
-  "\x1b[1;2C", // xterm modifyOtherKeys
+  "\x1b[99;2u", // Kitty/CSI-u (lowercase codepoint c)
+  "\x1b[27;2;67~", // xterm modifyOtherKeys
   "\x1bC", // legacy
 ]);
 /** Shift+T encodings — cycle backward through the focused entry's tables. */
 const TABLE_CYCLE_SEQS: ReadonlySet<string> = new Set([
-  "\x1b[84;2u", // Kitty/CSI-u
-  "\x1b[1;2T", // xterm modifyOtherKeys
+  "\x1b[116;2u", // Kitty/CSI-u (lowercase codepoint t)
+  "\x1b[27;2;84~", // xterm modifyOtherKeys
   "\x1bT", // legacy
 ]);
 /**
