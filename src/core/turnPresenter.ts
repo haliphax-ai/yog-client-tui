@@ -436,6 +436,33 @@ export function toolResultEntries(
   return entries;
 }
 
+/**
+ * The consecutive run of pure-prose rows starting at `start` (user rows
+ * or assistant rows with no tool calls), stopping at the first row that
+ * is anything else (a tool-call row, a tool result, a turn marker).
+ * `whole` is the joined text of the run — the whole-message copy text —
+ * null for a lone row that carries no joinable message (a user prompt
+ * is whole by itself; the caller handles that via its own rule).
+ * Advancing the cursor past the whole run keeps the O(n) walk linear.
+ */
+function proseRunOf(
+  entries: TranscriptEntry[],
+  start: number,
+): { length: number; whole: string | null } {
+  const first = entries[start]!;
+  if (first.role !== "assistant") return { length: 1, whole: null };
+  const parts: string[] = [first.text];
+  let n = 1;
+  while (start + n < entries.length) {
+    const next = entries[start + n]!;
+    if (next.role !== "assistant" || decodeToolCalls(next.raw.toolCalls).length > 0) break;
+    parts.push(next.text);
+    n += 1;
+  }
+  if (n === 1) return { length: 1, whole: null };
+  return { length: n, whole: parts.join("\\n\\n") };
+}
+
 /** Stamp the tool-call id as the copy item id on a result entry group
  *  args and result are one transcript item, so the result block
  *  copies under the same id as its call line. Status lines are not
@@ -553,14 +580,24 @@ export function transcriptLogEntries(
       continue;
     }
     if (e.role === "user" || e.role === "assistant") {
-      // Copy identity: the transcript row seq is the item id.
+      // Copy identity: the transcript row seq is the item id. On an
+      // assistant row with NO tool calls (pure prose), also stamp the
+      // whole-message copy: the joined text of every consecutive prose
+      // row of the same logical message (no tool row in between), on
+      // the LAST of those rows — the same rule the live path uses.
+      const run = proseRunOf(entries, i);
       out.push({
         kind: e.role,
         lines: [e.text],
         copyText: e.text,
-        copyIds: { itemId: String(e.raw.seq) },
+        copyIds:
+          run.whole === null
+            ? { itemId: String(e.raw.seq) }
+            : { itemId: String(e.raw.seq), wholeMessage: run.whole },
       });
+      i += run.length - 1;
     } else if (e.role === "tool") {
+      // Orphan result row (its call row predates the transcript). Success:
       // Orphan result row (its call row predates the transcript). Success:
       // standalone status line + output chunk. Failure: nothing beyond the
       // error itself to show (the ❌ line carries it, as with live calls).

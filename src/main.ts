@@ -853,7 +853,6 @@ async function run(argv: readonly string[]): Promise<void> {
     const outcome = runWlCopy(request.content);
     if (outcome.ok) {
       toast.show(`📋 entry \`${request.itemId}\` copied to the system clipboard`);
-      setState({}); // redraw the drawer with the toast
       return;
     }
     pushLines("error", noticeLine("error", "copy failed", outcome.error));
@@ -875,7 +874,6 @@ async function run(argv: readonly string[]): Promise<void> {
       return;
     }
     toast.show(`💾 entry \`${request.itemId}\` saved to \`out/${filename}\``);
-    setState({}); // redraw the drawer with the toast
   };
   // ---- components --------------------------------------------------------
   const viewport = new ChatViewport();
