@@ -1,5 +1,5 @@
 /**
- * Clipboard writer for the copy feature (#109): spawn `wl-copy` with the
+ * Clipboard writer for the copy feature: spawn `wl-copy` with the
  * content on stdin. The only non-stdlib dependency is the wl-clipboard
  * binary the issue names; a missing binary or a spawn/exec failure
  * surfaces as a structured error (never a throw) so the caller can show

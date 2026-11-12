@@ -1,5 +1,5 @@
 /**
- * Copy semantics for chat-log entries (#109): what `C` / `Shift+C` / `O`
+ * Copy semantics for chat-log entries: what `C` / `Shift+C` / `O`
  * mean for each entry kind — the raw Markdown, the whole assistant
  * message, the copied tool JSON, and the `O` output filename.
  *
@@ -16,7 +16,7 @@
 import { parseToolArgs } from "../yogClient.ts";
 import type { LogEntry } from "./entries.ts";
 
-/** The focused-entry identity (#109): item id for the toast and the `O`
+/** The focused-entry identity: item id for the toast and the `O`
  *  filename, session id for the `<session id>_<item id>` prefix. Set by
  *  the shared entry builders (live turns and transcript rehydration). */
 export interface CopyIds {
@@ -41,7 +41,7 @@ export interface ToolCopyProviders {
 
 /**
  * The registry of tool-specific copy providers, keyed by tool name.
- * Registration is the universal extension point (#109): a tool opts into
+ * Registration is the universal extension point: a tool opts into
  * copy semantics here instead of the UI growing per-tool branches.
  */
 const COPY_PROVIDERS: Record<string, ToolCopyProviders> = {
@@ -54,7 +54,7 @@ export function copyProvidersFor(tool: string): ToolCopyProviders | undefined {
 }
 
 /**
- * The bash tool's ARGS provider (#109): the `command` arg value only —
+ * The bash tool's ARGS provider: the `command` arg value only —
  * not the whole JSON object. Any other shape declines (null).
  */
 function bashArgsProvider(payload: unknown): string | null {
@@ -65,7 +65,7 @@ function bashArgsProvider(payload: unknown): string | null {
 }
 
 /**
- * The bash tool's RESULTS provider (#109): a Markdown blob —
+ * The bash tool's RESULTS provider: a Markdown blob —
  * a YAML front-matter runtime line, then `## stdout` / `## stderr`
  * sections. Declines when there is no runtime/exit fact to show.
  */
@@ -93,10 +93,6 @@ function bashResultsProvider(payload: unknown): string | null {
  * pretty-printed) — every tool can always be copied something meaningful.
  * This is also what `Shift+C` copies on a tool entry: the whole item
  * (providers are skipped, mirroring prose's whole-message copy).
- */
-/**
- * The universal fallback: the ENTIRE JSON blob (args and result together,
- * pretty-printed) — every tool can always be copied something meaningful.
  */
 export function universalJsonCopy(entry: LogEntry): string {
   const blob: Record<string, unknown> = {};
@@ -156,7 +152,7 @@ export function copyItemId(entry: LogEntry): string | undefined {
   return entry.copyIds?.itemId;
 }
 
-/** The sink surface the viewport calls (#109): the composition root wires
+/** The sink surface the viewport calls: the composition root wires
  *  the clipboard/file writers; the viewport only builds requests and
  *  hands them back. */
 export interface CopyActions {

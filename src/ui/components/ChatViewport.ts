@@ -34,7 +34,7 @@ const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
   "\x1b[66;2u", // CSI-u / Kitty
 ]);
 
-/** Shift+C encodings — copy the whole message / whole item (#109). */
+/** Shift+C encodings — copy the whole message / whole item. */
 const SHIFT_C_SEQS: ReadonlySet<string> = new Set([
   "\x1b[67;2u", // Kitty/CSI-u
   "\x1b[1;2C", // xterm modifyOtherKeys
@@ -73,7 +73,7 @@ function focusedTableLayout(
 
 export class ChatViewport extends ChatLogComponent {
   /**
-   * Copy/output dispatch (#109): the composition root wires the clipboard
+   * Copy/output dispatch: the composition root wires the clipboard
    * and `out/` writers; the viewport builds the request (per core/
    * copyText semantics) and hands it back. Undefined until wired — the
    * copy keys stay inert in tests that never wire a sink.
@@ -177,7 +177,7 @@ export class ChatViewport extends ChatLogComponent {
       setState({}); // notify the scheduler so the input un-blurs
       return "handled";
     }
-    // Shift+C copies the whole message / whole item (#109).
+    // Shift+C copies the whole message / whole item.
     if (SHIFT_C_SEQS.has(seq)) return this.requestCopy(true, false);
     // Shift+T cycles backward through the focused entry's tables.
     if (TABLE_CYCLE_SEQS.has(seq)) return this.cycleTable(-1);
@@ -200,7 +200,7 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   override handleChar(ch: string): "handled" | "unhandled" {
-    // C / O copy or output the focused entry's raw Markdown (#109);
+    // C / O copy or output the focused entry's raw Markdown;
     // Shift+C copies the whole message / whole item.
     if (ch === "c") return this.requestCopy(false, false);
     if (ch === "C") return this.requestCopy(true, false);
@@ -280,7 +280,7 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   /**
-   * C / Shift+C / O (#109): build the copy request for the focused entry
+   * C / Shift+C / O: build the copy request for the focused entry
    * and run the wired sink. `upper` = Shift (whole message / whole item);
    * `output` = O (write out/<session id>_<item id>.md instead of the
    * clipboard). Unhandled when nothing is focused, the entry carries no

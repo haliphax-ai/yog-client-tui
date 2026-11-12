@@ -1,5 +1,5 @@
 /**
- * Toast: a transient one-row drawer child (#109).
+ * Toast: a transient one-row drawer child.
  *
  * `show(message)` pins the message for 3 seconds, then the component
  * collapses back to zero rows (the drawer disappears with it). One

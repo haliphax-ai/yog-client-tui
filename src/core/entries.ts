@@ -63,11 +63,11 @@ export interface LogEntry {
    *  shared tool-call builders. */
   argsRaw?: string;
   /** Raw Markdown copy snapshot: the verbatim delta at entry creation
-   *  (#109). Streaming appends mutate `lines` in place (wrapping/glamour
+   *  Streaming appends mutate `lines` in place (wrapping/glamour
    *  reads them), so the copyable text is captured at build time — the
    *  plain text of the user prompt, or the assistant markdown source. */
   copyText?: string;
-  /** Copy identity (#109): the transcript item id (for the toast and
+  /** Copy identity: the transcript item id (for the toast and
    *  the `out/` filename), the owning session id, and the whole-message
    *  text stamped on the last assistant prose chunk of a logical
    *  message (Shift+C copies the entire message). Entries the builders

@@ -116,7 +116,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       const lastIdx = lines.length - 1;
       const merged = `${lines[lastIdx] ?? ""}${text}`;
       lines.splice(lastIdx, 1, ...merged.split("\n"));
-      // Copy snapshot (#109): keep the verbatim delta so C copies the raw
+      // Copy snapshot: keep the verbatim delta so C copies the raw
       // Markdown even while the entry is still streaming. The whole-
       // message text accumulates across the logical message's chunks.
       entry.copyText = `${entry.copyText ?? ""}${text}`;
@@ -130,7 +130,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       // tail guard below is the generic backstop).
       if (assistant.entry !== undefined) {
         assistant.entry.streaming = false;
-        // Close-of-block copy stamp (#109): the prose chunk keeps its own
+        // Close-of-block copy stamp: the prose chunk keeps its own
         // raw-delta copyText; the whole-message text rides the LAST chunk
         // of the logical message so Shift+C copies everything so far.
         assistant.entry.copyIds = {
@@ -165,7 +165,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
           const idx = host.entries.indexOf(call);
           const insertAt = idx !== -1 ? idx + 1 : host.entries.length;
           const results = toolResultEntries(name, result, host.width(), count);
-          // Results copy identity (#109): the tool-call id is the item id
+          // Results copy identity: the tool-call id is the item id
           // — args and result are one transcript item.
           for (const resultEntry of results) {
             if (resultEntry.kind === "status") continue; // not a copyable item
@@ -184,7 +184,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
             host.width(),
             tokenCountNote(resultTokens, { estimated: true }),
           );
-          // Orphan-result copy identity (#109): the call id is the item id.
+          // Orphan-result copy identity: the call id is the item id.
           for (const resultEntry of results) {
             if (resultEntry.kind === "status") continue; // not a copyable item
             resultEntry.copyIds = { itemId: id };
@@ -273,7 +273,7 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
     finish: () => {
       if (assistant.entry) {
         assistant.entry.streaming = false;
-        // Final close-of-block stamp (#109): the whole-message text rides
+        // Final close-of-block stamp: the whole-message text rides
         // the last prose chunk so Shift+C copies the entire message.
         assistant.entry.copyIds = {
           itemId: assistant.entry.copyIds?.itemId ?? "",
@@ -301,7 +301,7 @@ export function toolCallEntry(_id: string, name: string, args: unknown, _cols: n
       : prettyArgs(args, Number.MAX_SAFE_INTEGER, "pretty");
   const argsCompact = full === undefined ? undefined : compactArgs(args);
   const shown = argsCompact === undefined ? label : `${label} ${argsCompact}`;
-  // Copy snapshot (#109): keep the verbatim args JSON so the copy path
+  // Copy snapshot: keep the verbatim args JSON so the copy path
   // (core/copyText) can apply the tool's own copy semantics; `copyIds`
   // is stamped by the caller (live turn / rehydration), which owns ids.
   return {
@@ -354,7 +354,7 @@ export function toolResultChunk(name: string, result: unknown, tokenNote = ""): 
     collapsed: true,
     result,
     tokenNote: tokenNote === "" ? undefined : tokenNote,
-    // Copy snapshot (#109): keep the verbatim result JSON alongside the
+    // Copy snapshot: keep the verbatim result JSON alongside the
     // raw payload so the copy path can apply the tool's own semantics.
     argsRaw: typeof result === "string" ? result : JSON.stringify(result),
   };
@@ -388,7 +388,7 @@ export function toolResultEntry(
     expanded: false,
     result,
     tokenNote: tokenNote,
-    // Copy snapshot (#109): keep the verbatim result JSON (see
+    // Copy snapshot: keep the verbatim result JSON (see
     // toolResultChunk).
     argsRaw: typeof result === "string" ? result : JSON.stringify(result),
   };
@@ -426,7 +426,7 @@ export function toolResultEntries(
 }
 
 /** Stamp the tool-call id as the copy item id on a result entry group
- *  (#109): args and result are one transcript item, so the result block
+ *  args and result are one transcript item, so the result block
  *  copies under the same id as its call line. Status lines are not
  *  copyable items and stay unstamped; an undefined id leaves the group
  *  uncopyable rather than inventing one. */
@@ -542,7 +542,7 @@ export function transcriptLogEntries(
       continue;
     }
     if (e.role === "user" || e.role === "assistant") {
-      // Copy identity (#109): the transcript row seq is the item id.
+      // Copy identity: the transcript row seq is the item id.
       out.push({
         kind: e.role,
         lines: [e.text],
@@ -770,7 +770,7 @@ export function rehydrateGroups(
       continue;
     }
     if (e.role === "user" || e.role === "assistant") {
-      // Copy identity (#109): the transcript row seq is the item id —
+      // Copy identity: the transcript row seq is the item id —
       // identical to the full converter.
       group.push({
         kind: e.role,

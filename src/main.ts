@@ -818,12 +818,12 @@ async function run(argv: readonly string[]): Promise<void> {
     });
   };
 
-  // ---- copy / output sinks (#109) ----------------------------------------
+  // ---- copy / output sinks ----------------------------------------
   /** Toast: a one-row drawer child (registered like the spinner) that shows
    *  the copy/save confirmation for 3 seconds, then collapses to nothing. */
   const toast = new ToastComponent();
   registerDrawerChild(toast);
-  /** Clipboard sink (#109): write the content with wl-copy. A missing
+  /** Clipboard sink: write the content with wl-copy. A missing
    *  wl-copy (or a spawn failure) surfaces as an error notice; a successful
    *  copy shows the 📋 toast. */
   const copyToClipboard = (request: CopyRequest): void => {
@@ -836,7 +836,7 @@ async function run(argv: readonly string[]): Promise<void> {
     pushLines("error", noticeLine("error", "copy failed", outcome.error));
   };
 
-  /** File sink (#109): write `out/<session id>_<item id>.md` relative to
+  /** File sink: write `out/<session id>_<item id>.md` relative to
    *  the cwd (the file lives under the directory yog-client-tui runs in,
    *  not under ~/.config), then show the 💾 toast. */
   const outputToFile = (request: CopyRequest): void => {
@@ -864,7 +864,7 @@ async function run(argv: readonly string[]): Promise<void> {
   input.ring = "input";
   const chain: readonly Component[] = [viewport, input, drawer, status];
 
-  /** The copy/output dispatch the viewport asks for (#109): build the
+  /** The copy/output dispatch the viewport asks for: build the
    *  request from the focused entry, then run the sink. The sinks live
    *  here because fs/process access is composition-root-only. */
   const requestCopy = (entry: LogEntry, upper: boolean): CopyRequest | null => {

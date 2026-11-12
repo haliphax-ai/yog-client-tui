@@ -11,7 +11,7 @@ import {
 } from "../../src/core/copyText.ts";
 import type { LogEntry } from "../../src/core/entries.ts";
 
-describe("bash copy providers (#109)", () => {
+describe("bash copy providers", () => {
   it("args provider copies the command value only", () => {
     const provider = copyProvidersFor("bash")?.args;
     expect(provider).toBeDefined();
@@ -76,7 +76,7 @@ describe("universal tool copy", () => {
   });
 });
 
-describe("toolCopyRequest (#109)", () => {
+describe("toolCopyRequest", () => {
   const sessionId = "s-123";
 
   it("C on a bash call copies the command value (provider, not the blob)", () => {
@@ -150,7 +150,7 @@ describe("toolCopyRequest (#109)", () => {
   });
 });
 
-describe("proseCopyRequest (#109)", () => {
+describe("proseCopyRequest", () => {
   const sessionId = "s-123";
 
   it("C copies the raw Markdown snapshot", () => {
