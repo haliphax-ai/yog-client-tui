@@ -223,6 +223,28 @@ export function parseTable(text: string): ParsedTable | null {
 }
 
 /**
+ * Fenced-code-block scanning, shared by the section splitter and the
+ * paragraph grouper — both must agree on where a fence begins and ends,
+ * because fence content is LITERAL: no tables, no paragraph breaks, no
+ * list markers may be read out of it (issue #108).
+ */
+
+/** The ```/~~~ run that opens a fence on this line (≤3 spaces of indent,
+ *  per CommonMark). The sigil is the full run — its character and length
+ *  are what the closer must match. */
+function fenceOpener(line: string): string | undefined {
+  return line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+}
+
+/** True when the line closes a fence opened with sigil `opener`: a bare
+ *  run of the same character at least as long, nothing else on the line
+ *  (no info string on a closing fence). */
+function closesFence(line: string, opener: string): boolean {
+  const run = line.match(/^ {0,3}(`{3,}|~{3,})\s*$/)?.[1] ?? "";
+  return run.length > 0 && (run[0] ?? "") === (opener[0] ?? "") && run.length >= opener.length;
+}
+
+/**
  * Split raw markdown text into alternating prose and table sections.
  *
  * A table starts when a line looks like a table row AND the next line
@@ -243,6 +265,9 @@ export function splitTableSections(text: string): TableSection[] {
   const sections: TableSection[] = [];
   let proseLines: string[] = [];
   let i = 0;
+  // The open fence's sigil, while reading one. Fence content stays prose:
+  // a pipe row inside a fence is literal text, not a table.
+  let fence: string | undefined;
 
   const flushProse = (): void => {
     const body = proseLines.join("\n").trim();
@@ -252,6 +277,21 @@ export function splitTableSections(text: string): TableSection[] {
 
   while (i < lines.length) {
     const line = lines[i] ?? "";
+
+    // Fence content is literal — scan for the closer, never for tables.
+    if (fence !== undefined) {
+      proseLines.push(line);
+      if (closesFence(line, fence)) fence = undefined;
+      i++;
+      continue;
+    }
+    const open = fenceOpener(line);
+    if (open !== undefined) {
+      fence = open;
+      proseLines.push(line);
+      i++;
+      continue;
+    }
 
     // A table starts here: this line is a table row AND the next is a delimiter.
     if (isTableRow(line) && i + 1 < lines.length && isTableDelimiter(lines[i + 1] ?? "")) {
@@ -318,7 +358,42 @@ export function paragraphGroups(text: string): ParagraphGroup[] {
   let pendingBreak = false;
   // The open list nesting, as a stack of marker geometries (deepest last).
   let stack: { indent: number; width: number }[] = [];
+  // The open fence's sigil, while reading one: fence lines — blank lines
+  // INCLUDED — are literal content of the current group (issue #108).
+  let fence: string | undefined;
+  // A fence just closed: the next line opens a fresh group (content after
+  // a closing fence is never a lazy continuation of the pre-fence block).
+  let afterFence = false;
   for (const line of lines) {
+    if (fence !== undefined) {
+      current.push(line);
+      if (closesFence(line, fence)) {
+        fence = undefined;
+        afterFence = true;
+      }
+      pendingBreak = false;
+      continue;
+    }
+    if (afterFence && current.length > 0) {
+      groups.push({ lines: current });
+      current = [];
+      stack = [];
+      afterFence = false;
+    }
+    const open = fenceOpener(line);
+    if (open !== undefined) {
+      // An opener mid-group closes the group so far; the fence owns the
+      // next one (opener through closer, whatever blanks fall between).
+      if (current.length > 0) {
+        groups.push({ lines: current });
+        current = [];
+        stack = [];
+      }
+      fence = open;
+      pendingBreak = false;
+      current.push(line);
+      continue;
+    }
     if (line.trim() === "") {
       pendingBreak = current.length > 0;
       continue;

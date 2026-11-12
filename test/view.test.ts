@@ -7,6 +7,7 @@ import {
   resultPreview,
   totalRows,
 } from "../src/ui/render/index.ts";
+import { renderMarkdownFlat } from "../src/ui/render/prose.ts";
 import {
   compactArgs,
   formatDuration,
@@ -775,5 +776,65 @@ describe("turn usage reaches the session status bar", () => {
     expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 2");
     turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 40);
     expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 2  🪙 40 tok");
+  });
+});
+
+describe("renderMarkdown — lists inside code fences keep literal markers and one indent (issue #108)", () => {
+  const input =
+    "```markdown\n# Available skills\n\n- demo — A demo skill for testing\n- parent:child (child skill) — A demo skill for testing\n\nInteract with skills using `yog skills help` (list, load, unload, status).\n```";
+  const indentOf = (row: string) => row.match(/^ */)![0].length;
+
+  it("renders the fenced block as one document: every content row at the fence indent", () => {
+    const rows = renderMarkdown(input, 80).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    const content = rows.filter((r) => r.trim() !== "");
+    // The heading, both list rows, and the closing paragraph share one indent.
+    for (const row of content) expect(indentOf(row)).toBe(2);
+    // Fence content keeps literal markers — no bullet transformation.
+    expect(content.some((r) => r.includes("- demo"))).toBe(true);
+    expect(content.some((r) => r.includes("• "))).toBe(false);
+  });
+
+  it("does the same through the per-paragraph entry renderer", () => {
+    const rows = renderMarkdownFlat(input, 80).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    const content = rows.filter((r) => r.trim() !== "");
+    for (const row of content) expect(indentOf(row)).toBe(2);
+    expect(content.some((r) => r.includes("- demo"))).toBe(true);
+    expect(content.some((r) => r.includes("• "))).toBe(false);
+  });
+
+  it("keeps blank lines inside the fence as paragraph breaks, inside the indent", () => {
+    const rows = renderMarkdownFlat(input, 80).map((r) => stripAnsi(r).replace(/ +$/, ""));
+    // One blank between the heading and the list, one before the closing
+    // paragraph — all interior to the fenced document.
+    const blanks = rows.filter((r) => r.trim() === "");
+    expect(blanks.length).toBe(2);
+    expect(rows.length).toBe(6);
+  });
+
+  it("leaves prose outside the fence at zero indent", () => {
+    const rows = renderMarkdownFlat("```markdown\n- a\n```\n\nTrailing paragraph.", 60).map((r) =>
+      stripAnsi(r).replace(/ +$/, ""),
+    );
+    const fenced = rows.find((r) => r.includes("- a"));
+    const trailing = rows.find((r) => r.includes("Trailing"));
+    expect(fenced).toBeDefined();
+    expect(trailing).toBeDefined();
+    expect(indentOf(fenced!)).toBe(2);
+    expect(indentOf(trailing!)).toBe(0);
+  });
+
+  it("keeps a loose list inside the fence as one document (blanks between items)", () => {
+    const rows = renderMarkdownFlat("```markdown\n- a\n\n- b\n```", 60).map((r) =>
+      stripAnsi(r).replace(/ +$/, ""),
+    );
+    expect(rows).toEqual(["  - a", "", "  - b"]);
+  });
+
+  it("keeps a pipe table inside a fence literal (no table section)", () => {
+    const rows = renderMarkdownFlat("```markdown\n| a | b |\n|---|---|\n| 1 | 2 |\n```", 40).map(
+      (r) => stripAnsi(r).replace(/ +$/, ""),
+    );
+    expect(rows.some((r) => r.includes("| a | b |"))).toBe(true);
+    expect(rows.some((r) => r.includes("•"))).toBe(false);
   });
 });
