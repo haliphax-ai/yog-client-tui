@@ -180,22 +180,6 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
       const detail =
         tokenParts.length > 0 ? `${trimmed} · tokens: ${tokenParts.join(" · ")}` : trimmed;
       host.append("notice", noticeLine("notice", "turn aborted", detail));
-      // Per-turn summary line for parity with the normal/max_rounds finish
-      // paths (no runtime: the abort envelope carries none).
-      const summary: string[] = [
-        `${toolCallsThisTurn} tool call${toolCallsThisTurn === 1 ? "" : "s"}`,
-      ];
-      if (usage !== undefined) {
-        const absolute =
-          typeof usage.total_tokens === "number"
-            ? usage.total_tokens
-            : (typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0) +
-              (typeof usage.completion_tokens === "number" ? usage.completion_tokens : 0);
-        const prev = host.prevTokenTotal?.() ?? 0;
-        const delta = Math.max(0, absolute - prev);
-        if (delta > 0) summary.push(`${formatTokenTotal(delta)} tokens`);
-      }
-      host.append("status", [summary.join(" · ")]);
     },
     onRateLimited: (info) => {
       host.append(

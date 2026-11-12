@@ -236,8 +236,7 @@ describe("createTurnPresenter", () => {
       kind: "notice",
       lines: ["⏹️ turn aborted", "by operator"],
     });
-    // The per-turn summary line follows the notice (no usage → no token seg).
-    expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
+    expect(entries.at(-1)).toEqual({ kind: "notice", lines: ["⏹️ turn aborted", "by operator"] });
   });
 
   it("keeps an unrecognized abort reason as the notice detail", () => {
@@ -248,7 +247,10 @@ describe("createTurnPresenter", () => {
       kind: "notice",
       lines: ["⏹️ turn aborted", "worker pool exploded"],
     });
-    expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
+    expect(entries.at(-1)).toEqual({
+      kind: "notice",
+      lines: ["⏹️ turn aborted", "worker pool exploded"],
+    });
   });
 
   it("tolerates an empty abort reason", () => {
@@ -257,10 +259,10 @@ describe("createTurnPresenter", () => {
     turn.events.onAborted?.("");
     // An empty reason drops the dot separator entirely (noticeLine trims it).
     expect(entries.find((e) => e.kind === "notice")?.lines).toEqual(["⏹️ turn aborted"]);
-    expect(entries.at(-1)).toEqual({ kind: "status", lines: ["0 tool calls"] });
+    expect(entries.at(-1)).toEqual({ kind: "notice", lines: ["⏹️ turn aborted"] });
   });
 
-  it("surfaces cut-point usage in the abort notice and the per-turn summary", () => {
+  it("surfaces cut-point usage in the abort notice only", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
@@ -278,10 +280,7 @@ describe("createTurnPresenter", () => {
         "by operator · tokens: 1,000 prompt · 500 completion · 1,500 total",
       ],
     });
-    expect(entries.at(-1)).toEqual({
-      kind: "status",
-      lines: ["1 tool call · 1.5K tokens"],
-    });
+    expect(entries.at(-1)).toEqual(notices.at(-1));
   });
 
   it("logs a max_rounds stop as a notice entry with a cap summary", () => {
