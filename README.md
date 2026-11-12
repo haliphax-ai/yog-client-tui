@@ -10,13 +10,13 @@ whole conversation from the server before the first prompt.
 
 The docs live in `docs/`, split by concern with an index per directory:
 
-- [Architecture](docs/architecture/index.md): domain layout and the
+- [Architecture](docs/architecture/README.md): domain layout and the
   dependency rules between domains.
-- [Server connection](docs/server-connection/index.md): configuration,
+- [Server connection](docs/server-connection/README.md): configuration,
   startup, turns, and recovery.
-- [UI](docs/ui/index.md): the render pipeline, components, tables, and
+- [UI](docs/ui/README.md): the render pipeline, components, tables, and
   theming.
-- [Interaction](docs/interaction/index.md): key bindings, the input bar,
+- [Interaction](docs/interaction/README.md): key bindings, the input bar,
   slash commands, and debug mode.
 
 ## File map
@@ -52,7 +52,7 @@ helpers/            align-columns.mjs, a script used to align markdown tables.
 The domains are separated by enforced dependency rules (`npm run depcruise`).
 `client/` never touches the terminal and `ui/` never touches the transport,
 so either side can change without the other. The full rules and the module
-inventory are in [docs/architecture](docs/architecture/index.md).
+inventory are in [docs/architecture](docs/architecture/README.md).
 
 ## Dependency graph
 
