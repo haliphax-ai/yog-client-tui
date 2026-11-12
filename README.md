@@ -1,14 +1,60 @@
 # yog-client-tui
 
-A minimal terminal chat client for yog-style HTTP/SSE servers, built with Node.js
-and TypeScript. It opens a session, streams assistant replies into a scrollable log
-viewport, and resumes where it left off: the server owns the canonical transcript,
-so turns send only the new prompt and a relaunch rehydrates the whole conversation
-from the server before the first prompt. Terminal styling is
-provided by `@oakoliver/lipgloss` (a TypeScript port of charmbracelet/lipgloss)
-with `@oakoliver/glamour` markdown rendering.
+A terminal chat client for yog-style HTTP/SSE servers, built with Node.js and
+TypeScript. It opens a session, streams assistant replies into a scrollable
+log viewport, and resumes where it left off: the server owns the canonical
+transcript, so turns send only the new prompt and a relaunch rehydrates the
+whole conversation from the server before the first prompt.
 
-## Architecture
+## Documentation
+
+The docs live in `docs/`, split by concern with an index per directory:
+
+- [Architecture](docs/architecture/index.md): domain layout and the
+  dependency rules between domains.
+- [Server connection](docs/server-connection/index.md): configuration,
+  startup, turns, and recovery.
+- [UI](docs/ui/index.md): the render pipeline, components, tables, and
+  theming.
+- [Interaction](docs/interaction/index.md): key bindings, the input bar,
+  slash commands, and debug mode.
+
+## File map
+
+```
+src/
+  main.ts           Composition root: wiring only (terminal lifecycle, key
+                    routing, render scheduling). The only module allowed to
+                    import config/.
+  config.ts         Config parsing/validation; config/state file locations.
+  yogClient.ts      The yog HTTP/SSE transport: capabilities, sessions,
+                    turns, transcript rehydration, recovery. Terminal-free.
+  core/             The domain model: log entries, the state store, the focus
+                    ring, scroll math, transcript conversion, the turn
+                    presenter, slash commands.
+  ui/               Presentation: components, the staged render pipeline, the
+                    table engine, the theme.
+    components/     Chat log/viewport, input bar, status line, drawer,
+                    focus-scoped key router, raw input decoding.
+    pipeline/       Stage runner (layout, paint, compose, post, emit), hook
+                    registry, frame scheduler, frame writer.
+    render/         Entry rendering, markdown/prose, the table engine
+                    (parse, layout, render, scroll), the memoized row cache.
+  util/             ANSI cell math and fuzzy matching. A leaf domain.
+test/               Vitest suites mirroring the source tree.
+config.example.json The committed config template (a real config.json is
+                    git-ignored).
+patches/            patch-package overlay for @oakoliver/bubbles width
+                    tables (see AGENTS.md).
+helpers/            align-columns.mjs, a script used to align markdown tables.
+```
+
+The domains are separated by enforced dependency rules (`npm run depcruise`).
+`client/` never touches the terminal and `ui/` never touches the transport,
+so either side can change without the other. The full rules and the module
+inventory are in [docs/architecture](docs/architecture/index.md).
+
+## Dependency graph
 
 <details><summary>Dependency graph</summary>
 <br />
@@ -16,256 +62,5 @@ with `@oakoliver/glamour` markdown rendering.
 ![Dependency graph](https://raw.githubusercontent.com/haliphax-ai/yog-client-tui/refs/heads/assets/dependencies.jpg)
 </details>
 
-The code is split into responsibility domains with enforced dependency rules
-(dependency-cruiser checks them in `npm run depcruise`):
-
-| Domain           | Location           | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling. The only module allowed to import `config/`.                                                                                                                                                                                                                                                                                                            |
-| `config`         | `src/config.ts`    | Config parsing and validation: `model` and `baseUrl` (both required); config/state file locations resolved from `XDG_CONFIG_HOME` → `HOME` → `PWD`.                                                                                                                                                                                                                                                                                      |
-| `core`           | `src/core/`        | The domain: the log-entry shape (`core/entries`), the tiny state store (`getState` / `setState` / `subscribe`), the focus ring (`core/focus`), scroll math, tool-argument/result formatting (`core/toolFormat`), transcript conversion (server rows → display entries, `core/transcript`), and the turn presenter (SSE events → state, no rendering). Never imports the presentation layer.                                              |
-| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities probe → resume-or-create `POST /v1/sessions` → open the session stream (`GET /v1/sessions/{id}/stream`) → prompt-only `turn.start` messages on `POST /v1/sessions/{id}/messages` → stream event consumption → `turn.get` recovery → transcript rehydration (`transcript.get`). Sessions outlive the client: quit never deletes. Never touches the terminal, styling, config, or the filesystem. |
-| `ui`             | `src/ui/`          | Components (`ui/components`: base contract, chat log/viewport, input bar, status line, focus-scoped key router), presentation (`ui/render`: entry rendering, the table engine — parse / layout / render / scroll, the memoized row cache), and the single theme source (`ui/theme.ts`). Talks to the store, never to the transport or filesystem.                                                                                        |
-| `util`           | `src/util/`        | ANSI width / wrap / truncate helpers. A leaf domain: imports nothing from any other domain.                                                                                                                                                                                                                                                                                                                                              |
-| `ui/pipeline`    | `src/ui/pipeline/` | The render pipeline: fixed stage runner, per-stage hook registry, store-backed frame scheduler, and the single frame writer.                                                                                                                                                                                                                                                                                                             |
-
-`client/` never touches the terminal and `ui/` never touches the transport, so
-presentation can change without affecting transport logic (and vice versa).
-
-### Render pipeline
-
-Every redraw runs through a fixed sequence of stages — the order is data (the
-`STAGES` array), not convention, so it is deterministic by construction:
-
-| Stage     | Core work                                                                                  | Hook point                                          |
-| --------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------- |
-| `layout`  | Measure terminal geometry (cols/rows/viewport rows) into components.                       | —                                                   |
-| `paint`   | Each component renders its rows.                                                           | components + overlays that draw into the paint pass |
-| `compose` | Pass-through — paint already joined the rows; compose hooks rewrite the frame.             | —                                                   |
-| `post`    | Pad/truncate every ANSI line to the terminal width.                                        | overlays, status widgets, banners                   |
-| `emit`    | Write the finished frame to stdout — a single owner (`writeFrame`); nothing runs after it. | —                                                   |
-
-Features extend the pipeline with `register(stage, hook)` from
-`src/ui/pipeline/index.ts`: hooks append to an ordered array per stage and run
-after that stage's core work, each receiving and returning the current frame so
-later hooks always see earlier hooks' output. Ordering is registration order —
-no priority numbers to reason about — and `register` returns an unregister
-function. An empty hook list means the pipeline is exactly the core stages, so
-hook-free rendering is byte-identical frame for frame.
-
-Frame coalescing lives in the pipeline too: the scheduler subscribes to the state
-store once, collapses bursts of `setState` into one flush per `FRAME_MS` window,
-and the flush runs the stages.
-
-## Setup
-
-```sh
-npm install
-# Copy the template into one of the locations from Configuration below
-# ($XDG_CONFIG_HOME → $HOME → PWD); for example:
-mkdir -p ~/.config/yog-client-tui
-cp config.example.json ~/.config/yog-client-tui/config.json
-# edit config.json and set your model id
-npm start
-```
-
-`npm start` runs `node src/main.ts` directly (Node 22+ type-stripping; no build
-step). `npm run typecheck` runs `tsc --noEmit`.
-
-## Configuration
-
-The client looks for `config.json` in the first existing location of:
-
-- `$XDG_CONFIG_HOME/yog-client-tui/config.json` (when `XDG_CONFIG_HOME` is set)
-- `$HOME/.yog-client-tui/config.json` (when `HOME` is set)
-- `./yog-client-tui/config.json` (relative to the current working directory)
-
-See `config.example.json` for the committed template — a real `config.json` is
-git-ignored. Session state lives alongside it in `state.json`.
-
-| Key       | Required | Description                                                        |
-| --------- | -------- | ------------------------------------------------------------------ |
-| `model`   | yes      | Model id sent with every turn.                                     |
-| `baseUrl` | yes      | Server base URL (e.g. `http://127.0.0.1:8111` for a local daemon). |
-
-The session to resume comes from `--session <id>` (CLI), else the
-`lastSessionId` persisted in `state.json`, else a fresh session; `--new`
-forces a fresh one. If the config file is missing or malformed, the client
-exits with an error.
-
-## Key bindings
-
-The UI has a top-level focus ring with two targets: the chat log and the text
-input. Keys go to whichever side holds the ring; while the log holds it,
-unhandled keys are dropped (they never reach the input).
-While the log holds the ring, the input is visually blurred (dark grey text,
-the cursor is a darker shade of purple) so it is obvious where keypresses
-will land.
-
-| Key                                                 | Action                                                                                                                                                                                                                                                            |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Shift+Up`                                          | While in the input: move focus to the log                                                                                                                                                                                                                         |
-| `Shift+Down`                                        | While in the log: return focus to the input                                                                                                                                                                                                                       |
-| `Enter`                                             | In the input: send the current input. In the log: expand/collapse the focused unit (tool call / output chunk / debug chunk / table)                                                                                                                               |
-| `Shift+Enter`                                       | Insert a newline in the input (without sending)                                                                                                                                                                                                                   |
-| `/quit`                                             | Quit via the slash command (`/` as the first input character, Tab completes)                                                                                                                                                                                      |
-| `←` `→` `↑` `↓`, `Home` `End`, `Backspace` `Delete` | In the input: the textarea's full editing keymap — arrows, word navigation (Alt/Ctrl+arrows), line start/end, delete; ↑/↓ move the caret between lines in a multi-line input. In the log: ↑/↓ scroll one row; on a focused expanded table, ←/→ scroll its columns |
-| `PageUp` / `PageDown`                               | In the log: scroll the viewport by one page. In a multi-line input: page the caret                                                                                                                                                                                |
-| `Ctrl+Home` / `Ctrl+End`                            | In the log: jump to the top/bottom of the log. In the input: move to the start/end of the buffer                                                                                                                                                                  |
-| `Tab` / `Shift+Tab`                                 | In the log: cycle forward/backward through focusable units (user/assistant messages, tool calls, output/debug chunks, tables; wraps through "none"). In the input: `Tab` completes a slash command                                                                |
-| `T` / `Shift+T`                                     | While a user/assistant message with tables is focused: cycle forward/backward through its tables (wraps back to the entry)                                                                                                                                        |
-| `Esc`                                               | In the log with an entry focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op)                                                                                                   |
-
-While a turn is in flight, Enter is ignored (one turn at a time); input editing
-continues. The drawer above the input shows a spinner (including `Esc abort`
-while busy).
-
-The abort path lives on the input side of the ring: `Esc` while typing sends
-the server's `turn.abort` message, which kills the tool call
-in flight, closes the model stream, heals the transcript, and settles the turn
-(the TUI logs a `⏹️ turn aborted` line).
-The input bar is a multi-line textarea: it grows and shrinks to fit its
-content up to ten lines and scrolls vertically beyond that (content is
-capped at 5000 characters). `Enter` submits;
-`Shift+Enter` inserts a line break. Pasted text (bracketed paste) is inserted
-verbatim — including newlines — and never submits.
-
-`Shift+Enter` is recognized from the CSI-u / Kitty (`ESC[13;2u`), xterm
-modifyOtherKeys (`ESC[27;2;13~`), and `ESC[13;2~` encodings. If a terminal is
-configured to not report modified keys, Shift+Enter is indistinguishable from
-Enter. The key logger is opt-in via `YOG_DEBUG_KEYS`, and stays inert unless
-debug mode is also on (`YOG_DEBUG=1`). `YOG_DEBUG_KEYS=1` adds every input
-key/char/paste diagnostic to the debug chunk stream only;
-`YOG_DEBUG_KEYS=/path/to/file` does that AND appends a hex dump of every raw
-input chunk to that file (`1` is shorthand for `/tmp/yog-client-keys.log`).
-The file never touches the terminal, so the TUI display is unaffected.
-
-### Debug mode
-
-Set `YOG_DEBUG=1` to enable client-side debug chunks. Without it, debug
-diagnostics are not emitted at all — not to the log, and (because they are
-never part of the session transcript) not rehydrated on a later resume either.
-With it, diagnostics emitted by the client (currently: every input
-key/char/paste event, but only when `YOG_DEBUG_KEYS` is also set) are appended
-to the chat log as `🐞 debug` chunks — consecutive messages merge into one
-chunk until a non-debug entry lands in the log. Debug chunks mirror
-tool-result chunks: they are focusable, collapsed to five body lines by
-default, and expandable with focus + Enter. They never leave the client (not
-sent to the server, not
-part of the transcript). An error that escapes an async callback (for example a
-render flush) surfaces as a `❌ fatal error` notice with the exception message;
-when debug mode is on, the full stack trace lands in a `🐞 debug` chunk before
-the client restores the terminal and exits.
-
-### Slash commands
-
-Type `/` as the **very first character** of the input line to open the
-autocomplete menu; it stays closed for slashes anywhere else. `Tab` cycles
-through and applies the highlighted match, `Enter` runs the completed command.
-Commands run even while a turn is in flight.
-
-| Command | Action                                                                                                                                                                                                                                                                                                                                   |
-| ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/quit` | Exit the client (formerly `Ctrl+C`): restores the terminal and leaves the session on the server so the next launch resumes it; an in-flight turn keeps running server-side (turns are wire-independent — see the yog contract's disconnect policy) and its result rehydrates on the next launch. `Ctrl+C` itself is now unbound / inert. |
-| `/new`  | Start a fresh session with an empty chat log (current turn must be idle).                                                                                                                                                                                                                                                                |
-
-**Fuzzy shortcut:** pressing Enter on a slash line that is not an exact command
-name but _does_ have at least one fuzzy-finder match runs the best match with no
-arguments — so `/q` is equivalent to `/quit`. The fuzzy list is the same one the
-autocomplete menu uses. When the line contains arguments (text after the token)
-the shortcut is disabled — use Tab completion instead — so argument text is never
-silently dropped. When there are no matches the old "unknown command" message is
-shown.
-
-### Tables
-
-A message containing a GFM pipe table is focusable, and every table in the
-message is its own focus target (`Tab` walks the tables before moving to
-the next message). The focused table draws blue borders — and its striped
-data rows carry the focus blue — while the others stay white.
-
-The table engine reshapes a table in a fixed order (all widths in terminal
-cells):
-
-1. **Shrinkwrap** every column to its content width.
-2. If the table fits the viewport that way, it is **done** — rendered
-   as-is, and `Enter` does nothing (there is nothing to expand).
-3. Otherwise the available space (viewport minus borders and padding) is
-   divided **evenly** among the columns, never giving a column more than
-   its content needs.
-4. If every column either fits its content or was given at least 30
-   cells, the table is **done** — rendered as-is, and `Enter` does nothing.
-5. Otherwise the table is **expandable**. The current display is the
-   collapsed one (it fits the viewport); `Enter` switches to the expanded
-   one, where the squeezed columns are widened to at most 30 cells each.
-   The expanded table may extend past the viewport — `←`/`→` (or `h`/`l`,
-   `Home`/`End`) scroll it.
-
-The 30-cell ceiling applies only to the expanded layout: a table that
-fits the viewport when collapsed keeps its columns exactly as they are,
-and a column wider than 30 cells is never shrunk below its own width.
-Each table's expansion and scroll offset are tracked per table, so two
-tables in one message expand and scroll independently.
-
-## How it talks to yog
-
-The server owns the canonical conversation. At startup the client:
-
-1. Probes server capabilities and requires the `transcript` feature (a daemon
-   without it is not running the current contract — the client exits with an
-   error rather than compensating).
-2. Resolves the session: `--session <id>` from the command line, else the
-   stored `lastSessionId` in `state.json`, else a fresh session (`--new` forces a
-   fresh one regardless). A resumable id is validated with
-   `session.get`; a stale id (`unknown_session`) falls back to a
-   fresh session with a one-line note.
-3. Rehydrates the visible conversation from the server's transcript dump
-   (`transcript.get`) — every message kind, full fidelity:
-   tool calls render as the same rich, expandable entries a live turn
-   produces, annotated with their results, before the first frame is drawn.
-   When the server captured per-turn usage, each rehydrated turn ends with
-   the same summary line a live turn shows (runtime · tool-call count ·
-   incremental tokens — the delta vs. the prior context total, not the
-   session total), per-result token estimates are restored on tool results, and
-   the startup note includes the resumed context weight — the provider total
-   when known, otherwise a tokenx estimate of the transcript
-   (`resumed session … · ~1.2M tokens in context`). Old servers without the
-   optional metrics simply render as before.
-4. Persists the resolved session id into `state.json` so the next launch
-   resumes automatically (a failed startup never overwrites the stored id).
-
-On each turn the client then:
-
-5. Opens the session stream (`GET /v1/sessions/{id}/stream`) and sends
-   `turn.start` on `POST /v1/sessions/{id}/messages` with `{ prompt, model }`
-   only — the server hydrates prior context from its canonical transcript,
-   so no history ever rides along (retries after a failed turn replay from
-   the last turn boundary server-side).
-6. Consumes the SSE stream, rendering deltas into the assistant entry, tool
-   call lines with an inline ✅/❌ indicator and syntax-highlighted args,
-   collapsible (Tab + Enter) result chunks for tool output, and error events
-   as they arrive. Each tool result carries its own context estimate — `~N tok`
-   in the bash chunk header and on the generic 🔚 result line (never on the
-   ⚙️ call line itself, and never repeated in a footer). Real round usage
-   (promptDelta / completion tokens) stays out of the log: it folds into the
-   status bar's 🪙 session total once per round — it climbs while tools run,
-   and the terminal usage report later replaces those provisional totals with
-   the authoritative full-context numbers.
-7. If the stream drops, recovers the turn outcome from `turn.get`
-   (a "🪧 recovered · stream interrupted — resumed from turn status" note is
-   logged).
-8. Esc (with nothing focused) aborts the active turn via
-   `turn.abort` — a `⏹️ turn aborted` note is logged from
-   the stream's terminal `turn.aborted` event, carrying the cut-point token
-   counts and the per-turn summary line when the provider reported usage
-   before the cut.
-9. On quit, keeps the session AND any in-flight turn: turns are
-   wire-independent (yog contract's disconnect policy), so the server keeps
-   running the turn to its terminal state after the client hangs up instead
-   of aborting it. The hang-up is a detach (status `open` → `dormant`) and
-   the transcript is kept, so the next launch resumes where this one left
-   off — including the finished turn's result. Only a server-side purge
-   (the messages channel's `session.detach` with `purge`) or the 30-day
-   retention prune truly ends a session.
-
-The bundled `config.example.json` points at the local daemon `http://127.0.0.1:8111`.
+Regenerate the Mermaid source with `npm run depcruise:graph`; the image is
+maintained on the `assets` branch.
