@@ -343,7 +343,7 @@ describe("ChatViewport — T / Shift+T table cycling", () => {
     viewport.cycleFocus(1); // chunk
     viewport.cycleFocus(1); // prose entry
 
-    expect(viewport.handleKey("\x1b[84;2u")).toBe("handled"); // Shift+T → last table
+    expect(viewport.handleKey("\x1b[116;2u")).toBe("handled"); // Shift+T → last table
     expect(getState().focusTarget).toEqual({ entry: 1, table: 0 });
 
     // Enter toggles the focused table (existing behavior preserved).

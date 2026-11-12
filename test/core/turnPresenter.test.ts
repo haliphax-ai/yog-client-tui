@@ -168,6 +168,7 @@ function makeHost() {
     },
     width: () => COLS,
     requestRender: () => {},
+    nextMessageSeq: () => String(entries.length + 1),
   };
   return { host, entries, appended };
 }
@@ -177,7 +178,12 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.begin("hi");
-    expect(entries.at(-1)).toEqual({ kind: "user", lines: ["hi"] });
+    expect(entries.at(-1)).toEqual({
+      kind: "user",
+      lines: ["hi"],
+      copyText: "hi",
+      copyIds: { itemId: "1" },
+    });
     turn.events.onDelta?.("hello");
     turn.finish();
     const assistant = entries.find((e) => e.kind === "assistant");
@@ -761,6 +767,7 @@ describe("createTurnPresenter per-call tokens (live)", () => {
       },
       width: () => COLS,
       requestRender: () => {},
+      nextMessageSeq: () => String(host.entries.length + 1),
     };
     const presenter = createTurnPresenter(host);
     presenter.events.onToolCall?.("c1", "bash", "{}");
@@ -962,6 +969,7 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
       },
       width: () => COLS,
       requestRender: () => {},
+      nextMessageSeq: () => String(host.entries.length + 1),
       onRoundDelta: (d: number) => deltas.push(d),
     };
     const turn = createTurnPresenter(host);
@@ -982,6 +990,7 @@ describe("createTurnPresenter incremental tokens", () => {
       },
       width: () => COLS,
       requestRender: () => {},
+      nextMessageSeq: () => String(host.entries.length + 1),
       prevTokenTotal: () => 150,
     };
     const presenter = createTurnPresenter(host);
@@ -1002,6 +1011,7 @@ describe("createTurnPresenter incremental tokens", () => {
       },
       width: () => COLS,
       requestRender: () => {},
+      nextMessageSeq: () => String(host.entries.length + 1),
     };
     const presenter = createTurnPresenter(host);
     presenter.events.onFinish?.(1000, undefined, {

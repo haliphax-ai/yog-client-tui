@@ -1,9 +1,10 @@
+!/src/core/
+!/test/core/
+# exclusions
 *.log
 *.swp
 /assets
 config.json
 coverage/
 node_modules/
-# exclusions
-!/src/core/
-!/test/core/
+out/

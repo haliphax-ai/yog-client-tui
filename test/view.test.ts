@@ -675,6 +675,7 @@ describe("turn usage reaches the session status bar", () => {
       },
       width: () => 80,
       requestRender: () => {},
+      nextMessageSeq: () => String(entries.length + 1),
     };
     const turn = createTurnPresenter(host);
     // The exact main.ts wiring: the presenter's onFinish first, then the
@@ -722,6 +723,7 @@ describe("turn usage reaches the session status bar", () => {
       },
       width: () => 80,
       requestRender: () => {},
+      nextMessageSeq: () => String(entries.length + 1),
     };
     const turn = createTurnPresenter(host);
     // Mirror main.ts's abort wiring: base presenter first, then the store
@@ -761,6 +763,7 @@ describe("turn usage reaches the session status bar", () => {
       },
       width: () => 80,
       requestRender: () => {},
+      nextMessageSeq: () => String(entries.length + 1),
       onRoundDelta: (delta: number) => addLiveCompletionTokens(delta),
     };
     const turn = createTurnPresenter(host);
