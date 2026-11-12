@@ -220,6 +220,22 @@ async function run(argv: readonly string[]): Promise<void> {
     state.entries.push({ kind, lines });
     setState({ entries: state.entries });
   };
+  /** The next transcript message seq: the server numbers messages
+   *  monotonically per session, so the user prompt the next turn appends
+   *  will carry this seq as its item id (one past the current tail). */
+  const nextMessageSeq = (): string => {
+    const entries = getState().entries;
+    // Rehydrated rows stamp `String(message.seq)`; the live tail is the
+    // highest id seen so far. Non-numeric ids (tool-call ids on rehydrated
+    // tool rows) are skipped, not counted.
+    let maxSeq = 0;
+    for (const entry of entries) {
+      const id = entry.copyIds?.itemId;
+      const n = id === undefined ? Number.NaN : Number(id);
+      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+    }
+    return String(maxSeq + 1);
+  };
 
   // 2. Capabilities probe + session resolution + transcript rehydration —
   //    all before the screen is taken over, so startup failures print
@@ -744,6 +760,7 @@ async function run(argv: readonly string[]): Promise<void> {
       append: pushLines,
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
+      nextMessageSeq,
       prevTokenTotal: () => turnStartTotal,
       onRoundDelta: (delta) => addLiveCompletionTokens(delta),
     });

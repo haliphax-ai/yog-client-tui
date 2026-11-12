@@ -58,6 +58,12 @@ export interface TurnHost {
   /** Schedule a redraw (coalesced by the render scheduler). */
   requestRender: () => void;
   /**
+   * The next transcript message seq (the item id a user prompt will
+   * carry once the server persists it). The presenter stamps it on the
+   * user entry so copy identity (#109) matches rehydrated rows.
+   */
+  nextMessageSeq: () => string;
+  /**
    * The session token total before this turn ran (used to show the turn's
    * incremental tokens in the summary line). Omit to fall back to showing
    * the full reported total.
@@ -267,7 +273,12 @@ export function createTurnPresenter(host: TurnHost): TurnPresenter {
   return {
     events,
     begin: (input) => {
-      host.append("user", [input]);
+      // Copy identity (#109): the prompt is the transcript item — the
+      // server assigns the next message seq, and the item id rides the
+      // entry; the raw prompt text doubles as the copy snapshot.
+      const entry: LogEntry = { kind: "user", lines: [input], copyText: input };
+      entry.copyIds = { itemId: host.nextMessageSeq() };
+      host.entries.push(entry);
       assistant.entry = undefined;
     },
     finish: () => {
