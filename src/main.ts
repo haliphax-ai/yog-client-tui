@@ -901,15 +901,17 @@ async function run(argv: readonly string[]): Promise<void> {
     return null;
   };
   /** Table copy: the TABLE is the copy unit at the inner ring — its raw
-   *  Markdown re-serialized from the parsed columns/rows, under the
-   *  containing entry's item id. Plain and Shift are identical (a table
-   *  has no inner children), and neither bubbles to the parent entry. */
+   *  Markdown re-serialized from the parsed columns/rows, identified by
+   *  the parent's item id plus the table's child position (the
+   *  table index is the child id — it matches what the focus ring
+   *  walks). Shift never reaches this path (the viewport routes it to
+   *  the parent entry). */
   const requestTableCopy = (entry: LogEntry, table: number): CopyRequest | null => {
     if (entry.kind !== "user" && entry.kind !== "assistant") return null;
     const sections = splitTableSections(entry.lines.join("\n")).filter((s) => s.kind === "table");
     const section = sections[table];
     if (section === undefined || section.kind !== "table") return null;
-    return tableCopyRequest(entry, section.table, client.sessionId);
+    return tableCopyRequest(entry, section.table, table, client.sessionId);
   };
   viewport.copyActions = {
     request: requestCopy,

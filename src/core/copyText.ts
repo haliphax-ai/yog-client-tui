@@ -157,24 +157,28 @@ export function tableMarkdown(table: ParsedTable): string {
   const delim = table.columns.map((c) => align(c.align));
   return [row(head), row(delim), ...table.rows.map(row)].join("\n");
 }
-/** The copy request for one table of a prose entry (#109): the table IS
- *  the copy unit — its re-serialized raw Markdown under the containing
- *  entry's item id. Plain and Shift are identical (no inner children);
- *  null when the table vanished or the entry carries no identity. */
+/** The copy request for one table of a prose entry: the TABLE is the
+ *  copy unit — its re-serialized raw Markdown, identified as the
+ *  containing entry's item id PLUS the table's child position within
+ *  the message (`<session>_<entry id>_<child index>`; tables are the
+ *  entry's children, so the list position is the child id — the
+ *  suffix counts TABLES only, matching the focus ring). Plain and Shift
+ *  are identical at the table level (nothing larger inside it); null
+ *  when the entry carries no identity. */
 export function tableCopyRequest(
   entry: LogEntry,
   table: ParsedTable,
+  tableIndex: number,
   sessionId: string | undefined,
 ): CopyRequest | null {
   const id = copyItemId(entry);
   if (id === undefined) return null;
   return {
     content: tableMarkdown(table),
-    itemId: sessionId === undefined ? id : `${sessionId}_${id}`,
+    itemId: `${sessionId === undefined ? "" : `${sessionId}_`}${id}_${tableIndex}`,
     provided: true,
   };
 }
-
 /** Everything a copy sink needs: the content plus its identity. */
 export interface CopyRequest {
   /** The text for the clipboard / the `out/` file. */
@@ -198,9 +202,10 @@ export interface CopyActions {
   request(entry: LogEntry, upper: boolean): CopyRequest | null;
   /** Build the copy request for the focused table (`table` = its index
    *  within `entry`). The table is the copy unit at the inner ring —
-   *  neither plain nor Shift copies bubble to the parent entry (null =
-   *  uncopyable, e.g. a table that vanished between focus and keypress). */
-  requestTable(entry: LogEntry, table: number, upper: boolean): CopyRequest | null;
+   *  its own Markdown under the parent's id + the child suffix; plain
+   *  only (Shift routes to the parent at the viewport). Null = the
+   *  table vanished or the entry has no copy identity. */
+  requestTable(entry: LogEntry, table: number): CopyRequest | null;
   /** Run the clipboard sink. */
   copy(request: CopyRequest): void;
   /** Run the `out/` file sink. */

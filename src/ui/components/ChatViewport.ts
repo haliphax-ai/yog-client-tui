@@ -282,10 +282,12 @@ export class ChatViewport extends ChatLogComponent {
   /**
    * C / Shift+C / O: copy the focused unit. The focus ring is two-level
    * (the entry ring, then the inner ring of its children — currently
-   * tables), and the copy unit follows the ring: a focused TABLE copies
-   * the TABLE (its own raw Markdown, never bubbling to the parent
-   * entry, Shift or not — a table has no inner children to expand
-   * into); anything else copies per the entry-level semantics.
+   * tables), and plain keys copy exactly what is focused: C/O on a
+   * focused TABLE copies the TABLE — its own raw Markdown under the
+   * parent's item id suffixed with the table's child position — and
+   * never bubbles to the parent entry. Shift copies the whole OUTER
+   * item: Shift+C on a focused table copies the entire parent message
+   * (the only unit larger than a table is the entry that holds it).
    * `upper` = Shift; `output` = O (write out/<session id>_<item id>.md
    * instead of the clipboard). Unhandled when nothing is focused, the
    * entry carries no copy identity, or no sink is wired (tests).
@@ -297,9 +299,13 @@ export class ChatViewport extends ChatLogComponent {
     if (this.focusTarget.entry < 0) return "unhandled";
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return "unhandled";
+    // The copy unit follows the ring — BUT Shift at the inner ring
+    // bubbles to the OUTER item (the whole message / whole tool call):
+    // Shift means "the whole thing", and the only larger unit IS the
+    // parent entry. Plain stays at the table (no bubbling, ever).
     const request =
-      this.focusTarget.table >= 0
-        ? actions.requestTable(entry, this.focusTarget.table, upper)
+      this.focusTarget.table >= 0 && !upper
+        ? actions.requestTable(entry, this.focusTarget.table)
         : actions.request(entry, upper);
     if (request === null) return "unhandled";
     if (output) actions.output(request);
