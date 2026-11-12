@@ -41,7 +41,7 @@ an unchanged row is not rewritten.
   register in order via `drawerRegistry`. The `GeneratingComponent`
   spinner is its current child.
 - `keyRouter` does focus-scoped key routing with a top-level ring between
-  log and input; see [interaction](../interaction/README.md).
+  log and input; see [interaction](../interaction.md).
 
 Components are terminal-free: they return rows and leave composition and
 writing to the pipeline.
