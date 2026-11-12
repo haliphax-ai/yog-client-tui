@@ -42,13 +42,17 @@ const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
  */
 const SHIFT_C_SEQS: ReadonlySet<string> = new Set([
   "\x1b[99;2u", // Kitty/CSI-u (lowercase codepoint c)
-  "\x1b[27;2;67~", // xterm modifyOtherKeys
+  "\x1b[67;2u", // Kitty/CSI-u (uppercase — some senders)
+  "\x1b[1;2C", // xterm modifyOtherKeys (arrow-style final byte)
+  "\x1b[27;2;67~", // xterm modifyOtherKeys (numeric form)
   "\x1bC", // legacy
 ]);
 /** Shift+T encodings — cycle backward through the focused entry's tables. */
 const TABLE_CYCLE_SEQS: ReadonlySet<string> = new Set([
   "\x1b[116;2u", // Kitty/CSI-u (lowercase codepoint t)
-  "\x1b[27;2;84~", // xterm modifyOtherKeys
+  "\x1b[84;2u", // Kitty/CSI-u (uppercase — some senders)
+  "\x1b[1;2T", // xterm modifyOtherKeys (arrow-style final byte)
+  "\x1b[27;2;84~", // xterm modifyOtherKeys (numeric form)
   "\x1bT", // legacy
 ]);
 /**
@@ -57,7 +61,9 @@ const TABLE_CYCLE_SEQS: ReadonlySet<string> = new Set([
  */
 const SHIFT_O_SEQS: ReadonlySet<string> = new Set([
   "\x1b[111;2u", // Kitty/CSI-u (lowercase codepoint o)
-  "\x1b[27;2;79~", // xterm modifyOtherKeys
+  "\x1b[79;2u", // Kitty/CSI-u (uppercase — some senders)
+  "\x1b[1;2O", // xterm modifyOtherKeys (arrow-style final byte)
+  "\x1b[27;2;79~", // xterm modifyOtherKeys (numeric form)
   "\x1bO", // legacy
 ]);
 /**
