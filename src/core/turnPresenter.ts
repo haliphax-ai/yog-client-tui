@@ -459,8 +459,9 @@ function proseRunOf(
     parts.push(next.text);
     n += 1;
   }
-  if (n === 1) return { length: 1, whole: null };
-  return { length: n, whole: parts.join("\\n\\n") };
+  // A single-row run is still a whole message (the live path stamps
+  // every close-of-block, even a one-chunk one).
+  return { length: n, whole: parts.join("\n\n") };
 }
 
 /** Stamp the tool-call id as the copy item id on a result entry group
