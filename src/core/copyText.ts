@@ -14,7 +14,6 @@
  * back to the universal whole-call JSON blob.
  */
 import { parseToolArgs } from "../yogClient.ts";
-import { getState } from "./store.ts";
 import type { LogEntry } from "./entries.ts";
 import type { ParsedTable } from "./tableShape.ts";
 
@@ -135,25 +134,11 @@ export function entryCopyText(entry: LogEntry): string {
  * else declines (null — nothing to whole-copy).
  */
 export function wholeMessageCopyText(entry: LogEntry): string | null {
-  if (entry.kind === "user") return entryCopyText(entry);
-  if (entry.kind !== "assistant" && entry.kind !== "toolResult") return null;
-  // The stamp lives on prose chunks; a RESULT chunk (where a streamed
-  // tool's Markdown — and its tables — lands) carries the tool-call
-  // id instead. Walk BACKWARD to the logical message's last prose
-  // chunk, which holds the accumulated whole-message stamp.
-  const entries = getState().entries;
   if (entry.kind === "assistant") {
     const whole = entry.copyIds?.wholeMessage;
     return typeof whole === "string" && whole !== "" ? whole : null;
   }
-  const at = entries.indexOf(entry);
-  if (at === -1) return null;
-  for (let i = at - 1; i >= 0; i--) {
-    const prose = entries[i] as LogEntry | undefined;
-    if (prose === undefined || prose.kind !== "assistant") continue;
-    const whole = prose.copyIds?.wholeMessage;
-    return typeof whole === "string" && whole !== "" ? whole : null;
-  }
+  if (entry.kind === "user") return entryCopyText(entry);
   return null;
 }
 /**
