@@ -98,7 +98,7 @@ import {
   SLASH_COMMANDS,
   completeSlash,
 } from "./core/commands.ts";
-import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
+import { getTopLevel, routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
 import { splitTableSections } from "./ui/render/table/index.ts";
 import { createInputDecoder } from "./ui/components/inputDecode.ts";
 import {
@@ -911,9 +911,26 @@ async function run(argv: readonly string[]): Promise<void> {
     if (section === undefined || section.kind !== "table") return null;
     return tableCopyRequest(entry, section.table, table, client.sessionId);
   };
+  /** Decline tracer: a copy/output key that produced no request shows WHY
+   *  in the debug chunk (kind/copyIds/ring state) — the missing-toast
+   *  diagnosis path (#109). */
+  const traceDecline = (entry: LogEntry, upper: boolean, unit: string): void => {
+    if (!keyLoggerOn) return;
+    emitDebug([
+      `copy declined · unit=${unit} kind=${entry.kind} upper=${upper} item=${entry.copyIds?.itemId ?? "none"}`,
+    ]);
+  };
   viewport.copyActions = {
-    request: requestCopy,
-    requestTable: (entry, table) => requestTableCopy(entry, table),
+    request: (entry, upper) => {
+      const req = requestCopy(entry, upper);
+      if (req === null) traceDecline(entry, upper, "entry");
+      return req;
+    },
+    requestTable: (entry, table) => {
+      const req = requestTableCopy(entry, table);
+      if (req === null) traceDecline(entry, false, `table${table}`);
+      return req;
+    },
     copy: (request) => copyToClipboard(request),
     output: (request) => outputToFile(request),
   };
@@ -984,12 +1001,18 @@ async function run(argv: readonly string[]): Promise<void> {
   /** Raw-input decoder (sequences, chars, bracketed paste framing). */
   const decodeInput = createInputDecoder({
     onSequence: (seq) => {
-      if (keyLoggerOn) emitDebug([`key ${Buffer.from(seq, "utf8").toString("hex")}`], seq);
-      routeKey(chain, seq, globals);
+      const code = Buffer.from(seq, "utf8").toString("hex");
+      if (keyLoggerOn) emitDebug([`key ${code}`], seq);
+      const routed = routeKey(chain, seq, globals);
+      if (keyLoggerOn)
+        emitDebug([`key ${code} ${routed ? "handled" : "unhandled"} ring=${getTopLevel()}`]);
     },
     onChar: (ch) => {
-      if (keyLoggerOn) emitDebug([`char ${Buffer.from(ch, "utf8").toString("hex")}`], ch);
-      routeChar(chain, ch, globals);
+      const code = Buffer.from(ch, "utf8").toString("hex");
+      if (keyLoggerOn) emitDebug([`char ${code}`], ch);
+      const routed = routeChar(chain, ch, globals);
+      if (keyLoggerOn)
+        emitDebug([`char ${code} ${routed ? "handled" : "unhandled"} ring=${getTopLevel()}`]);
     },
     onPasteEnd: (content) => {
       if (keyLoggerOn) emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`], content);

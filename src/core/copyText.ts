@@ -13,6 +13,7 @@
  * registry of per-tool providers below. A tool without a provider falls
  * back to the universal whole-call JSON blob.
  */
+import { getState } from "./store.ts";
 import { parseToolArgs } from "../yogClient.ts";
 import type { LogEntry } from "./entries.ts";
 import type { ParsedTable } from "./tableShape.ts";
@@ -134,13 +135,42 @@ export function entryCopyText(entry: LogEntry): string {
  * else declines (null — nothing to whole-copy).
  */
 export function wholeMessageCopyText(entry: LogEntry): string | null {
-  if (entry.kind === "assistant") {
-    const whole = entry.copyIds?.wholeMessage;
-    return typeof whole === "string" && whole !== "" ? whole : null;
-  }
   if (entry.kind === "user") return entryCopyText(entry);
+  if (entry.kind !== "assistant") return null;
+  // The whole-message stamp rides the LAST prose chunk of a logical
+  // message (live) / run (rehydrate). A chunk BEFORE the tail carries no
+  // stamp — resolve it by scanning the run in the store.
+  if (typeof entry.copyIds?.wholeMessage === "string" && entry.copyIds.wholeMessage !== "") {
+    return entry.copyIds.wholeMessage;
+  }
+  return proseWholeFromStore(entry);
+}
+
+/**
+ * Scan the store for the stamped prose chunk of the message `entry`
+ * belongs to: walk back to the run's first assistant chunk (consecutive
+ * assistant rows between tool calls), then forward to the run's stamped
+ * tail. Pure read — no rebuild, no stamping here.
+ */
+function proseWholeFromStore(entry: LogEntry): string | null {
+  const entries = getState().entries;
+  const at = entries.indexOf(entry);
+  if (at < 0) return null;
+  let start = at;
+  while (start > 0) {
+    const prev = entries[start - 1] as LogEntry | undefined;
+    if (prev === undefined || prev.kind !== "assistant") break;
+    start -= 1;
+  }
+  for (let i = start; i < entries.length; i++) {
+    const e = entries[i] as LogEntry | undefined;
+    if (e === undefined || e.kind !== "assistant") break;
+    const whole = e.copyIds?.wholeMessage;
+    if (typeof whole === "string" && whole !== "") return whole;
+  }
   return null;
 }
+
 /**
  * One table's raw Markdown, re-serialized GFM: the header row, the
  * delimiter row (alignment restored), and every data row, cells joined
