@@ -98,7 +98,8 @@ import {
   SLASH_COMMANDS,
   completeSlash,
 } from "./core/commands.ts";
-import { routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
+import { getTopLevel, routeChar, routeKey, type Globals } from "./ui/components/keyRouter.ts";
+import { splitTableSections } from "./ui/render/table/index.ts";
 import { createInputDecoder } from "./ui/components/inputDecode.ts";
 import {
   emitDebug,
@@ -107,7 +108,16 @@ import {
   keyLogPath,
   setKeyDumpSink,
 } from "./ui/debugLog.ts";
-import { appendFileSync } from "node:fs";
+import {
+  type CopyRequest,
+  tableCopyRequest,
+  toolCopyRequest,
+  proseCopyRequest,
+} from "./core/copyText.ts";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { ToastComponent } from "./ui/components/ToastComponent.ts";
+import { runWlCopy } from "./ui/clipboard.ts";
 
 /**
  * Last-resort crash handler: an error escaping an async callback (a scheduler
@@ -215,6 +225,22 @@ async function run(argv: readonly string[]): Promise<void> {
     const state = getState();
     state.entries.push({ kind, lines });
     setState({ entries: state.entries });
+  };
+  /** The next transcript message seq: the server numbers messages
+   *  monotonically per session, so the user prompt the next turn appends
+   *  will carry this seq as its item id (one past the current tail). */
+  const nextMessageSeq = (): string => {
+    const entries = getState().entries;
+    // Rehydrated rows stamp `String(message.seq)`; the live tail is the
+    // highest id seen so far. Non-numeric ids (tool-call ids on rehydrated
+    // tool rows) are skipped, not counted.
+    let maxSeq = 0;
+    for (const entry of entries) {
+      const id = entry.copyIds?.itemId;
+      const n = id === undefined ? Number.NaN : Number(id);
+      if (Number.isFinite(n) && n > maxSeq) maxSeq = n;
+    }
+    return String(maxSeq + 1);
   };
 
   // 2. Capabilities probe + session resolution + transcript rehydration —
@@ -740,6 +766,7 @@ async function run(argv: readonly string[]): Promise<void> {
       append: pushLines,
       width: () => process.stdout.columns ?? 80,
       requestRender: scheduler.request,
+      nextMessageSeq,
       prevTokenTotal: () => turnStartTotal,
       onRoundDelta: (delta) => addLiveCompletionTokens(delta),
     });
@@ -814,6 +841,40 @@ async function run(argv: readonly string[]): Promise<void> {
     });
   };
 
+  // ---- copy / output sinks ----------------------------------------
+  /** Toast: a one-row drawer child (registered like the spinner) that shows
+   *  the copy/save confirmation for 3 seconds, then collapses to nothing. */
+  const toast = new ToastComponent();
+  registerDrawerChild(toast);
+  /** Clipboard sink: write the content with wl-copy. A missing
+   *  wl-copy (or a spawn failure) surfaces as an error notice; a successful
+   *  copy shows the 📋 toast. */
+  const copyToClipboard = (request: CopyRequest): void => {
+    const outcome = runWlCopy(request.content);
+    if (outcome.ok) {
+      toast.show(`📋 entry \`${request.itemId}\` copied to the system clipboard`);
+      return;
+    }
+    pushLines("error", noticeLine("error", "copy failed", outcome.error));
+  };
+
+  /** File sink: write `out/<session id>_<item id>.md` relative to
+   *  the cwd (the file lives under the directory yog-client-tui runs in,
+   *  not under ~/.config), then show the 💾 toast. */
+  const outputToFile = (request: CopyRequest): void => {
+    const filename = `${request.itemId}.md`;
+    try {
+      mkdirSync("out", { recursive: true });
+      writeFileSync(join("out", filename), request.content, "utf8");
+    } catch (err) {
+      pushLines(
+        "error",
+        noticeLine("error", "output failed", err instanceof Error ? err.message : String(err)),
+      );
+      return;
+    }
+    toast.show(`💾 entry \`${request.itemId}\` saved to \`out/${filename}\``);
+  };
   // ---- components --------------------------------------------------------
   const viewport = new ChatViewport();
   const input = new InputComponent();
@@ -824,6 +885,55 @@ async function run(argv: readonly string[]): Promise<void> {
   input.ring = "input";
   const chain: readonly Component[] = [viewport, input, drawer, status];
 
+  /** The copy/output dispatch the viewport asks for: build the
+   *  request from the focused entry, then run the sink. The sinks live
+   *  here because fs/process access is composition-root-only. */
+  const requestCopy = (entry: LogEntry, upper: boolean): CopyRequest | null => {
+    const sessionId = client.sessionId;
+    if (entry.kind === "tool" || entry.kind === "toolResult" || entry.kind === "chunk") {
+      return toolCopyRequest(entry, sessionId, upper);
+    }
+    if (entry.kind === "user" || entry.kind === "assistant") {
+      return proseCopyRequest(entry, sessionId, upper);
+    }
+    return null;
+  };
+  /** Table copy: the TABLE is the copy unit at the inner ring — its raw
+   *  Markdown re-serialized from the parsed columns/rows, identified by
+   *  the parent's item id plus the table's child position (the
+   *  table index is the child id — it matches what the focus ring
+   *  walks). Shift never reaches this path (the viewport routes it to
+   *  the parent entry). */
+  const requestTableCopy = (entry: LogEntry, table: number): CopyRequest | null => {
+    if (entry.kind !== "user" && entry.kind !== "assistant") return null;
+    const sections = splitTableSections(entry.lines.join("\n")).filter((s) => s.kind === "table");
+    const section = sections[table];
+    if (section === undefined || section.kind !== "table") return null;
+    return tableCopyRequest(entry, section.table, table, client.sessionId);
+  };
+  /** Decline tracer: a copy/output key that produced no request shows WHY
+   *  in the debug chunk (kind/copyIds/ring state) — the missing-toast
+   *  diagnosis path (#109). */
+  const traceDecline = (entry: LogEntry, upper: boolean, unit: string): void => {
+    if (!keyLoggerOn) return;
+    emitDebug([
+      `copy declined · unit=${unit} kind=${entry.kind} upper=${upper} item=${entry.copyIds?.itemId ?? "none"}`,
+    ]);
+  };
+  viewport.copyActions = {
+    request: (entry, upper) => {
+      const req = requestCopy(entry, upper);
+      if (req === null) traceDecline(entry, upper, "entry");
+      return req;
+    },
+    requestTable: (entry, table) => {
+      const req = requestTableCopy(entry, table);
+      if (req === null) traceDecline(entry, false, `table${table}`);
+      return req;
+    },
+    copy: (request) => copyToClipboard(request),
+    output: (request) => outputToFile(request),
+  };
   /** Rows the composition consumes from the viewport for the log gap: the
    *  drawer's top padding is that gap when the drawer is visible (one row),
    *  and the composition's own blank row is the gap when it is collapsed
@@ -891,12 +1001,18 @@ async function run(argv: readonly string[]): Promise<void> {
   /** Raw-input decoder (sequences, chars, bracketed paste framing). */
   const decodeInput = createInputDecoder({
     onSequence: (seq) => {
-      if (keyLoggerOn) emitDebug([`key ${Buffer.from(seq, "utf8").toString("hex")}`], seq);
-      routeKey(chain, seq, globals);
+      const code = Buffer.from(seq, "utf8").toString("hex");
+      if (keyLoggerOn) emitDebug([`key ${code}`], seq);
+      const routed = routeKey(chain, seq, globals);
+      if (keyLoggerOn)
+        emitDebug([`key ${code} ${routed ? "handled" : "unhandled"} ring=${getTopLevel()}`]);
     },
     onChar: (ch) => {
-      if (keyLoggerOn) emitDebug([`char ${Buffer.from(ch, "utf8").toString("hex")}`], ch);
-      routeChar(chain, ch, globals);
+      const code = Buffer.from(ch, "utf8").toString("hex");
+      if (keyLoggerOn) emitDebug([`char ${code}`], ch);
+      const routed = routeChar(chain, ch, globals);
+      if (keyLoggerOn)
+        emitDebug([`char ${code} ${routed ? "handled" : "unhandled"} ring=${getTopLevel()}`]);
     },
     onPasteEnd: (content) => {
       if (keyLoggerOn) emitDebug([`paste ${Buffer.byteLength(content, "utf8")} bytes`], content);

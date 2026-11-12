@@ -57,6 +57,23 @@ export interface LogEntry {
   /** Raw tool result of a chunk entry. The renderer expands it to display
    *  rows at the current width — the domain never formats it. */
   result?: unknown;
+  /** Raw tool-call arguments (the verbatim wire JSON, unparsed). Copy
+   *  semantics (core/copyText) parse it on demand; the display path
+   *  keeps the pre-rendered `full`/`argsCompact` snapshots. Set by the
+   *  shared tool-call builders. */
+  argsRaw?: string;
+  /** Raw Markdown copy snapshot: the verbatim delta at entry creation
+   *  Streaming appends mutate `lines` in place (wrapping/glamour
+   *  reads them), so the copyable text is captured at build time — the
+   *  plain text of the user prompt, or the assistant markdown source. */
+  copyText?: string;
+  /** Copy identity: the transcript item id (for the toast and
+   *  the `out/` filename), the owning session id, and the whole-message
+   *  text stamped on the last assistant prose chunk of a logical
+   *  message (Shift+C copies the entire message). Entries the builders
+   *  build before the session id is known carry the item id only — the
+   *  copy sink resolves the session id then. */
+  copyIds?: CopyIds;
   /** Token-count note for this call's results (`172t`, `+1.2Kt`): chunk and
    *  toolResult entries carry it on their header/collapsed line, and the
    *  renderer repeats it below expanded content on its own row. Never set on
@@ -78,6 +95,19 @@ export interface LogEntry {
   placeholderRole?: "user" | "assistant" | "tool" | "result" | "system" | "other";
 }
 
+/** The copy identity carried on an entry (see `LogEntry.copyIds`).
+ *  Builders stamp the item id at entry creation; the copy sink resolves
+ *  the session id (and the whole-message text lands on the last prose
+ *  chunk of a logical message at finish time). */
+export interface CopyIds {
+  /** This transcript item's id (`message.seq` / tool-call id). */
+  itemId: string;
+  /** The owning session id; resolved by the copy sink when absent. */
+  sessionId?: string;
+  /** Whole-message copy text, stamped on the LAST assistant prose
+   *  chunk of a logical message (Shift+C copies the entire message). */
+  wholeMessage?: string;
+}
 /**
  * The mutable per-table state of `index`, created on first use.
  *
