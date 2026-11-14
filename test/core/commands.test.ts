@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import {
   LOCAL_COMMANDS,
@@ -50,6 +50,7 @@ describe("isSlash", () => {
 });
 
 describe("completeSlash", () => {
+  beforeEach(() => setServerCommands([]));
   it("returns [] when autocomplete is not triggered", () => {
     expect(completeSlash("quit")).toEqual([]);
     expect(completeSlash("say /quit")).toEqual([]);
@@ -73,13 +74,22 @@ describe("completeSlash", () => {
   });
 
   it("matches server-advertised names after the merge", () => {
+    // `example-reload` is a synthetic stand-in: descriptor mechanics must
+    // work for any advertised command, not just the ones the client knows.
     setServerCommands([
       { name: "compact", summary: "compact the session", message: "compaction.run" },
-      { name: "skill-load", summary: "load a skill", args: "<name>", message: "skill.load" },
+      {
+        name: "example-reload",
+        summary: "reload the thing",
+        args: "<name>",
+        message: "example.reload",
+      },
     ]);
     expect(completeSlash("/c")).toEqual(["/compact"]);
-    expect(completeSlash("/skill-l")).toEqual(["/skill-load"]);
+    expect(completeSlash("/example-r")).toEqual(["/example-reload"]);
   });
+
+  setServerCommands([]); // reset the registry from the merge test above
 
   it("has no candidates for an unknown prefix", () => {
     expect(completeSlash("/x")).toEqual([]);
@@ -212,17 +222,17 @@ describe("invocation envelope construction", () => {
   it("merges static data with the argField remainder", () => {
     setServerCommands([
       {
-        name: "skill-load",
-        summary: "load a skill",
+        name: "example-reload",
+        summary: "reload the thing",
         args: "<name>",
-        message: "skill.load",
+        message: "example.reload",
         argField: "name",
       },
     ]);
-    const resolved = resolveSlash("/skill-load");
+    const resolved = resolveSlash("/example-reload");
     expect(resolved).toBeDefined();
     expect(invocation(resolved as never, "hemingway")).toEqual({
-      type: "skill.load",
+      type: "example.reload",
       data: { name: "hemingway" },
     });
   });

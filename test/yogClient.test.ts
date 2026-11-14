@@ -1410,16 +1410,19 @@ describe("YogClient.sendCommand", () => {
   });
 
   it("sends arbitrary advertised message types with no bespoke code", async () => {
+    // `example.reload` is deliberately NOT a known message type: the
+    // descriptor path must carry whatever the server advertises, including
+    // types this client has never heard of.
     const client = clientWithSession();
     const fetchMock = vi.fn(async () =>
-      msgResponse("skill.load", { ok: true, name: "hemingway", status: "loaded" }),
+      msgResponse("example.reload", { ok: true, name: "hemingway", status: "loaded" }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const reply = await client.sendCommand("skill.load", { name: "hemingway" });
+    const reply = await client.sendCommand("example.reload", { name: "hemingway" });
     expect(reply).toMatchObject({ ok: true, status: "loaded" });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
-      type: "skill.load",
+      type: "example.reload",
       data: { name: "hemingway" },
     });
   });
@@ -1457,7 +1460,7 @@ describe("YogClient probe — commands advertisement", () => {
               models: ["m"],
               tools: ["bash"],
               features: ["messages", "stream"],
-              messageTypes: ["turn.start", "compaction.run", "skills.load"],
+              messageTypes: ["turn.start", "compaction.run", "example.reload"],
               commands: [
                 {
                   name: "compact",
@@ -1465,10 +1468,10 @@ describe("YogClient probe — commands advertisement", () => {
                   message: "compaction.run",
                 },
                 {
-                  name: "skills-load",
-                  summary: "load a skill",
+                  name: "example-reload",
+                  summary: "reload the thing",
                   args: "<name>",
-                  message: "skills.load",
+                  message: "example.reload",
                   argField: "name",
                 },
               ],
@@ -1481,9 +1484,9 @@ describe("YogClient probe — commands advertisement", () => {
     const caps = await client.probe("m");
     expect(caps.commands).toHaveLength(2);
     expect(client.capabilities?.commands?.[1]).toMatchObject({
-      name: "skills-load",
+      name: "example-reload",
       args: "<name>",
-      message: "skills.load",
+      message: "example.reload",
       argField: "name",
     });
   });
