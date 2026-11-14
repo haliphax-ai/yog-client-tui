@@ -40,10 +40,6 @@ export const MESSAGE_TYPES = [
   "turn.start",
   "compaction.run",
   "transcript.shake",
-  "skills.list",
-  "skills.load",
-  "skills.unload",
-  "skills.status",
 ] as const;
 
 /** One message `type` the client can send. */

@@ -70,13 +70,14 @@ The registry has two sources, merged by name at startup:
   messages-channel `type` an invocation dispatches. A descriptor whose
   `message` is not in the server `messageTypes` is dropped with a startup
   note. A fully wired daemon advertises `/compact [guidance]`,
-  `/handoff [guidance]`, `/shake`, and the `/skills-*` family.
+  `/handoff [guidance]`, and `/shake`.
 
 Commands run even while a turn is in flight (so `/quit` always works),
 except the ones the server marks `requiresIdle` (`/compact`, `/handoff`,
 `/shake`) and `/new`, which wait for an idle turn. A command whose argument
 syntax starts with `<` refuses to run without one (the no-args fuzzy
-shortcut skips it too), so `/skills-load` alone asks for a name instead of
+syntax starts with `<` refuses to run without one (the no-args fuzzy
+shortcut skips it too), so it asks for its argument instead of
 dispatching garbage.
 
 ### Local commands
@@ -88,15 +89,10 @@ dispatching garbage.
 
 ### Server-advertised commands (fully wired daemon)
 
-| Command                 | Dispatches         | Action                                                           |
-| ----------------------- | ------------------ | ---------------------------------------------------------------- |
-| `/compact [guidance]`   | `compaction.run`   | Compact the session into a fresh summary transcript.             |
-| `/handoff [guidance]`   | `compaction.run`   | Prepare a handoff document and start a fresh transcript.         |
-| `/shake`                | `transcript.shake` | Truncate oversized tool args/results in the transcript in place. |
-| `/skills-list`          | `skills.list`      | List discovered skills with source and load status.              |
-| `/skills-load <name>`   | `skills.load`      | Activate a skill (add to PATH, load instructions).               |
-| `/skills-unload <name>` | `skills.unload`    | Deactivate a skill (and its children).                           |
-| `/skills-status`        | `skills.status`    | Show currently loaded skills.                                    |
+| Command               | Dispatches       | Action                                                   |
+| --------------------- | ---------------- | -------------------------------------------------------- |
+| `/compact [guidance]` | `compaction.run` | Compact the session into a fresh summary transcript.     |
+| `/handoff [guidance]` | `compaction.run` | Prepare a handoff document and start a fresh transcript. |
 
 Fuzzy shortcut: `Enter` on a slash line that is not an exact command name
 but has a fuzzy match runs the best match with no arguments, so `/q` quits.

@@ -75,10 +75,10 @@ describe("completeSlash", () => {
   it("matches server-advertised names after the merge", () => {
     setServerCommands([
       { name: "compact", summary: "compact the session", message: "compaction.run" },
-      { name: "skills-load", summary: "load a skill", args: "<name>", message: "skills.load" },
+      { name: "skill-load", summary: "load a skill", args: "<name>", message: "skill.load" },
     ]);
     expect(completeSlash("/c")).toEqual(["/compact"]);
-    expect(completeSlash("/skills-l")).toEqual(["/skills-load"]);
+    expect(completeSlash("/skill-l")).toEqual(["/skill-load"]);
   });
 
   it("has no candidates for an unknown prefix", () => {
@@ -212,17 +212,17 @@ describe("invocation envelope construction", () => {
   it("merges static data with the argField remainder", () => {
     setServerCommands([
       {
-        name: "skills-load",
+        name: "skill-load",
         summary: "load a skill",
         args: "<name>",
-        message: "skills.load",
+        message: "skill.load",
         argField: "name",
       },
     ]);
-    const resolved = resolveSlash("/skills-load");
+    const resolved = resolveSlash("/skill-load");
     expect(resolved).toBeDefined();
     expect(invocation(resolved as never, "hemingway")).toEqual({
-      type: "skills.load",
+      type: "skill.load",
       data: { name: "hemingway" },
     });
   });

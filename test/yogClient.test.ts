@@ -1409,17 +1409,17 @@ describe("YogClient.sendCommand", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ type: "transcript.shake" });
   });
 
-  it("sends the skills.* family with no bespoke transport code", async () => {
+  it("sends arbitrary advertised message types with no bespoke code", async () => {
     const client = clientWithSession();
     const fetchMock = vi.fn(async () =>
-      msgResponse("skills.load", { ok: true, name: "hemingway", status: "loaded" }),
+      msgResponse("skill.load", { ok: true, name: "hemingway", status: "loaded" }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const reply = await client.sendCommand("skills.load", { name: "hemingway" });
+    const reply = await client.sendCommand("skill.load", { name: "hemingway" });
     expect(reply).toMatchObject({ ok: true, status: "loaded" });
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
-      type: "skills.load",
+      type: "skill.load",
       data: { name: "hemingway" },
     });
   });
