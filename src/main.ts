@@ -92,7 +92,9 @@ import {
 } from "./ui/pipeline/index.ts";
 import {
   isSlash,
+  requiresArgs,
   resolveSlash,
+  setServerCommands,
   slashToken,
   slashTokenEnd,
   SLASH_COMMANDS,
@@ -265,6 +267,29 @@ async function run(argv: readonly string[]): Promise<void> {
     seedEntries.push(entry);
     startupNotes.push(entry);
   };
+
+  // Merge the advertised commands into the slash registry (local `new` and
+  // `quit` win on name collisions). A descriptor whose `message` is not in
+  // `messageTypes` would wedge on dispatch, so drop it with a startup note.
+  const messageTypes = new Set(caps.messageTypes ?? []);
+  const advertised = (caps.commands ?? []).filter(
+    (descriptor) => messageTypes.size === 0 || messageTypes.has(descriptor.message),
+  );
+  const rejected = setServerCommands(advertised);
+  for (const descriptor of rejected) {
+    startupNote(
+      "registry",
+      `server command /${descriptor.name} collides with a local command; local wins`,
+    );
+  }
+  for (const descriptor of caps.commands ?? []) {
+    if (messageTypes.size > 0 && !messageTypes.has(descriptor.message)) {
+      startupNote(
+        "registry",
+        `dropping /${descriptor.name}: message \`${descriptor.message}\` is not advertised`,
+      );
+    }
+  }
 
   /* Startup banner entries, kept separate so a poll's rehydration can
    * keep them ahead of the transcript without duplicating them. */
@@ -608,11 +633,21 @@ async function run(argv: readonly string[]): Promise<void> {
           command = resolveSlash(matches[0] as string);
         }
       }
-      if (command !== undefined && command.name === "quit") {
+      if (command === undefined) {
+        const token = slashToken(prompt) ?? "";
+        const available = SLASH_COMMANDS.map((c) => "/" + c.name).join(", ");
+        pushLines(
+          "error",
+          noticeLine("error", "unknown command", `/${token} — available: ${available}`),
+        );
+        input.reset();
+        return;
+      }
+      if (command.name === "quit") {
         void quit(0);
         return;
       }
-      if (command !== undefined && command.name === "new") {
+      if (command.name === "new") {
         // Starting a fresh session while a turn is in flight would orphan
         // that turn's events, so require the current turn to finish first.
         if (getState().busy) {
@@ -652,106 +687,110 @@ async function run(argv: readonly string[]): Promise<void> {
         })();
         return;
       }
-      if (
-        command !== undefined &&
-        (command.name === "compact" || command.name === "handoff" || command.name === "shake")
-      ) {
-        if (getState().busy) {
-          pushLines(
-            "notice",
-            noticeLine("notice", "warning", `wait for the current turn, then /${command.name}`),
-          );
-          input.reset();
-          return;
-        }
-        const kind = command.name;
-        if (!(client.capabilities?.features ?? []).includes(kind)) {
-          pushLines(
-            "error",
-            noticeLine("error", "unsupported command", `/${kind} is not enabled on this server`),
-          );
-          input.reset();
-          return;
-        }
-        const guidance = prompt.slice(slashTokenEnd(prompt)).trim();
-        input.reset(); // clear immediately on submit, before the command starts
-        void (async () => {
-          startSpinner();
-          try {
-            if (kind === "shake") {
-              const outcome = await client.shake();
-              const weight = outcome.contextSize;
-              setState({
-                tokenTotals: { prompt: 0, completion: 0, total: weight },
-              });
-              pushLines(
-                "notice",
-                noticeLine(
-                  "notice",
-                  "shake",
-                  `${outcome.argsTruncated} arg(s), ` +
-                    `${outcome.resultsTruncated} result(s) truncated; ` +
-                    `totals reset to ~${formatTokenTotal(weight)}`,
-                ),
-              );
-            } else {
-              const result =
-                kind === "compact"
-                  ? await client.compact(guidance || undefined)
-                  : await client.handoff(guidance || undefined);
-              // compact and handoff both start a fresh server session — adopt it
-              // so a restart resumes the new session, not the archived one.
-              if (typeof result.sessionId === "string") {
-                client.sessionId = result.sessionId;
-                await saveState(stateFilePath(), { lastSessionId: result.sessionId });
-              }
-              const dump = await client.getTranscript();
-              const cols = process.stdout.columns ?? 80;
-              const entries = transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
-                turns: perTurnDeltas(dump.turns),
-              });
-              setState({
-                entries,
-                tokenTotals: {
-                  prompt: 0,
-                  completion: 0,
-                  total: estimatedContextTotal(dump.messages),
-                },
-              });
-              const truncatedNote = result.truncated ? " (input was middle-truncated)" : "";
-              pushLines(
-                "notice",
-                noticeLine(
-                  "notice",
-                  kind,
-                  `fresh transcript started (model ${result.model}, ` +
-                    `summary ${result.summary.length} chars${truncatedNote})`,
-                ),
-              );
-            }
-          } catch (err) {
-            pushLines(
-              "error",
-              noticeLine(
-                "error",
-                `${kind} failed`,
-                err instanceof Error ? err.message : String(err),
-              ),
-            );
-          } finally {
-            stopSpinner();
-          }
-        })();
+      // ---- server-advertised commands (descriptors from capabilities) ----
+      // Local commands carry no `message`; anything else dispatches on the
+      // descriptor's message type. Requires-idle gates like /new; required
+      // args (the "<name>" convention) refuse to fire without one.
+      if (command.message === undefined) {
+        input.reset();
         return;
       }
-
-      const token = slashToken(prompt) ?? "";
-      const available = SLASH_COMMANDS.map((c) => "/" + c.name).join(", ");
-      pushLines(
-        "error",
-        noticeLine("error", "unknown command", `/${token} — available: ${available}`),
-      );
-      input.reset();
+      if (command.requiresIdle === true && getState().busy) {
+        pushLines(
+          "notice",
+          noticeLine("notice", "warning", `wait for the current turn, then /${command.name}`),
+        );
+        input.reset();
+        return;
+      }
+      const rest = prompt.slice(slashTokenEnd(prompt)).trim();
+      if (requiresArgs(command) && rest === "") {
+        pushLines(
+          "error",
+          noticeLine(
+            "error",
+            "missing argument",
+            `/${command.name} ${command.args ?? ""} — nothing given`,
+          ),
+        );
+        input.reset();
+        return;
+      }
+      const kind = command.name;
+      const data: Record<string, unknown> = {
+        ...command.data,
+        ...(command.argField !== undefined ? { [command.argField]: rest } : {}),
+      };
+      input.reset(); // clear immediately on submit, before the command starts
+      void (async () => {
+        startSpinner();
+        try {
+          const reply = await client.sendCommand(command.message as string, data);
+          // Bespoke post-handling keyed on the contract-stable message type;
+          // anything else falls back to generic reply rendering.
+          if (command.message === "transcript.shake") {
+            const weight = typeof reply["contextSize"] === "number" ? reply["contextSize"] : 0;
+            setState({
+              tokenTotals: { prompt: 0, completion: 0, total: weight },
+            });
+            pushLines(
+              "notice",
+              noticeLine(
+                "notice",
+                kind,
+                `${reply["argsTruncated"] ?? 0} arg(s), ` +
+                  `${reply["resultsTruncated"] ?? 0} result(s) truncated; ` +
+                  `totals reset to ~${formatTokenTotal(weight)}`,
+              ),
+            );
+          } else if (command.message === "compaction.run") {
+            // compact and handoff both start a fresh server session — adopt
+            // it so a restart resumes the new session, not the archived one.
+            const newSessionId = reply["sessionId"];
+            if (typeof newSessionId === "string") {
+              client.sessionId = newSessionId;
+              await saveState(stateFilePath(), { lastSessionId: newSessionId });
+            }
+            const dump = await client.getTranscript();
+            const cols = process.stdout.columns ?? 80;
+            const entries = transcriptLogEntries(toTranscriptEntries(dump.messages), cols, {
+              turns: perTurnDeltas(dump.turns),
+            });
+            setState({
+              entries,
+              tokenTotals: {
+                prompt: 0,
+                completion: 0,
+                total: estimatedContextTotal(dump.messages),
+              },
+            });
+            const truncatedNote =
+              reply["truncated"] === true ? " (input was middle-truncated)" : "";
+            const summary = typeof reply["summary"] === "string" ? reply["summary"] : "";
+            const model = typeof reply["model"] === "string" ? reply["model"] : "?";
+            pushLines(
+              "notice",
+              noticeLine(
+                "notice",
+                kind,
+                `fresh transcript started (model ${model}, ` +
+                  `summary ${summary.length} chars${truncatedNote})`,
+              ),
+            );
+          } else {
+            // Generic fallback: every advertised command is usable with no
+            // bespoke code — print the reply as a notice line.
+            pushLines("notice", noticeLine("notice", kind, JSON.stringify(reply)));
+          }
+        } catch (err) {
+          pushLines(
+            "error",
+            noticeLine("error", `${kind} failed`, err instanceof Error ? err.message : String(err)),
+          );
+        } finally {
+          stopSpinner();
+        }
+      })();
       return;
     }
 
