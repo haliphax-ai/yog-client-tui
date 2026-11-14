@@ -46,15 +46,29 @@ import {
   SLASH_COMMANDS,
   completeSlash,
   resolveSlash,
+  registryVersion,
   slashTokenEnd,
   type SlashCommand,
 } from "../../core/commands.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 
-/** Slash-command lookup by "/name" — stable, built once (render hot path). */
-const SLASH_BY_NAME = new Map<string, SlashCommand>(
-  SLASH_COMMANDS.map((command) => ["/" + command.name, command]),
-);
+/**
+ * Slash-command lookup by "/name", version-stamped on the command
+ * registry: server descriptors land after module init (capabilities probe),
+ * so a once-built map would go stale. Rebuilt only when the registry
+ * version changes — the render hot path reads it per frame.
+ */
+let slashByNameCache: { version: number; value: Map<string, SlashCommand> } | null = null;
+
+function slashByName(): Map<string, SlashCommand> {
+  if (slashByNameCache === null || slashByNameCache.version !== registryVersion) {
+    slashByNameCache = {
+      version: registryVersion,
+      value: new Map(SLASH_COMMANDS.map((command) => ["/" + command.name, command])),
+    };
+  }
+  return slashByNameCache.value;
+}
 
 /** Rows the input's visible viewport grows to before it scrolls internally. */
 export const MAX_LINES = 10;
@@ -454,7 +468,7 @@ export class InputComponent extends BaseComponent {
     if (candidates.length === 0) return "";
     const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
     const shown = candidates.slice(0, MAX_MENU_ROWS);
-    const byName = SLASH_BY_NAME;
+    const byName = slashByName();
     const labels = shown.map((candidate) =>
       candidate.startsWith("/") ? candidate.slice(1) : candidate,
     );

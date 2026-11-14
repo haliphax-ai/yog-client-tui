@@ -56,22 +56,55 @@ the provider reported usage before the cut.
 Type `/` as the very first character of the input line to open the
 autocomplete menu; a slash anywhere else is ordinary text. `Tab` cycles
 through and applies the highlighted match; `Enter` runs the completed
-command. Commands run even while a turn is in flight (so `/quit` always
-works), except `/new`, `/compact`, `/handoff`, and `/shake`, which wait for
-an idle turn.
+command.
 
-| Command               | Action                                                           |
-| --------------------- | ---------------------------------------------------------------- |
-| `/new`                | Start a fresh session with an empty chat log.                    |
-| `/compact [guidance]` | Compact the session into a fresh summary transcript.             |
-| `/handoff [guidance]` | Prepare a handoff document and start a fresh transcript.         |
-| `/shake`              | Truncate oversized tool args/results in the transcript in place. |
-| `/quit`               | Exit, leaving the session on the server.                         |
+The registry has two sources, merged by name at startup:
+
+- **Local commands** — client-owned lifecycle (`/new`, `/quit`). They win
+  on any name collision with a server advertisement (a server has no
+  business naming client lifecycle commands; collisions are dropped with a
+  startup note on stderr).
+- **Server-advertised commands** — descriptors from the capabilities reply
+  (see the daemon contract doc): the slash name, a one-line summary, an
+  optional argument syntax (`<required>` vs `[optional]`), and the
+  messages-channel `type` an invocation dispatches. A descriptor whose
+  `message` is not in the server `messageTypes` is dropped with a startup
+  note. A fully wired daemon advertises `/compact [guidance]`,
+  `/handoff [guidance]`, `/shake`, and the `/skills-*` family.
+
+Commands run even while a turn is in flight (so `/quit` always works),
+except the ones the server marks `requiresIdle` (`/compact`, `/handoff`,
+`/shake`) and `/new`, which wait for an idle turn. A command whose argument
+syntax starts with `<` refuses to run without one (the no-args fuzzy
+shortcut skips it too), so `/skills-load` alone asks for a name instead of
+dispatching garbage.
+
+### Local commands
+
+| Command | Action                                        |
+| ------- | --------------------------------------------- |
+| `/new`  | Start a fresh session with an empty chat log. |
+| `/quit` | Exit, leaving the session on the server.      |
+
+### Server-advertised commands (fully wired daemon)
+
+| Command                 | Dispatches         | Action                                                           |
+| ----------------------- | ------------------ | ---------------------------------------------------------------- |
+| `/compact [guidance]`   | `compaction.run`   | Compact the session into a fresh summary transcript.             |
+| `/handoff [guidance]`   | `compaction.run`   | Prepare a handoff document and start a fresh transcript.         |
+| `/shake`                | `transcript.shake` | Truncate oversized tool args/results in the transcript in place. |
+| `/skills-list`          | `skills.list`      | List discovered skills with source and load status.              |
+| `/skills-load <name>`   | `skills.load`      | Activate a skill (add to PATH, load instructions).               |
+| `/skills-unload <name>` | `skills.unload`    | Deactivate a skill (and its children).                           |
+| `/skills-status`        | `skills.status`    | Show currently loaded skills.                                    |
 
 Fuzzy shortcut: `Enter` on a slash line that is not an exact command name
 but has a fuzzy match runs the best match with no arguments, so `/q` quits.
 When the line contains arguments the shortcut is disabled, so argument text
-is never silently dropped; use `Tab` completion instead.
+is never silently dropped; use `Tab` completion instead. Every advertised
+command is usable even without bespoke client handling — the reply prints
+as a notice; `compaction.run` and `transcript.shake` get richer treatment
+(session adoption + rehydration, token-total reset).
 
 ## Debug mode
 

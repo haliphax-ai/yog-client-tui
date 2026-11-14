@@ -6,7 +6,39 @@ import {
   MAX_INPUT_CHARS,
   MAX_LINES,
 } from "../../../src/ui/components/InputComponent.ts";
+import { setServerCommands, type CommandDescriptor } from "../../../src/core/commands.ts";
 import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
+
+/** Apply the classic compaction+shake descriptor set to the registry. */
+function seedServerCommands(): void {
+  const descriptors: CommandDescriptor[] = [
+    {
+      name: "compact",
+      summary: "compact the session into a fresh summary transcript",
+      args: "[guidance]",
+      message: "compaction.run",
+      data: { kind: "compact" },
+      argField: "guidance",
+      requiresIdle: true,
+    },
+    {
+      name: "handoff",
+      summary: "prepare a handoff document and start a fresh transcript",
+      args: "[guidance]",
+      message: "compaction.run",
+      data: { kind: "handoff" },
+      argField: "guidance",
+      requiresIdle: true,
+    },
+    {
+      name: "shake",
+      summary: "truncate oversized tool args/results in the transcript",
+      message: "transcript.shake",
+      requiresIdle: true,
+    },
+  ];
+  setServerCommands(descriptors);
+}
 import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
 
 /** Type a string into a component, one code point at a time. */
@@ -173,7 +205,10 @@ describe("InputComponent — bubbletea TextArea input bar", () => {
 });
 
 describe("InputComponent slash autocomplete", () => {
-  beforeEach(() => resetForTests());
+  beforeEach(() => {
+    resetForTests();
+    seedServerCommands();
+  });
 
   it("shows a menu row with the matching command when input starts with '/", () => {
     const component = new InputComponent();
@@ -210,6 +245,23 @@ describe("InputComponent slash autocomplete", () => {
     expect(menu.length).toBeLessThanOrEqual(5);
     expect(menu.join("\n")).toContain("…");
     for (const line of menu) expect(displayWidth(line)).toBeLessThanOrEqual(24);
+  });
+
+  it("fits an emoji-width summary inside narrow columns (menu rows never overflow)", () => {
+    setServerCommands([
+      {
+        name: "📦-compact",
+        summary: "📦📦📦 compact the session 📦📦📦 into a fresh summary transcript 📦",
+        message: "compaction.run",
+      },
+    ]);
+    const component = new InputComponent();
+    typeText(component, "/📦");
+    const out = component.render({ cols: 24 }).split("\n");
+    const menu = out.slice(1).map((line) => stripAnsi(line));
+    expect(menu.length).toBeGreaterThan(0);
+    for (const line of menu) expect(displayWidth(line)).toBeLessThanOrEqual(24);
+    expect(menu.join("\n")).toContain("📦");
   });
 
   it("hides the menu when the slash is not the first character", () => {

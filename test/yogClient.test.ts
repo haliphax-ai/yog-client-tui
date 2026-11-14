@@ -1346,7 +1346,7 @@ describe("YogClient.abortTurn", () => {
   });
 });
 
-describe("YogClient compaction/handoff", () => {
+describe("YogClient.sendCommand", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -1364,7 +1364,7 @@ describe("YogClient compaction/handoff", () => {
     });
   }
 
-  it("sends compaction.run (compact) and parses the result", async () => {
+  it("sends any advertised type with its payload (compaction.run shape)", async () => {
     const client = clientWithSession();
     const fetchMock = vi.fn(async () =>
       msgResponse("compaction.run", {
@@ -1378,13 +1378,12 @@ describe("YogClient compaction/handoff", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await client.compact("focus on x");
-    expect(result.summary).toBe("# S");
-    expect(result.model).toBe("m");
-    expect(result.sessionId).toBe("fresh");
-    expect(result.truncated).toBe(true);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    const reply = await client.sendCommand("compaction.run", {
+      kind: "compact",
+      guidance: "focus on x",
+    });
+    expect(reply).toMatchObject({ ok: true, summary: "# S", sessionId: "fresh" });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://test/v1/sessions/s1/messages");
     expect(init.method).toBe("POST");
     expect(JSON.parse(String(init.body))).toMatchObject({
@@ -1393,46 +1392,8 @@ describe("YogClient compaction/handoff", () => {
     });
   });
 
-  it("POSTs /handoff and surfaces server errors", async () => {
+  it("sends transcript.shake with truncation counts", async () => {
     const client = clientWithSession();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => jsonResponse({ error: { code: "unknown_session", message: "gone" } }, 404)),
-    );
-    await expect(client.handoff()).rejects.toMatchObject({ code: "unknown_session" });
-  });
-
-  it("rejects malformed success responses", async () => {
-    const client = clientWithSession();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => jsonResponse({ ok: true })),
-    );
-    await expect(client.compact()).rejects.toThrow(/malformed/);
-  });
-
-  it("sends an empty body when no guidance is given", async () => {
-    const client = clientWithSession();
-    const fetchMock = vi.fn(async () =>
-      msgResponse("compaction.run", { ok: true, kind: "handoff", summary: "# H" }),
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    await client.handoff(undefined);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      type: "compaction.run",
-      data: { kind: "handoff" },
-    });
-  });
-});
-
-describe("YogClient shake", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-  it("sends transcript.shake and parses truncation counts", async () => {
-    const client = new YogClient("http://test");
-    client.sessionId = "s1";
     const fetchMock = vi.fn(async () =>
       msgResponse("transcript.shake", {
         ok: true,
@@ -1442,21 +1403,88 @@ describe("YogClient shake", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const result = await client.shake();
-    expect(result).toEqual({ ok: true, argsTruncated: 2, resultsTruncated: 1, contextSize: 9500 });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("http://test/v1/sessions/s1/messages");
-    expect(init.method).toBe("POST");
+    const reply = await client.sendCommand("transcript.shake");
+    expect(reply).toMatchObject({ ok: true, argsTruncated: 2, contextSize: 9500 });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({ type: "transcript.shake" });
   });
 
-  it("surfaces server errors", async () => {
-    const client = new YogClient("http://test");
-    client.sessionId = "s1";
+  it("sends the skills.* family with no bespoke transport code", async () => {
+    const client = clientWithSession();
+    const fetchMock = vi.fn(async () =>
+      msgResponse("skills.load", { ok: true, name: "hemingway", status: "loaded" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const reply = await client.sendCommand("skills.load", { name: "hemingway" });
+    expect(reply).toMatchObject({ ok: true, status: "loaded" });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      type: "skills.load",
+      data: { name: "hemingway" },
+    });
+  });
+
+  it("surfaces server errors as YogError", async () => {
+    const client = clientWithSession();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({ error: { code: "unknown_session", message: "gone" } }, 404)),
     );
-    await expect(client.shake()).rejects.toMatchObject({ code: "unknown_session" });
+    await expect(client.sendCommand("compaction.run", { kind: "compact" })).rejects.toMatchObject({
+      code: "unknown_session",
+    });
+  });
+
+  it("refuses to send before a session is open", async () => {
+    const client = new YogClient("http://test");
+    await expect(client.sendCommand("transcript.shake")).rejects.toThrow(/before open/);
+  });
+});
+
+describe("YogClient probe — commands advertisement", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("stores the capabilities reply including commands on the client", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              contractVersion: "v1",
+              models: ["m"],
+              tools: ["bash"],
+              features: ["messages", "stream"],
+              messageTypes: ["turn.start", "compaction.run", "skills.load"],
+              commands: [
+                {
+                  name: "compact",
+                  summary: "compact the session",
+                  message: "compaction.run",
+                },
+                {
+                  name: "skills-load",
+                  summary: "load a skill",
+                  args: "<name>",
+                  message: "skills.load",
+                  argField: "name",
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    const client = new YogClient("http://test");
+    const caps = await client.probe("m");
+    expect(caps.commands).toHaveLength(2);
+    expect(client.capabilities?.commands?.[1]).toMatchObject({
+      name: "skills-load",
+      args: "<name>",
+      message: "skills.load",
+      argField: "name",
+    });
   });
 });

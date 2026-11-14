@@ -40,14 +40,29 @@ export const MESSAGE_TYPES = [
   "turn.start",
   "compaction.run",
   "transcript.shake",
+  "skills.list",
+  "skills.load",
+  "skills.unload",
+  "skills.status",
 ] as const;
 
 /** One message `type` the client can send. */
 export type MessageType = (typeof MESSAGE_TYPES)[number];
 
+/** One server-advertised slash command (mirrors the daemon wire shape). */
+export interface ServerCommandDescriptor {
+  readonly name: string;
+  readonly summary: string;
+  readonly args?: string;
+  readonly message: string;
+  readonly data?: Readonly<Record<string, unknown>>;
+  readonly argField?: string;
+  readonly requiresIdle?: boolean;
+}
+
 /** Client → server envelope (`data` carries the per-type payload). */
 export interface MessageEnvelope {
-  type: MessageType;
+  type: MessageType | (string & {});
   version?: number;
   requestId?: string;
   data?: Record<string, unknown>;
@@ -69,6 +84,8 @@ export interface Capabilities {
   features: string[];
   /** Message `type`s the server dispatches on the messages channel. */
   messageTypes?: string[];
+  /** Slash commands the server advertises for clients to surface. */
+  commands?: ServerCommandDescriptor[];
   /** Context window sizes for advertised models, keyed by model id. */
   contextWindowSizes?: Record<string, number>;
 }
@@ -151,7 +168,7 @@ export interface SessionStream {
 
 /** Build the envelope for one message. */
 export function buildEnvelope(
-  type: MessageType,
+  type: MessageType | (string & {}),
   data: Record<string, unknown> = {},
   requestId?: string,
 ): MessageEnvelope {
@@ -411,29 +428,6 @@ export async function readSseStream(
   return streamError;
 }
 
-/** Result of a server-side compaction/handoff run. */
-export interface CompactionResult {
-  ok: boolean;
-  kind: string;
-  /** The markdown artifact, which now leads the fresh transcript. */
-  summary: string;
-  /** The model that produced the artifact. */
-  model?: string;
-  /** Session whose transcript now leads with the artifact (compact may differ). */
-  sessionId?: string;
-  /** True when the input transcript was middle-truncated to fit the window. */
-  truncated?: boolean;
-  session?: unknown;
-}
-
-/** Result of a /shake transcript rewrite. */
-export interface ShakeResult {
-  ok: boolean;
-  argsTruncated: number;
-  resultsTruncated: number;
-  /** Estimated post-shake transcript size in tokens (server heuristic). */
-  contextSize: number;
-}
 /** The yog contract client. One instance per session. */
 export class YogClient {
   /** Server origin, trailing slashes stripped. */
@@ -459,7 +453,7 @@ export class YogClient {
    */
   private async send(
     sessionId: string,
-    type: MessageType,
+    type: MessageType | (string & {}),
     data: Record<string, unknown> = {},
     what = `${type} failed`,
   ): Promise<Record<string, unknown>> {
@@ -918,66 +912,22 @@ export class YogClient {
     };
   }
 
-  async compact(guidance?: string): Promise<CompactionResult> {
-    return this.runCompaction("compact", guidance);
-  }
-
   /**
-   * Prepare a handoff document: same mechanism as {@link compact}, but with
-   * the full session history in view for a thorough handoff artifact.
+   * Send one server-advertised command on the messages channel. `main.ts`
+   * builds the payload from a `CommandDescriptor` (`data` + `argField`
+   * remainder); the transport itself stays descriptor-agnostic — the server
+   * validates the type and payload.
    */
-  async handoff(guidance?: string): Promise<CompactionResult> {
-    return this.runCompaction("handoff", guidance);
+  async sendCommand(
+    type: string,
+    data: Record<string, unknown> = {},
+    what = `${type} failed`,
+  ): Promise<Record<string, unknown>> {
+    if (!this.sessionId) throw new Error(`sendCommand called before open(): ${type}`);
+    const sessionId = this.sessionId;
+    return await this.send(sessionId, type, data, what);
   }
 
-  /** Shared implementation for compaction/handoff (`compaction.run`). */
-  private async runCompaction(
-    kind: "compact" | "handoff",
-    guidance?: string,
-  ): Promise<CompactionResult> {
-    if (!this.sessionId) throw new Error(`runCompaction called before open()`);
-    const sessionId = this.sessionId;
-    const body = await this.send(
-      sessionId,
-      "compaction.run",
-      {
-        kind,
-        ...(guidance !== undefined && guidance.trim() !== "" ? { guidance: guidance.trim() } : {}),
-      },
-      `${kind} failed`,
-    );
-    if (body.ok !== true || typeof body.summary !== "string") {
-      throw new Error(`${kind} failed: malformed response from server`);
-    }
-    return {
-      ok: true,
-      kind,
-      summary: body.summary as string,
-      ...(typeof body.model === "string" ? { model: body.model } : {}),
-      ...(typeof body.sessionId === "string" ? { sessionId: body.sessionId } : {}),
-      ...(body.truncated === true ? { truncated: true } : {}),
-      ...(body.session !== undefined ? { session: body.session } : {}),
-    };
-  }
-
-  /**
-   * /shake — truncate oversized tool args/results in the current session's
-   * transcript (`transcript.shake` message; server-side, no model call).
-   */
-  async shake(): Promise<ShakeResult> {
-    if (!this.sessionId) throw new Error("shake called before open()");
-    const sessionId = this.sessionId;
-    const body = await this.send(sessionId, "transcript.shake", {}, "shake failed");
-    if (body["ok"] !== true) {
-      throw new Error("shake failed: malformed response from server");
-    }
-    return {
-      ok: true,
-      argsTruncated: typeof body["argsTruncated"] === "number" ? body["argsTruncated"] : 0,
-      resultsTruncated: typeof body["resultsTruncated"] === "number" ? body["resultsTruncated"] : 0,
-      contextSize: typeof body["contextSize"] === "number" ? body["contextSize"] : 0,
-    };
-  }
   /**
    * Recovery path: `turn.get` and replay its stored `{ type, data }` rows
    * through the same handler.
