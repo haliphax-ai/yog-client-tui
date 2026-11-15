@@ -21,9 +21,18 @@ jobs:
 
   unit:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: haliphax-ai/yog-client-tui/.github@main
-      - run: npx vitest run --silent=true
+      - run: npx vitest run --silent=true --coverage --coverage.reporter=lcov
+      - name: Upload coverage to Qlty
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        uses: qltysh/qlty-action/coverage@v2
+        with:
+          oidc: true
+          files: coverage/lcov.info
 
   depcruise:
     runs-on: ubuntu-latest
