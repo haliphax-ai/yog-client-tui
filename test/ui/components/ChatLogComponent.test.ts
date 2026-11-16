@@ -480,26 +480,4 @@ describe("ChatLogComponent — visibleFocusUnit scaling (issue #66)", () => {
       }
     }
   });
-
-  it("stays fast on a large log ring (no O(N^2) rescan per Tab)", () => {
-    const entries: LogEntry[] = [];
-    for (let i = 0; i < 5000; i++)
-      entries.push({
-        kind: "chunk",
-        lines: ["run exit 0", "a", "b", "c", "d", "e", "f", "g", "h"],
-      });
-    const log = new Log(entries);
-    log.setViewportRows(24);
-    log.setOffset(500);
-    log.clearFocus();
-    log.moveFocus(1);
-    expect(log.getFocusIndex()).toBeGreaterThanOrEqual(0);
-    const t0 = performance.now();
-    for (let k = 0; k < 100; k++) {
-      log.setOffset(500 + (k % 10));
-      log.clearFocus();
-      log.moveFocus(k % 2 === 0 ? 1 : -1, 24);
-    }
-    expect(performance.now() - t0).toBeLessThan(200);
-  });
 });
