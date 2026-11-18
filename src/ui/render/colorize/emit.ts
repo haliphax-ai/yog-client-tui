@@ -21,6 +21,9 @@ export type Emitter = {
   content: boolean;
 };
 
+/** A fresh row: nothing held, nothing emitted. */
+export const freshRow = (): Emitter => ({ out: "", head: "", content: false });
+
 /** Append `text` to the held prefix (before content starts) or the body. */
 export function put(e: Emitter, text: string, toHead: boolean): void {
   if (toHead) e.head += text;

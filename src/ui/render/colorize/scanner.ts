@@ -10,7 +10,7 @@
 import { matchEscape } from "../../../util/ansi.ts";
 import { C } from "../../theme.ts";
 import type { Emitter } from "./emit.ts";
-import { put, releaseHead } from "./emit.ts";
+import { freshRow, put, releaseHead } from "./emit.ts";
 import { isIndicatorStart, indicatorAt } from "./indicators.ts";
 import type { RowCarry } from "./rowCarry.ts";
 import { matchLiteral, matchNumber } from "./slice.ts";
@@ -269,7 +269,7 @@ export type RowScan = {
  */
 export function scanRowText(row: string, carry: RowCarry): RowScan {
   const scanner: Scanner = {
-    e: { out: "", head: "", content: false }, // fresh Emitter (see emit.ts)
+    e: freshRow(),
     row,
     i: 0,
     carry,
