@@ -26,6 +26,41 @@ export type FocusTarget = { entry: number; table: number };
 /** The "nothing focused" target. */
 export const FOCUS_NONE_TARGET: FocusTarget = { entry: FOCUS_NONE, table: FOCUS_NONE };
 
+/** The unit at the near end of the ring: first going forward, last going backward. */
+function endUnit(units: readonly FocusTarget[], dir: 1 | -1): FocusTarget {
+  return dir === 1 ? (units[0] as FocusTarget) : (units[units.length - 1] as FocusTarget);
+}
+
+/**
+ * Step from ring position `i` in direction `dir`. Stepping off either end
+ * of the ring lands on none; the next press re-enters from that end.
+ */
+function stepAt(units: readonly FocusTarget[], i: number, dir: 1 | -1): FocusTarget {
+  const j = i + dir;
+  return j < 0 || j >= units.length ? FOCUS_NONE_TARGET : (units[j] as FocusTarget);
+}
+
+/**
+ * Ring position of the unit closest to a vanished `current`: by entry
+ * index first, then table index within the same entry (an entry's tables
+ * are contiguous in the ring). Linear scan — rings are tiny.
+ */
+function closestIndex(units: readonly FocusTarget[], current: FocusTarget): number {
+  let best = -1;
+  let bestDist = Infinity;
+  for (let i = 0; i < units.length; i++) {
+    const t = units[i] as FocusTarget;
+    const de = Math.abs(t.entry - current.entry);
+    const dt = t.entry === current.entry ? Math.abs(t.table - current.table) : Infinity;
+    const dist = de * 1000 + dt;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  }
+  return best;
+}
+
 /**
  * Next focus target after pressing Tab (+1) or Shift-Tab (-1).
  *
@@ -49,42 +84,17 @@ export function moveFocus(
   enterAt?: FocusTarget,
 ): FocusTarget {
   if (units.length === 0) return FOCUS_NONE_TARGET;
-  const idx = units.findIndex((t) => t.entry === current.entry && t.table === current.table);
 
   // Nothing focused → the caller's viewport-aware entry point, else the
   // nearest end of the ring.
-  if (current.entry < 0) {
-    if (enterAt !== undefined) return enterAt;
-    return dir === 1 ? (units[0] as FocusTarget) : (units[units.length - 1] as FocusTarget);
-  }
+  if (current.entry < 0) return enterAt ?? endUnit(units, dir);
 
   // Current target still in the ring → step normally.
-  if (idx !== -1) {
-    if (dir === 1)
-      return idx === units.length - 1 ? FOCUS_NONE_TARGET : (units[idx + 1] as FocusTarget);
-    return idx === 0 ? FOCUS_NONE_TARGET : (units[idx - 1] as FocusTarget);
-  }
+  const idx = units.findIndex((t) => t.entry === current.entry && t.table === current.table);
+  if (idx !== -1) return stepAt(units, idx, dir);
 
-  // Current target is gone → find the closest valid target by entry
-  // index, then step in the requested direction.
-  let best = -1;
-  let bestDist = Infinity;
-  for (let i = 0; i < units.length; i++) {
-    const t = units[i] as FocusTarget;
-    const de = Math.abs(t.entry - current.entry);
-    const dt = t.entry === current.entry ? Math.abs(t.table - current.table) : Infinity;
-    const dist = de * 1000 + dt;
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  }
-  if (best === -1) return FOCUS_NONE_TARGET;
-  return dir === 1
-    ? best === units.length - 1
-      ? FOCUS_NONE_TARGET
-      : (units[best + 1] as FocusTarget)
-    : best === 0
-      ? FOCUS_NONE_TARGET
-      : (units[best - 1] as FocusTarget);
+  // Current target is gone → step from the closest valid target by entry
+  // index, in the requested direction.
+  const nearest = closestIndex(units, current);
+  return nearest === -1 ? FOCUS_NONE_TARGET : stepAt(units, nearest, dir);
 }
