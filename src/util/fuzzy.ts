@@ -46,6 +46,46 @@ function isBoundary(s: string, at: number): boolean {
 }
 
 /**
+ * Indices of every needle character found in the candidate, in needle
+ * order; null when some character is missing (the needle is not a
+ * subsequence of the candidate).
+ */
+function hitIndices(needle: string, candidate: string): number[] | null {
+  const indices: number[] = [];
+  let from = 0;
+  for (let i = 0; i < needle.length; i++) {
+    const at = candidate.indexOf(needle[i] as string, from);
+    if (at === -1) return null;
+    indices.push(at);
+    from = at + 1;
+  }
+  return indices;
+}
+
+/**
+ * Score one hit: the match itself plus its positional bonus (start of the
+ * candidate or of a word/camel hump), then the run/gap adjustment against
+ * the previous hit, then the case penalty for a case-folded match.
+ */
+function scoreOf(
+  at: number,
+  prev: number | undefined,
+  needleChar: string,
+  candidate: string,
+  caseSensitive: boolean,
+): number {
+  let s = SCORE_MATCH;
+  if (at === 0) s += SCORE_START;
+  else if (isBoundary(candidate, at)) s += SCORE_BOUNDARY;
+  if (prev !== undefined) {
+    if (at === prev + 1) s += SCORE_CONSECUTIVE;
+    else s -= (at - prev - 1) * PENALTY_GAP;
+  }
+  if (!caseSensitive && (candidate[at] as string) !== needleChar) s -= PENALTY_CASE;
+  return s;
+}
+
+/**
  * Score one candidate against a needle. Returns null when the needle is not
  * a subsequence of the candidate (no match). An empty needle matches
  * anything with score 0 (used to list every candidate).
@@ -60,24 +100,11 @@ export function fuzzyMatches(
   if (needle.length > candidate.length) return null;
   const q = caseSensitive ? needle : needle.toLowerCase();
   const c = caseSensitive ? candidate : candidate.toLowerCase();
-  const indices: number[] = [];
+  const indices = hitIndices(q, c);
+  if (indices === null) return null;
   let score = 0;
-  let searchFrom = 0;
-  for (let qi = 0; qi < q.length; qi++) {
-    const pos = c.indexOf(q[qi] as string, searchFrom);
-    if (pos === -1) return null;
-    let s = SCORE_MATCH;
-    if (pos === 0) s += SCORE_START;
-    else if (isBoundary(candidate, pos)) s += SCORE_BOUNDARY;
-    const prev = indices[indices.length - 1];
-    if (prev !== undefined) {
-      if (pos === prev + 1) s += SCORE_CONSECUTIVE;
-      else s -= (pos - prev - 1) * PENALTY_GAP;
-    }
-    if (!caseSensitive && (candidate[pos] as string) !== needle[qi]) s -= PENALTY_CASE;
-    indices.push(pos);
-    score += s;
-    searchFrom = pos + 1;
+  for (const [i, at] of indices.entries()) {
+    score += scoreOf(at, indices[i - 1], needle[i] as string, candidate, caseSensitive);
   }
   return { item: candidate, score, indices };
 }
@@ -92,11 +119,9 @@ export function fuzzyFind(
   haystack: readonly string[],
   options: FuzzyOptions = {},
 ): FuzzyMatch[] {
-  const matches: FuzzyMatch[] = [];
-  for (const item of haystack) {
-    const match = fuzzyMatches(needle, item, options);
-    if (match !== null) matches.push(match);
-  }
+  const matches = haystack
+    .map((item) => fuzzyMatches(needle, item, options))
+    .filter((match): match is FuzzyMatch => match !== null);
   matches.sort((a, b) => b.score - a.score);
   const limit = options.limit ?? matches.length;
   return matches.slice(0, Math.max(0, limit));
