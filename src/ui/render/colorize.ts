@@ -41,23 +41,18 @@ export function colorizeToolLine(text: string): string {
  * rowCarry.ts) and return the carry for the NEXT row. A row that ends
  * inside a string re-arms the carried color — per OPEN STRING, not per
  * row, so arbitrarily long wrapped strings stay colored on every
- * continuation row. A dangling backslash (a row ending mid-escape) only
- * matters while a string is open: it escapes the quote that would
- * otherwise start the next string (JSON strings cannot contain a literal
- * newline), so the continuation row starts INSIDE the escaped character,
- * mid-string, with the string color riding in ahead of it.
+ * continuation row. A dangling backslash only matters while a string is
+ * open: it escapes the quote that would otherwise start the next string
+ * (JSON strings cannot contain a literal newline), so the continuation
+ * row starts INSIDE the escaped character, mid-string, with the string
+ * color riding in ahead of it.
  */
 function colorizeRow(row: string, carry: RowCarry): RowOutcome {
-  // A dangling backslash pulls the row inside the escaped character; the
-  // color falls back to a fresh string color for the safety of a carry
-  // that somehow escaped without one.
-  if (carry.escaped) {
-    const pending = carry.pending !== "" ? carry.pending : C.str;
-    const { out, inString, escaped } = scanRowText(row, { pending, escaped: true });
-    return { out, carry: inString ? { pending, escaped } : emptyCarry() };
-  }
-
   const { out, inString, escaped } = scanRowText(row, carry);
-  const pending = inString ? (carry.pending !== "" ? carry.pending : C.str) : "";
-  return { out, carry: { pending, escaped: inString ? escaped : false } };
+  if (!inString) return { out, carry: emptyCarry() };
+  // The string stays open into the next row: re-arm its color (the
+  // incoming one, or a fresh string color when this row opened it) and
+  // keep the dangling-backslash escape state if the row ended mid-escape.
+  const pending = carry.pending !== "" ? carry.pending : C.str;
+  return { out, carry: { pending, escaped } };
 }
