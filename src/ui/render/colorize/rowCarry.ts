@@ -17,7 +17,9 @@
  */
 import { C } from "../../theme.ts";
 
-/** Mutable carry state threaded across a tool line's rows. */
+/** Cross-row state threaded through a tool line's rows. A carry never
+ *  holds `escaped` without `pending`: a dangling backslash only matters
+ *  while a string is open (its quote-escape below). */
 export type RowCarry = {
   /** The open string's color to re-emit, or "" when no string is open. */
   pending: string;

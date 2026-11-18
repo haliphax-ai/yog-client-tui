@@ -21,41 +21,43 @@ import type { RowCarry } from "./colorize/rowCarry.ts";
 import { emptyCarry } from "./colorize/rowCarry.ts";
 import { scanRowText } from "./colorize/scanner.ts";
 
+/** One row's scan result plus the carry it leaves for the next row. */
+type RowOutcome = { out: string; carry: RowCarry };
+
 export function colorizeToolLine(text: string): string {
-  const carry: RowCarry = emptyCarry();
+  let carry = emptyCarry();
   const outRows: string[] = [];
 
   for (const row of text.split("\n")) {
-    outRows.push(colorizeRow(row, carry));
+    const outcome = colorizeRow(row, carry);
+    carry = outcome.carry;
+    outRows.push(outcome.out);
   }
   return outRows.join("\n");
 }
 
 /**
- * Colorize one display row in the context of the threaded carry. On entry
- * `carry.pending` holds the open string color from the previous row ("" for
- * none) and `carry.escaped` whether a dangling backslash escapes this row's
- * first character; on exit both describe the NEXT row (see rowCarry.ts).
+ * Colorize one display row in the context of the incoming carry (see
+ * rowCarry.ts) and return the carry for the NEXT row. A row that ends
+ * inside a string re-arms the carried color — per OPEN STRING, not per
+ * row, so arbitrarily long wrapped strings stay colored on every
+ * continuation row. A dangling backslash (a row ending mid-escape) only
+ * matters while a string is open: it escapes the quote that would
+ * otherwise start the next string (JSON strings cannot contain a literal
+ * newline), so the continuation row starts INSIDE the escaped character,
+ * mid-string, with the string color riding in ahead of it.
  */
-function colorizeRow(row: string, carry: RowCarry): string {
-  const carryIn = { ...carry };
-  carry.pending = "";
-  carry.escaped = false;
-
-  // A dangling backslash escapes the quote that would otherwise open this
-  // row's first string (JSON strings cannot contain a literal newline):
-  // the continuation starts INSIDE the escaped character, mid-string, and
-  // the string color rides in ahead of it.
-  if (carryIn.escaped) {
-    const startColor = carryIn.pending !== "" ? carryIn.pending : C.str;
-    const { out } = scanRowText(row, { pending: startColor, escaped: true });
-    carry.pending = startColor;
-    return out;
+function colorizeRow(row: string, carry: RowCarry): RowOutcome {
+  // A dangling backslash pulls the row inside the escaped character; the
+  // color falls back to a fresh string color for the safety of a carry
+  // that somehow escaped without one.
+  if (carry.escaped) {
+    const pending = carry.pending !== "" ? carry.pending : C.str;
+    const { out, inString, escaped } = scanRowText(row, { pending, escaped: true });
+    return { out, carry: inString ? { pending, escaped } : emptyCarry() };
   }
 
-  // No escape state: the row starts inside a string iff one was carried.
-  const { out, inString, escaped } = scanRowText(row, carryIn);
-  if (inString) carry.pending = carryIn.pending !== "" ? carryIn.pending : C.str;
-  carry.escaped = escaped;
-  return out;
+  const { out, inString, escaped } = scanRowText(row, carry);
+  const pending = inString ? (carry.pending !== "" ? carry.pending : C.str) : "";
+  return { out, carry: { pending, escaped: inString ? escaped : false } };
 }

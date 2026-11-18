@@ -123,7 +123,6 @@ function inStringStep(scanner: Scanner, ch: string): boolean {
   if (ch === '"' && !scanner.escaped) {
     colored(scanner, ch, C.str);
     scanner.inString = false;
-    scanner.carry.pending = "";
     scanner.i += 1;
     return true;
   }
