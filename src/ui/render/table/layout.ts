@@ -2,6 +2,14 @@
  * Table layout: how wide each pane renders, and whether the table can be
  * expanded.
  *
+ * The water-filling math that splits the viewport among the panes lives in
+ * `waterFill.ts` (its own concern, with its own tests); this module composes
+ * it into the layout policy: shrinkwrap → fits-as-is → even division →
+ * expandability.
+ */
+import { evenDivision } from "./waterFill.ts";
+
+/**
  * All widths are terminal CELLS. The reshape runs in a fixed order:
  *
  *   1. Shrinkwrap every pane to its content width.
@@ -45,53 +53,6 @@ export function tableRowWidth(colWidths: readonly number[]): number {
  */
 export function paneSpace(cols: number, panes: number): number {
   return Math.max(0, cols - (panes + 1) - 2 * panes);
-}
-
-/**
- * Divide `available` cells evenly among the panes, never giving a pane
- * more than its content needs.
- *
- * Water-filling: every pane gets an equal share of what is left; a pane
- * that needs less than its share is done at its content width and the
- * remainder is re-divided among the rest. The result never exceeds
- * `available` and never exceeds any pane's content width.
- */
-export function evenDivision(natural: readonly number[], available: number): number[] {
-  const count = natural.length;
-  const result = Array.from<number>({ length: count }).fill(0);
-  if (count === 0) return result;
-  let remaining = Math.max(0, available);
-  let active: number[] = [];
-  for (let i = 0; i < count; i++) active.push(i);
-
-  while (active.length > 0 && remaining > 0) {
-    const before = remaining;
-    const share = Math.floor(remaining / active.length);
-    if (share === 0) {
-      // Fewer cells left than panes: hand out single cells, one each.
-      for (const i of active) {
-        if (remaining <= 0) break;
-        if ((result[i] ?? 0) < (natural[i] ?? 0)) {
-          result[i] = (result[i] ?? 0) + 1;
-          remaining -= 1;
-        }
-      }
-      break;
-    }
-    const stillActive: number[] = [];
-    for (const i of active) {
-      const room = (natural[i] ?? 0) - (result[i] ?? 0);
-      const give = Math.min(share, room);
-      if (give > 0) {
-        result[i] = (result[i] ?? 0) + give;
-        remaining -= give;
-      }
-      if ((result[i] ?? 0) < (natural[i] ?? 0)) stillActive.push(i);
-    }
-    if (remaining === before) break; // no progress — stop rather than spin
-    active = stillActive;
-  }
-  return result;
 }
 
 /** The resolved layout of one table. */
