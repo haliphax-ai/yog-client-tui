@@ -12,11 +12,11 @@ export {
   estimateHeight,
   anchorEntryForRow,
   noteMutation,
-  sectionsOf,
   tableOffsetsOf,
   totalRows,
   type HeightSummary,
 } from "./entry.ts";
+export { sectionsOf } from "./entrySections.ts";
 export { colorizeToolLine } from "./colorize.ts";
 export { resultPreview } from "./formatting.ts";
 export { highlightBlock, renderMarkdown } from "./markdown.ts";
