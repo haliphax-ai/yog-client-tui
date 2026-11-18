@@ -1,217 +1,61 @@
 /**
- * Colorize tool call-line content (compact JSON args, ✅/❌ indicators) with
- * lightweight syntax highlighting. ANSI-safe: escape sequences are copied
- * through untouched and plain runs are tokenized. Runs per display row: the
- * style's row prefix (pad + fg resets) is held and flushed first, then any
- * color carried from a string token split across a wrap is re-emitted — so
- * continuation rows keep their formatting. Escapes are honored: a \" never
- * opens or closes a string, and a string whose backslash sits against a
- * wrap split stays string-colored into the continuation row.
+ * Colorize tool call-line content (compact JSON args, ✅/❌ indicators)
+ * with lightweight syntax highlighting.
  *
- * The carry is per OPEN STRING, not per row: a string spanning three or
- * more wrapped rows re-arms the carry at the end of every row it touches
- * (see the end-of-row propagation below), so row N+1 is colored from the
- * same string color as row N. The previous implementation only armed the
- * carry on the row that OPENED the string, so the second continuation row
- * of a long string lost its color (and a later row could even be misread
- * as still inside the string, coloring a following `}` as string text).
+ * The work splits across modules in `colorize/`:
+ *
+ *   scanner.ts   the per-row tokenizer (the while loop)
+ *   emit.ts      output assembly: the held row prefix and its release
+ *   rowCarry.ts  the cross-row string-carry (per OPEN STRING, not per row)
+ *   indicators.ts  the ✓/✗ status tokens
+ *   slice.ts     the character-domain number/literal matchers
+ *
+ * ANSI-safety contract: escape sequences are copied through untouched and
+ * never tokenized, so `stripAnsi(colorize(x)) === x` for any input. Width
+ * is irrelevant to this pass — it copies characters verbatim and inserts
+ * zero-width escapes around tokens — so character-domain slicing here does
+ * not violate the cells-not-characters rule, which governs LAYOUT decisions.
  */
 import { C } from "../theme.ts";
-import { matchEscape } from "../../util/ansi.ts";
+import type { RowCarry } from "./colorize/rowCarry.ts";
+import { emptyCarry } from "./colorize/rowCarry.ts";
+import { scanRowText } from "./colorize/scanner.ts";
 
 export function colorizeToolLine(text: string): string {
-  let pending = ""; // open token color carried across a row split
-  let carryEscaped = false; // backslash-escape state carried across a row split
+  const carry: RowCarry = emptyCarry();
   const outRows: string[] = [];
 
   for (const row of text.split("\n")) {
-    let out = "";
-    let head = ""; // held row prefix: style escapes + pad/indent spaces
-    let headDone = false;
-    const carry = pending;
-    pending = "";
-    const inStringInit = carry !== "";
-    let escapedInit = carryEscaped; // escape state carried across a row split
-    carryEscaped = false;
-    let i = 0;
-    let inString = inStringInit; // string carried across a row split
-    let escaped = false; // a backslash consumed an escape mid-scan
-    // A backslash immediately before the newline escapes the quote that
-    // would otherwise start the next row (JSON strings cannot contain a
-    // literal newline): restart the continuation in escape state.
-    if (escapedInit) {
-      escapedInit = false;
-      inString = true;
-      escaped = true;
-      pending = carry !== "" ? carry : C.str;
-    }
-
-    const flushHead = (): void => {
-      out += head;
-      head = "";
-      if (carry) out += carry; // after the prefix, before the content
-      headDone = true;
-    };
-    const colorize = (token: string, color: string, open = false): void => {
-      if (!headDone) flushHead();
-      out += color + token + (open ? "" : C.reset);
-      if (open) pending = color;
-    };
-    const escape = (): void => {
-      const m = matchEscape(row.slice(i));
-      if (m) {
-        if (headDone) out += m;
-        else head += m;
-        i += m.length;
-      } else {
-        i += 1; // drop a bare ESC
-      }
-    };
-
-    while (i < row.length) {
-      const ch = row[i] as string;
-      if (ch === "\x1b") {
-        escape();
-        continue;
-      }
-      if (!headDone) {
-        if (ch === " ") {
-          head += ch; // prefix pad / content indent
-          i += 1;
-          continue;
-        }
-        flushHead();
-      }
-      // An escape inside a string is copied verbatim (\" …); outside one,
-      // a backslash escapes the next character (e.g. the \\" before a
-      // wrapped-away quote) so the quote is not taken as a string opener.
-      if (ch === "\\") {
-        if (inString) {
-          if (!headDone) flushHead();
-          out += ch;
-          escaped = true;
-          i += 1;
-          continue;
-        }
-        if (escaped) {
-          // A backslash escaped by the previous backslash: emit it plain.
-          escaped = false;
-          if (!headDone) flushHead();
-          out += ch;
-          i += 1;
-          continue;
-        }
-        // Start of an escape sequence: emitted together with the next char.
-        escaped = true;
-        i += 1;
-        continue;
-      }
-      if (escaped && !inString) {
-        // Second character of an escape sequence outside a string.
-        escaped = false;
-        if (!headDone) flushHead();
-        out += ch;
-        i += 1;
-        continue;
-      }
-      if (inString) {
-        // Inside a string (possibly carried from the previous row): copy
-        // verbatim; only an unescaped " can close it. The second character
-        // of an escape (e.g. the \" marker) passes through without closing.
-        if (ch === '"' && !escaped) {
-          colorize('"', C.str);
-          inString = false;
-          pending = "";
-        } else {
-          if (!headDone) flushHead();
-          out += ch;
-          escaped = false;
-        }
-        i += 1;
-        continue;
-      }
-      if (ch === "✅" || ch === "❌" || ch === "✓" || ch === "✗") {
-        let end = i + 1;
-        if (row[end] === "\uFE0F") end += 1;
-        colorize(row.slice(i, end), ch === "✅" || ch === "✓" ? C.ok : C.fail);
-        i = end;
-        continue;
-      }
-      if (ch === '"') {
-        if (inString) {
-          // Closing quote of a string (including one carried across rows).
-          colorize('"', C.str);
-          inString = false;
-          pending = "";
-          i += 1;
-          continue;
-        }
-        let j = i + 1;
-        let closed = false;
-        let danglingEscape = false;
-        while (j < row.length) {
-          const c = row[j] as string;
-          if (c === "\\") {
-            danglingEscape = true;
-            j += 2; // \" and \\ pass through: they cannot close the string
-            continue;
-          }
-          danglingEscape = false;
-          if (c === '"') {
-            closed = true;
-            j += 1;
-            break;
-          }
-          j += 1;
-        }
-        if (closed) {
-          let k = j;
-          while (k < row.length && (row[k] === " " || row[k] === "\t")) k += 1;
-          colorize(row.slice(i, j), row[k] === ":" ? C.key : C.str);
-          i = j;
-          continue;
-        }
-        // Open at row end (wrap split): color to end, re-emit next row.
-        colorize(row.slice(i), C.str, true);
-        inString = true;
-        // A trailing backslash escapes the (display-wrapped-away) quote
-        // before the newline: the continuation row starts inside the
-        // escaped character, mid-string.
-        escapedInit = danglingEscape;
-        i = row.length;
-        continue;
-      }
-      const num = row.slice(i).match(/^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/);
-      if (num) {
-        colorize(num[0], C.num);
-        i += num[0].length;
-        continue;
-      }
-      const lit = row.slice(i).match(/^(?:true|false|null)/);
-      if (lit && /[^A-Za-z0-9_]/.test(row[i + lit[0].length] ?? " ")) {
-        colorize(lit[0], C.lit);
-        i += lit[0].length;
-        continue;
-      }
-      if ("{}[],:".includes(ch)) {
-        colorize(ch, C.punct);
-        i += 1;
-        continue;
-      }
-      out += ch;
-      i += 1;
-    }
-    if (!headDone && head !== "") out += head; // prefix-only row
-    // End-of-row propagation: if this row ENDS inside a string, the next
-    // row starts inside it too — re-arm the carry with the string's color
-    // (and the dangling-backslash escape state, if any) so arbitrarily
-    // long wrapped strings stay colored on every continuation row, not
-    // just the first. A string that closed mid-row leaves no carry.
-    if (inString) {
-      pending = carry !== "" ? carry : C.str;
-      carryEscaped = escaped;
-    }
-    outRows.push(out);
+    outRows.push(colorizeRow(row, carry));
   }
   return outRows.join("\n");
+}
+
+/**
+ * Colorize one display row in the context of the threaded carry. On entry
+ * `carry.pending` holds the open string color from the previous row ("" for
+ * none) and `carry.escaped` whether a dangling backslash escapes this row's
+ * first character; on exit both describe the NEXT row (see rowCarry.ts).
+ */
+function colorizeRow(row: string, carry: RowCarry): string {
+  const carryIn = { ...carry };
+  carry.pending = "";
+  carry.escaped = false;
+
+  // A dangling backslash escapes the quote that would otherwise open this
+  // row's first string (JSON strings cannot contain a literal newline):
+  // the continuation starts INSIDE the escaped character, mid-string, and
+  // the string color rides in ahead of it.
+  if (carryIn.escaped) {
+    const startColor = carryIn.pending !== "" ? carryIn.pending : C.str;
+    const { out } = scanRowText(row, { pending: startColor, escaped: true });
+    carry.pending = startColor;
+    return out;
+  }
+
+  // No escape state: the row starts inside a string iff one was carried.
+  const { out, inString, escaped } = scanRowText(row, carryIn);
+  if (inString) carry.pending = carryIn.pending !== "" ? carryIn.pending : C.str;
+  carry.escaped = escaped;
+  return out;
 }
