@@ -15,7 +15,6 @@
  * backslash escapes the (display-wrapped-away) quote before the newline,
  * so the continuation row starts INSIDE the escaped character, mid-string.
  */
-import { C } from "../../theme.ts";
 
 /** Cross-row state threaded through a tool line's rows. A carry never
  *  holds `escaped` without `pending`: a dangling backslash only matters
@@ -29,6 +28,3 @@ export type RowCarry = {
 
 /** A carry with nothing pending (line start). */
 export const emptyCarry = (): RowCarry => ({ pending: "", escaped: false });
-
-/** A carry for a string that just opened: plain string color, no escape. */
-export const stringCarry = (): RowCarry => ({ pending: C.str, escaped: false });

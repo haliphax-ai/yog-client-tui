@@ -21,9 +21,6 @@ export type Emitter = {
   content: boolean;
 };
 
-/** A fresh row: nothing held, nothing emitted. */
-export const newEmitter = (): Emitter => ({ out: "", head: "", content: false });
-
 /** Append `text` to the held prefix (before content starts) or the body. */
 export function put(e: Emitter, text: string, toHead: boolean): void {
   if (toHead) e.head += text;
@@ -42,9 +39,3 @@ export function releaseHead(e: Emitter, carry: string): void {
   if (carry !== "") e.out += carry;
   e.content = true;
 }
-
-/** Emit a prefix-only row: nothing but the prefix followed the head. */
-export const releaseHeadAlone = (e: Emitter): void => {
-  if (!e.content) e.out += e.head;
-  e.head = "";
-};

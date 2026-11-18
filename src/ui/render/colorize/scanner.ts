@@ -269,7 +269,7 @@ export type RowScan = {
  */
 export function scanRowText(row: string, carry: RowCarry): RowScan {
   const scanner: Scanner = {
-    e: { out: "", head: "", content: false },
+    e: { out: "", head: "", content: false }, // fresh Emitter (see emit.ts)
     row,
     i: 0,
     carry,
