@@ -9,9 +9,14 @@
  * preset), driven the way every Bubbles model in this codebase is driven:
  * the host feeds its tick messages and reads its view; the returned commands
  * are ignored (the same precedent as the input's textarea, whose blink
- * commands are also discarded). `start()` / `stop()` own the tick timer at
- * the preset's own fps; the composition root calls them alongside the store's
- * `busy` flag.
+ * commands are also discarded).
+ *
+ * The component feeds off the store's `busy` flag alone: `render()` gates
+ * on it, and every render re-syncs the tick timer to the flag (armed while
+ * busy, disarmed while idle). The flag is written by the composition root
+ * (`spinnerHooks` in `app/terminalWiring.ts`); the component owns no
+ * start/stop API of its own, so a missed stop call cannot freeze the
+ * spinner on its last frame.
  */
 import { Dot } from "@oakoliver/bubbles";
 import { newSpinner, withSpinner, withSpinnerStyle } from "@oakoliver/bubbles";
@@ -32,31 +37,40 @@ export class GeneratingComponent extends BaseComponent {
     this.spinner = newSpinner(withSpinner(Dot), withSpinnerStyle(ST.generating));
   }
 
-  /** Start the spinner tick timer (idempotent). */
-  start(): void {
-    if (this.timer !== undefined) return;
-    this.timer = setInterval(() => {
-      // Advance the Bubbles model one frame and poke the render scheduler
-      // (cursor-only navigation does the same `setState({})` poke).
-      [this.spinner] = this.spinner.update(this.spinner.tickMsg());
-      setState({});
-    }, this.spinner.spinner.fps);
+  /** Advance the model one frame and poke the render scheduler (cursor-only
+   *  navigation does the same `setState({})` poke). */
+  private tick(): void {
+    [this.spinner] = this.spinner.update(this.spinner.tickMsg());
+    setState({});
   }
 
-  /** Stop the spinner tick timer (idempotent). */
-  stop(): void {
+  /** Disarm the tick timer (idempotent). */
+  private stopTicking(): void {
     if (this.timer !== undefined) {
       clearInterval(this.timer);
       this.timer = undefined;
     }
   }
 
+  /** Arm the tick timer at the preset's fps (idempotent). */
+  private startTicking(): void {
+    if (this.timer !== undefined) return;
+    this.timer = setInterval(() => this.tick(), this.spinner.spinner.fps);
+  }
+
   /**
    * One styled row while busy — the model's current frame plus the label —
-   * or no rows while idle.
+   * or no rows while idle. The timer follows the flag here: armed on the
+   * busy edge, disarmed on the idle edge, so rendering is the only entry
+   * point the busy state needs (a dropped stop call cannot freeze the
+   * spinner on its last frame).
    */
   override render(_ctx: RenderContext): string[] {
-    if (!getState().busy) return [];
+    if (!getState().busy) {
+      this.stopTicking();
+      return [];
+    }
+    this.startTicking();
     return [this.spinner.view() + ST.generating.render(LABEL)];
   }
 }
