@@ -54,6 +54,7 @@ interface BorderRunes {
  */
 function borderRunes(focused: boolean): BorderRunes {
   const style = focused ? ST.tableBorderFocused : ST.tableBorderUnfocused;
+  // eslint-disable-next-line no-control-regex -- a border rune's own trailing reset
   const rune = (r: string): string => style.render(r).replace(/\x1b\[0?m$/, "");
   return {
     v: rune("│"),
@@ -219,7 +220,6 @@ export function renderTable(
     bCross,
   } = borderRunes(focused);
 
-  const padCellLine = padCellLineOf;
   return assembleRows(table, {
     w,
     totalWidth,
@@ -256,7 +256,7 @@ interface Frame {
 }
 
 function assembleRows(table: ParsedTable, frame: Frame): string[] {
-  const { w, totalWidth, border, hBorder, runes, focused, scrollX, margin } = frame;
+  const { w, totalWidth, hBorder, runes, scrollX, margin } = frame;
 
   // Horizontal rule: left corner, interior cross between segments, right corner.
   // Top border ┌─┬─┐, separator ├─┼─┤, bottom └─┴─┘.

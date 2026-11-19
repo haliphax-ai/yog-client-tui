@@ -6,7 +6,7 @@
  * caller caches the result. The cell-level concerns (row splitting,
  * display breaks, rendered-width measurement) live in `cells.ts`.
  */
-import { cellLines, cellWidth, splitCells } from "./cells.ts";
+import { cellWidth, splitCells } from "./cells.ts";
 
 /** One column: its header text, computed width (in cells), and alignment. */
 export interface ParsedColumn {
