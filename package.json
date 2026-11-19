@@ -14,7 +14,8 @@
     "depcruise:graph": "dependency-cruiser src --output-type mermaid",
     "commitlint": "commitlint",
     "prepare": "husky || true",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "smoke:start": "node helpers/smoke-start.mjs"
   },
   "dependencies": {
     "@oakoliver/bubbles": "^1.2.2",
