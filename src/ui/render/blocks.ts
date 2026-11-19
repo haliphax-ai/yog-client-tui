@@ -5,7 +5,7 @@
 import { CHUNK_HEADER } from "../theme.ts";
 import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
 import { colorizeToolLine } from "./colorize.ts";
-import { resultPreview } from "./formatting.ts";
+import { resultPreview } from "./resultPreview.ts";
 import { chunkBlockStyle, toolBlockStyle } from "./entryStyle.ts";
 import type { EntryRender } from "./entryRender.ts";
 import type { LogEntry } from "../../core/entries.ts";
