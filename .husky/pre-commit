@@ -1,7 +1,14 @@
+#!/usr/bin/env sh
+set -e # every gate must pass — first failure aborts the commit
+
 # Staged-only mirror of CI (.github/workflows/ci.yml) via nano-staged:
 # oxfmt runs in write mode (no --check) so formatting is fixed in place.
 # CI additionally runs the checks repo-wide, not just staged files. The
 # qlty smells gate below diffs the changed files against origin/main.
 npx nano-staged
 npm run typecheck
+# Dependency rules run repo-wide (`src` + `test` — the config's paths), not
+# staged-only: cycles span files, so a per-file slice would miss them, and a
+# full cruise is what CI does anyway.
+npm run depcruise
 node .husky/scripts/qlty-smells.mts
