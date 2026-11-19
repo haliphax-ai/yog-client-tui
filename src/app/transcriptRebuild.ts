@@ -86,15 +86,28 @@ interface RehydrateJob {
 
 let pendingRehydrate: RehydrateJob | undefined;
 
-/** Start the job: the real entries for the dump, grouped bottom-up. */
+/** Start the job: the real entries for the dump, grouped bottom-up. The
+ *  logged positions are read off the CURRENT log — the placeholder for
+ *  transcript row i sits wherever it was seeded (after the startup notes),
+ *  never at index i. */
 export function stageRehydrate(dump: TranscriptResult): void {
   const transcriptEntries = toTranscriptEntries(dump.messages);
   const cols = termCols();
   pendingRehydrate = {
     groups: rehydrateGroups(transcriptEntries, cols, { turns: perTurnDeltas(dump.turns) }),
     indices: rehydrateGroupIndices(transcriptEntries),
-    logPos: transcriptEntries.map((_, i) => i),
+    logPos: placeholderPositions(getState().entries, transcriptEntries.length),
   };
+}
+
+/** The log position of each of the last `count` placeholder entries: the
+ *  seed appends them after the startup notes, in transcript order. */
+function placeholderPositions(log: readonly LogEntry[], count: number): number[] {
+  const positions: number[] = [];
+  for (let i = log.length - 1; i >= 0 && positions.length < count; i--) {
+    if (log[i]?.kind === "placeholder") positions.unshift(i);
+  }
+  return positions;
 }
 
 /** Drop any pending job (the caller is rebuilding the log its own way). */
@@ -139,7 +152,11 @@ export function driveRehydrate(): void {
   setTimeout(tick, 0);
 }
 
-/** One driver tick: swap one batch of groups, then reschedule or finish. */
+/** One driver tick: swap one batch of groups, commit the log, then
+ *  reschedule until the job drains. The commit is unconditional — the
+ *  subscribers (the render scheduler) must see every batch, and the
+ *  reschedule must happen no matter how fast the batch was: a fast batch
+ *  that "returns early" strands every placeholder it did not swap. */
 function tickRehydrate(job: RehydrateJob, driver: RehydrateDriver, tick: () => void): void {
   const log = getState().entries;
   if (log.length < driver.seededLength && driver.nextGroup >= 0) {
@@ -152,9 +169,7 @@ function tickRehydrate(job: RehydrateJob, driver: RehydrateDriver, tick: () => v
     pendingRehydrate = undefined;
     return;
   }
-  const started = performance.now();
   swapBatches(job, driver, log, 6);
-  if (performance.now() - started <= 8) return;
   setState({ entries: log });
   if (driver.nextGroup >= 0) setTimeout(tick, 0);
   else pendingRehydrate = undefined;
