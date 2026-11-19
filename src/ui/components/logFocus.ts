@@ -1,7 +1,7 @@
 /**
- * Focus-ring entry geometry for chat-log components: which focusable unit
- * the ring enters at when nothing is focused, picked from what is visible
- * in the viewport window.
+ * Focus-ring entry geometry for chat-log components: the focusable units
+ * (ui/focus.ts) and which one the ring enters at when nothing is focused,
+ * picked from what is visible in the viewport window.
  *
  * All helpers run on the cached height summary (`heightSummaryOf`) — the
  * same tops array the viewport slicing uses — so entry tops are strictly

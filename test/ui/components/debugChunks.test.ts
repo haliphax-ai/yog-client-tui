@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
 import { type FocusTarget } from "../../../src/core/focus.ts";
 import type { LogEntry } from "../../../src/core/entries.ts";
-import { focusUnits } from "../../../src/ui/render/index.ts";
+import { focusUnits } from "../../../src/ui/focus.ts";
 import { stripAnsi } from "../../../src/util/ansi.ts";
 
 class Log extends ChatLogComponent {}

@@ -5,7 +5,6 @@
 export {
   cachedRowData,
   cachedRows,
-  focusUnits,
   heightSummaryOf,
   heightSummaryAnchored,
   cheapHeight,
