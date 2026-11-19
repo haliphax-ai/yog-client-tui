@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   parseFrame,
   toEnvelope,
-  readSseStream,
   parseToolArgs,
   isUnreachable,
   unreachableError,
@@ -12,6 +11,18 @@ import {
   type TokenUsage,
   YogClient,
 } from "../src/yogClient.ts";
+import { readSseStream as readSseStreamRaw } from "../src/yogClient.ts";
+
+/** The decode step the read loop needs (same wrapper the client uses). */
+function decodeBlock(block: string): TurnEnvelope | undefined {
+  return toEnvelope(parseFrame(block) ?? { event: "", data: block });
+}
+function readSseStream2(
+  res: Response,
+  onEvent: (ev: TurnEnvelope) => void,
+): Promise<Error | undefined> {
+  return readSseStreamRaw(res, onEvent, decodeBlock);
+}
 
 /** Build a fetch-style Response whose body streams the given chunks. */
 function sseResponse(chunks: string[]): Response {
@@ -218,7 +229,7 @@ describe("readSseStream", () => {
       'event: message.delta\ndata: {"text":"a"}\n\n',
       'event: turn.finished\ndata: {"durationMs":12}\n\n',
     ]);
-    const err = await readSseStream(res, (ev) => events.push(ev));
+    const err = await readSseStream2(res, (ev) => events.push(ev));
     expect(err).toBeUndefined();
     expect(events).toEqual([
       { text: "a", type: "message.delta", data: { text: "a" } },
@@ -234,7 +245,7 @@ describe("readSseStream", () => {
       'xt":"split"}\n',
       '\nevent: turn.finished\ndata: {"durationMs":1}\n\n',
     ]);
-    const err = await readSseStream(res, (ev) => events.push(ev));
+    const err = await readSseStream2(res, (ev) => events.push(ev));
     expect(err).toBeUndefined();
     expect(events).toEqual([
       { text: "split", type: "message.delta", data: { text: "split" } },
@@ -245,7 +256,7 @@ describe("readSseStream", () => {
   it("flushes a trailing frame that was never terminated by a blank line", async () => {
     const events: TurnEnvelope[] = [];
     const res = sseResponse(['event: message.delta\ndata: {"text":"tail"}']);
-    const err = await readSseStream(res, (ev) => events.push(ev));
+    const err = await readSseStream2(res, (ev) => events.push(ev));
     expect(err).toBeUndefined();
     expect(events).toEqual([{ text: "tail", type: "message.delta", data: { text: "tail" } }]);
   });
@@ -253,14 +264,14 @@ describe("readSseStream", () => {
   it("drops trailing whitespace-only buffers without dispatching", async () => {
     const events: TurnEnvelope[] = [];
     const res = sseResponse(["\n\n", "   \n\n"]);
-    const err = await readSseStream(res, (ev) => events.push(ev));
+    const err = await readSseStream2(res, (ev) => events.push(ev));
     expect(err).toBeUndefined();
     expect(events).toEqual([]);
   });
 
   it("returns an error when the response has no body", async () => {
     const res = { body: null } as unknown as Response;
-    const err = await readSseStream(res, () => {});
+    const err = await readSseStream2(res, () => {});
     expect(err).toBeInstanceOf(Error);
     expect(err?.message).toBe("response has no body");
   });
@@ -269,7 +280,7 @@ describe("readSseStream", () => {
     const events: TurnEnvelope[] = [];
     const boom = new Error("socket reset");
     const res = failingResponse('event: message.delta\ndata: {"text":"ok"}\n\n', boom);
-    const err = await readSseStream(res, (ev) => events.push(ev));
+    const err = await readSseStream2(res, (ev) => events.push(ev));
     expect(events).toEqual([{ text: "ok", type: "message.delta", data: { text: "ok" } }]);
     expect(err).toBeInstanceOf(Error);
     expect(err?.message).toBe("socket reset");
@@ -277,7 +288,7 @@ describe("readSseStream", () => {
 
   it("coerces non-Error stream failures into an Error", async () => {
     const res = failingResponse("junk", "plain string failure");
-    const err = await readSseStream(res, () => {});
+    const err = await readSseStream2(res, () => {});
     expect(err).toBeInstanceOf(Error);
     expect(err?.message).toBe("plain string failure");
   });
@@ -1006,7 +1017,7 @@ describe("YogClient token usage", () => {
     const toolCalls: Array<{ id: string; name: string }> = [];
     const outcome = await client.runTurn("hello", "model-x", {
       onToolCall: (id, name) => toolCalls.push({ id, name }),
-      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta, resultTokens) =>
+      onToolResult: ({ id, usage, promptDelta, resultTokens }) =>
         calls.push({ id, usage, promptDelta, resultTokens }),
     });
     expect(outcome.ok).toBe(true);
@@ -1039,8 +1050,7 @@ describe("YogClient token usage", () => {
     client.sessionId = "s1";
     const calls: Array<{ id: string; usage?: TokenUsage; promptDelta?: number }> = [];
     await client.runTurn("hello", "model-x", {
-      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta) =>
-        calls.push({ id, usage, promptDelta }),
+      onToolResult: ({ id, usage, promptDelta }) => calls.push({ id, usage, promptDelta }),
     });
     expect(calls).toEqual([{ id: "c1", usage: undefined, promptDelta: undefined }]);
   });
@@ -1082,8 +1092,7 @@ describe("YogClient token usage", () => {
     client.sessionId = "s1";
     const calls: Array<{ id: string; usage?: TokenUsage; promptDelta?: number }> = [];
     const outcome = await client.runTurn("hello", "model-x", {
-      onToolResult: (id, _name, _ok, _result, _error, usage, promptDelta) =>
-        calls.push({ id, usage, promptDelta }),
+      onToolResult: ({ id, usage, promptDelta }) => calls.push({ id, usage, promptDelta }),
     });
     expect(outcome.recovered).toBe(true);
     expect(outcome.ok).toBe(true);

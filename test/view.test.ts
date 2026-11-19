@@ -696,7 +696,7 @@ describe("turn usage reaches the session status bar", () => {
     };
     turn.begin("hello");
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    turn.events.onToolResult?.({ id: "c1", name: "bash", ok: true, result: { exitCode: 0 } });
     turn.events.onFinish?.(321_000, undefined, {
       prompt_tokens: 1000,
       completion_tokens: 500,
@@ -775,9 +775,21 @@ describe("turn usage reaches the session status bar", () => {
     // each completed tool call's attributed completion tokens.
     // Both call lines exist before any result lands, so the tool-call counter
     // is already 2; what moves live is the 🪙 token stat.
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 40);
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0 },
+      promptDelta: 40,
+    });
     expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 2");
-    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 40);
+    turn.events.onToolResult?.({
+      id: "c2",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0 },
+      promptDelta: 40,
+    });
     expect(statusBody()).toBe("👤 m-1 ╱ 🔄 1  🔧 2  🪙 40 tok");
   });
 });
