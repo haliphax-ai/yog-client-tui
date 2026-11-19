@@ -40,6 +40,17 @@ jobs:
       - uses: haliphax-ai/yog-client-tui/.github@main
       - run: npm run depcruise
 
+  # The app can even load: `npm start` (tsx) must reach its own non-TTY
+  # guard — a clean stderr message + exit 1. Catches load-time regressions
+  # the other jobs are blind to (tsc/vitest run their own transpilers; a
+  # runtime transpiler may reject what they accept). See
+  # helpers/smoke-start.mjs for what it asserts.
+  startup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: haliphax-ai/yog-client-tui/.github@main
+      - run: npm run "smoke:start"
+
   oxlint:
     runs-on: ubuntu-latest
     steps:

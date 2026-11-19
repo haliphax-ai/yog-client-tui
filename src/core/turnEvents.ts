@@ -56,8 +56,11 @@ export function usageTokenParts(usage: TokenUsage | undefined): string[] {
 export class ProseStream {
   entry?: LogEntry;
   whole = "";
+  private readonly host: TurnHost;
 
-  constructor(private readonly host: TurnHost) {}
+  constructor(host: TurnHost) {
+    this.host = host;
+  }
 
   /** True when this prose entry is still the log tail (safe to extend). */
   private isTail(): boolean {
