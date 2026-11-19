@@ -185,7 +185,7 @@ export class ChatViewport extends ChatLogComponent {
   private reveal(): void {
     const before = this.scrollOffset;
     const followBefore = this.follow;
-    this.revealFocus(this.viewportHeight());
+    this.revealFocus();
     if (this.scrollOffset !== before || this.follow !== followBefore) this.commit();
   }
 
