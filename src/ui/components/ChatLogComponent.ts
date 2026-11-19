@@ -110,14 +110,30 @@ export abstract class ChatLogComponent extends ViewportComponent {
   }
 
   /**
-   * Keep the whole focused entry inside the viewport: above → align its top;
-   * below → bottom-align short entries, top-align tall ones (an entry taller
-   * than the viewport must never be scrolled at from its middle).
+   * Scroll the entry (or the focused table inside it) fully into view:
+   * above → align its top; below → bottom-align short blocks, top-align
+   * tall ones (a block taller than the viewport must never be scrolled
+   * at from its middle). `follow` breaks when the clamp moves anything.
    */
-  revealFocus(viewportRows: number): void {
+  private scrollBlockIntoView(top: number, height: number): void {
+    const rows = Math.max(1, this.effectiveViewportRows(this.cols));
+    if (top < this.scrollOffset) {
+      this.follow = false;
+      this.scrollOffset = top;
+    } else if (top + height > this.scrollOffset + rows) {
+      this.follow = false;
+      this.scrollOffset = Math.min(top, top + height - rows);
+    }
+  }
+
+  /**
+   * Keep the focused unit inside the viewport: the focused table when one
+   * is selected, otherwise the whole entry. Delegates to the shared
+   * scroll-block clamp; `follow` breaks when the clamp moves anything.
+   */
+  revealFocus(): void {
     const entry = this.focusTarget.entry;
     if (entry < 0 || entry >= this.entries.length) return;
-    const rows = Math.max(1, viewportRows);
     const { top, height } = entryBounds(this.entries, this.cols, entry);
 
     // When a table inside the entry is focused (not the entry itself),
@@ -128,34 +144,21 @@ export abstract class ChatLogComponent extends ViewportComponent {
     if (this.focusTarget.table >= 0) {
       const offsets = tableOffsetsOf(this.entries[entry] as LogEntry);
       if (offsets !== undefined && this.focusTarget.table < offsets.length) {
-        const toTerm = (logIdx: number): number => logIdx;
-        const tableTop = top + toTerm(offsets[this.focusTarget.table] ?? 0);
+        const tableOffset = offsets[this.focusTarget.table] ?? 0;
+        const nextOffset = offsets[this.focusTarget.table + 1];
+        const tableTop = top + tableOffset;
         const tableHeight = Math.max(
           1,
-          toTerm(
-            offsets[this.focusTarget.table + 1] ??
-              cachedRows(this.entries[entry] as LogEntry, this.cols).length,
-          ) - toTerm(offsets[this.focusTarget.table] ?? 0),
+          (nextOffset ?? cachedRows(this.entries[entry] as LogEntry, this.cols).length) -
+            tableOffset,
         );
-        if (tableTop < this.scrollOffset) {
-          this.follow = false;
-          this.scrollOffset = tableTop;
-        } else if (tableTop + tableHeight > this.scrollOffset + rows) {
-          this.follow = false;
-          this.scrollOffset = Math.min(tableTop, tableTop + tableHeight - rows);
-        }
+        this.scrollBlockIntoView(tableTop, tableHeight);
         return;
       }
     }
 
     // Entry-level focus (no table): scroll the whole entry into view.
-    if (top < this.scrollOffset) {
-      this.follow = false;
-      this.scrollOffset = top;
-    } else if (top + height > this.scrollOffset + rows) {
-      this.follow = false;
-      this.scrollOffset = Math.min(top, top + height - rows);
-    }
+    this.scrollBlockIntoView(top, height);
   }
 
   // -- collapse / expand ---------------------------------------------------
@@ -202,12 +205,6 @@ export abstract class ChatLogComponent extends ViewportComponent {
     }
     return rows;
   }
-  /**
-   * Efficient window producer: renders only the entries intersecting
-   * [top, bottom) instead of the whole log. Locates the first entry via the
-   * cached height summary (binary search), then walks forward with per-entry
-   * cached rows — visible-only rendering regardless of log size.
-   */
   /**
    * Anchor-outward window producer (#67): the entry closest to the top of
    * the viewport renders first. The anchor is the entry containing `top`
