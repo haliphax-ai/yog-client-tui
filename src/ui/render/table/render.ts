@@ -24,6 +24,50 @@ export interface TableMargin {
 /** Default margins: both sides kept. */
 const FULL_MARGIN: TableMargin = { top: true, bottom: true };
 
+/** The border-rune geometry of one table row: the vertical border, the
+ *  horizontal run, and the six joints (corners, side tees, crosses). */
+interface BorderRunes {
+  v: string;
+  h: string;
+  tl: string;
+  tr: string;
+  ml: string;
+  mr: string;
+  bl: string;
+  br: string;
+  cross: string;
+  tCross: string;
+  bCross: string;
+}
+
+/**
+ * The border runes for one render: focused borders carry the focus blue
+ * WITHOUT a trailing reset — a reset inside a zebra-striped row would
+ * punch a hole in the zebra background (the row is wrapped in
+ * `ST.tableZebra.render()` below, and each border rune's `ESC[0m` would
+ * override the bg it just set). Unfocused borders carry an explicit white
+ * fg so the border is always white regardless of stale SGR state from a
+ * previously-focused table rendered above — bare runes would inherit the
+ * terminal's current fg, which may still be blue.
+ */
+function borderRunes(focused: boolean): BorderRunes {
+  const style = focused ? ST.tableBorderFocused : ST.tableBorderUnfocused;
+  const rune = (r: string): string => style.render(r).replace(/\x1b\[0?m$/, "");
+  return {
+    v: rune("│"),
+    h: rune("─"),
+    tl: rune("┌"),
+    tr: rune("┐"),
+    ml: rune("├"),
+    mr: rune("┤"),
+    bl: rune("└"),
+    br: rune("┘"),
+    cross: rune("┼"),
+    tCross: rune("┬"),
+    bCross: rune("┴"),
+  };
+}
+
 /** True when any line looks like a list item (bullet or ordered marker). */
 function looksLikeList(lines: string[]): boolean {
   return lines.some((l) => /^\s*(?:[-*+]|\d{1,9}[.)])\s/.test(l));
@@ -100,23 +144,55 @@ function backgroundSafe(text: string): string {
   );
 }
 
+/** The aligned body of one padded cell line (the one-cell side padding is
+ *  added by the caller). */
+function alignedBody(safe: string, pad: number, align: "left" | "center" | "right"): string {
+  if (align === "right") return " ".repeat(pad) + safe;
+  if (align === "center") {
+    const left = Math.floor(pad / 2);
+    return " ".repeat(left) + safe + " ".repeat(pad - left);
+  }
+  return safe + " ".repeat(pad);
+}
+
 /**
- * Render a parsed table as styled rows.
+ * Pad ONE RENDERED physical line of a cell to `width` display cells,
+ * honoring the cell's alignment on EVERY line (GFM centers blocks, not
+ * just their first line). `text` arrives already glamour-styled and
+ * background-safe; padding is measured against its visible width so
+ * markdown markers (which glamour consumed) never inflate it. Pad spaces
+ * land inside the outer style so the zebra/selected background covers them.
+ */
+function padCellLineOf(text: string, width: number, align: "left" | "center" | "right"): string {
+  const safe = backgroundSafe(text);
+  const pad = Math.max(0, width - displayWidth(stripAnsi(text)));
+  return ` ${alignedBody(safe, pad, align)} `;
+}
+
+export interface RenderOptions {
+  /** True when the table is the focus target (focused border + zebra). */
+  focused?: boolean;
+  /** Horizontal scroll offset, in cells. */
+  scrollX?: number;
+  /** Top/bottom margins (dropped at a sequence edge). */
+  margin?: TableMargin;
+  /** Pane widths from the layout engine; default: the table's own. */
+  widths?: readonly number[];
+}
+
+/**
+ * Render a parsed table as styled rows at `cols` cells wide.
  *
- * `widths` are the pane widths from the layout engine; the row may be
- * wider than `cols` when the table is expanded — the overflow is what
- * horizontal scroll reveals.
- *
- * `scrollX` shifts the rendered content left by that many cells.
+ * The row may be wider than `cols` when the table is expanded — the
+ * overflow is what horizontal scroll reveals; `options.scrollX` shifts the
+ * rendered content left by that many cells.
  */
 export function renderTable(
   table: ParsedTable,
   cols: number,
-  focused = false,
-  scrollX = 0,
-  margin: TableMargin = FULL_MARGIN,
-  widths?: readonly number[],
+  options: RenderOptions = {},
 ): string[] {
+  const { focused = false, scrollX = 0, margin = FULL_MARGIN, widths } = options;
   // Column widths: the caller's resolved layout when given (the entry
   // renderer derives them from resolveTableLayout — expansion may push the
   // row past `cols`, which is the point), else the table's own widths.
@@ -127,78 +203,58 @@ export function renderTable(
   // the (n+1) border runes (corners + one between every cell pair).
   const totalWidth = tableRowWidth(colWidths);
 
-  // When focused, border runes carry the blue fg WITHOUT a trailing reset —
-  // a reset inside a zebra-striped row would punch a hole in the zebra
-  // background (the row is wrapped in ST.tableZebra.render() below, and
-  // each border rune's \x1b[0m would override the bg it just set).
-  // Unfocused border runes carry an explicit white fg so the border is
-  // always white regardless of stale SGR state from a previously-focused
-  // table rendered above. Bare runes would inherit the terminal's
-  // current fg, which may still be blue.
-  const whiteRune = (rune: string): string =>
-    // eslint-disable-next-line no-control-regex
-    ST.tableBorderUnfocused.render(rune).replace(/\x1b\[0?m$/, "");
-  const border = focused
-    ? // eslint-disable-next-line no-control-regex
-      ST.tableBorderFocused.render("│").replace(/\x1b\[0?m$/, "")
-    : whiteRune("│");
-  const hBorder = focused
-    ? // eslint-disable-next-line no-control-regex
-      ST.tableBorderFocused.render("─").replace(/\x1b\[0?m$/, "")
-    : whiteRune("─");
-  // eslint-disable-next-line no-control-regex
-  const tl = focused ? ST.tableBorderFocused.render("┌").replace(/\x1b\[0?m$/, "") : whiteRune("┌");
-  // eslint-disable-next-line no-control-regex
-  const tr = focused ? ST.tableBorderFocused.render("┐").replace(/\x1b\[0?m$/, "") : whiteRune("┐");
-  // eslint-disable-next-line no-control-regex
-  const ml = focused ? ST.tableBorderFocused.render("├").replace(/\x1b\[0?m$/, "") : whiteRune("├");
-  // eslint-disable-next-line no-control-regex
-  const mr = focused ? ST.tableBorderFocused.render("┤").replace(/\x1b\[0?m$/, "") : whiteRune("┤");
-  // eslint-disable-next-line no-control-regex
-  const bl = focused ? ST.tableBorderFocused.render("└").replace(/\x1b\[0?m$/, "") : whiteRune("└");
-  // eslint-disable-next-line no-control-regex
-  const br = focused ? ST.tableBorderFocused.render("┘").replace(/\x1b\[0?m$/, "") : whiteRune("┘");
-  const cross = focused
-    ? // eslint-disable-next-line no-control-regex
-      ST.tableBorderFocused.render("┼").replace(/\x1b\[0?m$/, "")
-    : whiteRune("┼");
-  const tCross = focused
-    ? // eslint-disable-next-line no-control-regex
-      ST.tableBorderFocused.render("┬").replace(/\x1b\[0?m$/, "")
-    : whiteRune("┬");
-  const bCross = focused
-    ? // eslint-disable-next-line no-control-regex
-      ST.tableBorderFocused.render("┴").replace(/\x1b\[0?m$/, "")
-    : whiteRune("┴");
+  const {
+    v: border,
+    h: hBorder,
+    tl,
+    tr,
+    ml,
+    mr,
+    bl,
+    br,
+    cross,
+    tCross,
+    bCross,
+  } = borderRunes(focused);
 
-  // Pad ONE RENDERED physical line of a cell to `width` display cells,
-  // honoring the cell's alignment on EVERY line (GFM centers blocks, not
-  // just their first line). `text` arrives already glamour-styled and
-  // background-safe; padding is measured against its visible width so
-  // markdown markers (which glamour consumed) never inflate it. Pad spaces
-  // land inside the outer style so the zebra/selected background covers them.
-  const padCellLine = (text: string, width: number, align: "left" | "center" | "right"): string => {
-    const safe = backgroundSafe(text);
-    const dw = displayWidth(stripAnsi(text));
-    const pad = Math.max(0, width - dw);
-    let body: string;
-    switch (align) {
-      case "right":
-        body = " ".repeat(pad) + safe;
-        break;
-      case "center": {
-        const left = Math.floor(pad / 2);
-        const right = pad - left;
-        body = " ".repeat(left) + safe + " ".repeat(right);
-        break;
-      }
-      default:
-        body = safe + " ".repeat(pad);
-    }
-    return ` ${body} `;
-  };
+  const padCellLine = padCellLineOf;
+  return assembleRows(table, {
+    w,
+    totalWidth,
+    border,
+    hBorder,
+    runes: { tl, tr, ml, mr, bl, br, cross, tCross, bCross },
+    focused,
+    scrollX,
+    margin,
+  });
+}
 
-  const row = (cells: string[]): string => border + cells.join(border) + border;
+/** One rendered table row: `│ cell │ cell │`. */
+function dataRow(cells: string[], border: string): string {
+  return border + cells.join(border) + border;
+}
+
+/**
+ * Assemble the table's rows: top margin/border, the bold header block, its
+ * separator, the zebra-striped data rows (dividers BETWEEN rows, never
+ * inside one), the bottom border, and the bottom margin.
+ */
+/** The shared drawing surface the row assemblers need: column widths,
+ *  the border runes, and the scroll/focus state. */
+interface Frame {
+  w: number[];
+  totalWidth: number;
+  border: string;
+  hBorder: string;
+  runes: Omit<BorderRunes, "v" | "h">;
+  focused: boolean;
+  scrollX: number;
+  margin: TableMargin;
+}
+
+function assembleRows(table: ParsedTable, frame: Frame): string[] {
+  const { w, totalWidth, border, hBorder, runes, focused, scrollX, margin } = frame;
 
   // Horizontal rule: left corner, interior cross between segments, right corner.
   // Top border ┌─┬─┐, separator ├─┼─┤, bottom └─┴─┘.
@@ -222,37 +278,62 @@ export function renderTable(
   if (margin.top) rows.push("");
 
   // Top border.
-  rows.push(applyScroll(hr(tl, tCross, tr)));
+  rows.push(applyScroll(hr(runes.tl, runes.tCross, runes.tr)));
+  pushHeader(rows, table, { frame, hr, applyScroll });
+  pushDataRows(rows, table, { frame, hr, applyScroll });
 
-  // Header: bold, left-aligned (alignment is a data-row concern; headers are
-  // always left-padded to match the column's content). Each break-line
-  // renders through glamour (may yield several physical lines when the
-  // capped column wraps it).
+  // Bottom border.
+  rows.push(applyScroll(hr(runes.bl, runes.bCross, runes.br)));
+
+  // Bottom margin (skipped when the table closes the sequence).
+  if (margin.bottom) rows.push("");
+
+  return rows;
+}
+
+/** One row painter: where the finished rows land, plus the horizontal-rule
+ *  and scroll helpers that share the frame's geometry. */
+interface Painter {
+  frame: Frame;
+  hr(left: string, mid: string, right: string): string;
+  applyScroll(line: string): string;
+}
+
+/** Header block: bold, left-aligned (alignment is a data-row concern;
+ *  headers are always left-padded to match the column's content). Each
+ *  break-line renders through glamour (may yield several physical lines
+ *  when the capped column wraps it), then the header separator. */
+function pushHeader(rows: string[], table: ParsedTable, paint: Painter): void {
+  const { w, border, runes } = paint.frame;
   const headerStyle = ST.assistant;
   const headerCells = table.columns.map((c, i) =>
     styleCell(c.title, w[i]!).map((rl) =>
-      headerStyle.bold(true).render(padCellLine(rl, w[i]!, "left")),
+      headerStyle.bold(true).render(padCellLineOf(rl, w[i]!, "left")),
     ),
   );
   const headerHeight = Math.max(...headerCells.map((c) => c.length));
   for (let hl = 0; hl < headerHeight; hl++) {
     // Short cells fill their missing lines with blank padded cells so the
     // dividers stay aligned (a bare "" would collapse the cell entirely).
-    rows.push(applyScroll(row(headerCells.map((c, i) => c[hl] ?? padCellLine("", w[i]!, "left")))));
+    const cells = headerCells.map((c, i) => c[hl] ?? padCellLineOf("", w[i]!, "left"));
+    rows.push(paint.applyScroll(dataRow(cells, border)));
   }
 
   // Header separator.
-  rows.push(applyScroll(hr(ml, cross, mr)));
+  rows.push(paint.applyScroll(paint.hr(runes.ml, runes.cross, runes.mr)));
+}
 
-  // Data rows: zebra-striped background. Display breaks inside a cell (<br>)
-  // emit one physical line per break; stripes apply per LOGICAL row, so
-  // every physical line of one row shares its background. Scroll is applied
-  // BEFORE styling: slice the unstyled line, then wrap the result in the
-  // zebra style so the escape sequence is never cut.
+/** Data rows: zebra-striped background. Display breaks inside a cell (<br>)
+ *  emit one physical line per break; stripes apply per LOGICAL row, so every
+ *  physical line of one row shares its background. Scroll is applied BEFORE
+ *  styling: slice the unstyled line, then wrap the result in the zebra style
+ *  so the escape sequence is never cut. */
+function pushDataRows(rows: string[], table: ParsedTable, paint: Painter): void {
+  const { w, border, runes, focused } = paint.frame;
   for (let r = 0; r < table.rows.length; r++) {
     const src = table.rows[r]!;
     const cellLinesArr = src.map((c, i) =>
-      styleCell(c ?? "", w[i]!).map((rl) => padCellLine(rl, w[i]!, table.columns[i]!.align)),
+      styleCell(c ?? "", w[i]!).map((rl) => padCellLineOf(rl, w[i]!, table.columns[i]!.align)),
     );
     const rowHeight = Math.max(...cellLinesArr.map((c) => c.length));
     // Focus paints the blue THROUGH the zebra: a focused table's even rows
@@ -264,25 +345,17 @@ export function renderTable(
     for (let sl = 0; sl < rowHeight; sl++) {
       // Short cells fill their missing lines with blank padded cells so the
       // dividers stay aligned (a bare "" would collapse the cell entirely).
-      const line = row(cellLinesArr.map((c, i) => c[sl] ?? padCellLine("", w[i]!, "left")));
+      const cells = cellLinesArr.map((c, i) => c[sl] ?? padCellLineOf("", w[i]!, "left"));
       // Cell-accurate pad-back: padEnd counts characters (escape bytes
       // included), so a sliced line bearing SGR/OSC runs would pad short.
-      const scrolled = applyScroll(line);
+      const scrolled = paint.applyScroll(dataRow(cells, border));
       rows.push(style ? style.render(scrolled) : scrolled);
     }
     // Divider between data rows (after the WHOLE logical row, never inside
     // a multi-line row): same runes as the header separator, and never
     // zebra striped — striping is for content rows only.
     if (r < table.rows.length - 1) {
-      rows.push(applyScroll(hr(ml, cross, mr)));
+      rows.push(paint.applyScroll(paint.hr(runes.ml, runes.cross, runes.mr)));
     }
   }
-
-  // Bottom border.
-  rows.push(applyScroll(hr(bl, bCross, br)));
-
-  // Bottom margin (skipped when the table closes the sequence).
-  if (margin.bottom) rows.push("");
-
-  return rows;
 }
