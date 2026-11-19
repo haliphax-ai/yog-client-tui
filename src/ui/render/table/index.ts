@@ -5,14 +5,15 @@
  * The concerns live in separate modules so each can be read (and changed)
  * on its own:
  *
+ *   cells.ts      — cell text: row splitting, display breaks, widths
  *   parse.ts      — GFM pipe-table parsing and prose/table splitting
  *   layout.ts     — how wide each pane renders, and expandability
  *   waterFill.ts  — the even, content-capped division of the pane budget
  *   render.ts     — borders, header, zebra rows, margins
  *   scroll.ts     — horizontal scroll steps
  */
+export { cellLines, cellWidth, splitCells } from "./cells.ts";
 export {
-  cellLines,
   parseTable,
   paragraphGroups,
   splitTableSections,
