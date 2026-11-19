@@ -40,33 +40,50 @@ describe("GeneratingComponent", () => {
     expect(row).not.toContain("48;2;63;63;70"); // no status-bar backing
   });
 
-  it("advances through the Dot frames on the preset fps timer", () => {
+  it("advances through the Dot frames while the flag holds busy", () => {
     const gen = new GeneratingComponent();
     setState({ busy: true });
-    gen.start();
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣾ generating");
     vi.advanceTimersByTime(100);
+    // The tick fired off the render-armed timer; the next render re-arms.
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣽ generating");
     vi.advanceTimersByTime(100);
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣻ generating");
     // Wrap around the 8 Dot frames back to the start.
     vi.advanceTimersByTime(100 * 6);
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣾ generating");
-    gen.stop();
   });
 
-  it("start is idempotent and stop halts advancement", () => {
+  it("advancing does not double-tick (the armed timer is reused)", () => {
     const gen = new GeneratingComponent();
     setState({ busy: true });
-    gen.start();
-    gen.start();
+    gen.render({ cols: 80 });
+    gen.render({ cols: 80 });
     vi.advanceTimersByTime(100);
     // A doubled timer would advance twice per tick.
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣽ generating");
-    gen.stop();
-    gen.stop();
-    vi.advanceTimersByTime(100 * 4);
+    // Resume: idle edge stops the timer, the next busy edge re-arms it.
+    setState({ busy: false });
+    expect(gen.render({ cols: 80 })).toEqual([]);
+    setState({ busy: true });
+    vi.advanceTimersByTime(100);
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣽ generating");
+  });
+
+  it("idle render disarms the tick timer (the flag is the stop)", () => {
+    const gen = new GeneratingComponent();
+    setState({ busy: true });
+    gen.render({ cols: 80 });
+    setState({ busy: false });
+    let pokes = 0;
+    const unsub = subscribe(() => {
+      pokes += 1;
+    });
+    expect(gen.render({ cols: 80 })).toEqual([]);
+    vi.advanceTimersByTime(100 * 4);
+    // No timer survived the idle edge: nothing pokes, no leaked interval.
+    expect(pokes).toBe(0);
+    unsub();
   });
 
   it("pokes the store on each tick so the scheduler redraws", () => {
@@ -76,10 +93,9 @@ describe("GeneratingComponent", () => {
     const unsub = subscribe(() => {
       pokes += 1;
     });
-    gen.start();
+    gen.render({ cols: 80 }); // the busy render arms the timer
     vi.advanceTimersByTime(100);
     expect(pokes).toBeGreaterThan(0);
-    gen.stop();
     unsub();
   });
 

@@ -92,7 +92,7 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
   const toast = new ToastComponent();
   registerDrawerChild(generating);
   registerDrawerChild(toast);
-  const spinner = spinnerHooks(generating);
+  const spinner = spinnerHooks();
   // Top-level focus ring: the log and the input are the two ring targets.
   viewport.ring = "log";
   input.ring = "input";
@@ -170,21 +170,18 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
   };
 }
 
-/** The busy-spinner pair: the generating component's timer and the store's
- *  `busy` flag are flipped together (the composition root owns both). */
-function spinnerHooks(generating: GeneratingComponent): {
-  start(): void;
-  stop(): void;
-} {
+/** The busy-spinner pair: the composition root flips the store's `busy`
+ *  flag through these hooks, and the generating component feeds off the
+ *  flag itself: while `busy`, its render runs and it owns a tick timer
+ *  (armed/disarmed on the flag edge); while idle, it stops ticking and
+ *  renders nothing. The component no longer depends on a paired stop call
+ *  — the flag alone drives it, so a dropped `stop` cannot leave the
+ *  spinner frozen on its last frame.
+ */
+function spinnerHooks(): { start(): void; stop(): void } {
   return {
-    start: (): void => {
-      setState({ busy: true });
-      generating.start();
-    },
-    stop: (): void => {
-      setState({ busy: false });
-      generating.stop();
-    },
+    start: (): void => setState({ busy: true }),
+    stop: (): void => setState({ busy: false }),
   };
 }
 
