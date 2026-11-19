@@ -7,7 +7,8 @@
  */
 import { displayWidth, scrollLeft, stripAnsi, wrapText } from "../../../util/ansi.ts";
 import { ST } from "../../theme.ts";
-import { hangWrapRows, renderInlineMarkdown } from "../markdown.ts";
+import { hangWrapRows } from "../listRows.ts";
+import { renderInlineMarkdown } from "../markdown.ts";
 import { cellLines } from "./cells.ts";
 import type { ParsedTable } from "./parse.ts";
 import { tableRowWidth } from "./layout.ts";

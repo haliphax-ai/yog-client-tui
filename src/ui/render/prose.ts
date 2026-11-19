@@ -8,7 +8,9 @@
  * no render-module cycle exists. The SGR flattening for the prompt bubble
  * lives in sgr.ts ({@link flattenRow}).
  */
-import { hangWrapRows, mdRender, normalizeLines } from "./markdown.ts";
+import { mdRender } from "./markdown.ts";
+import { normalizeLines } from "./normalize.ts";
+import { hangWrapRows } from "./listRows.ts";
 import { paragraphGroups, type ParagraphGroup } from "./table/parse.ts";
 import { wrapText } from "../../util/ansi.ts";
 import { flattenRow } from "./sgr.ts";
