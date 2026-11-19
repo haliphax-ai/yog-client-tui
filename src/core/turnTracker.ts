@@ -32,11 +32,16 @@ export function usageTotal(usage: TokenUsage | undefined): number {
 export class TurnTracker {
   private active: number | null = null;
   private callCount = 0;
+  private readonly metrics: ReadonlyMap<number, TranscriptTurnMetrics>;
+  private readonly sink: (entry: LogEntry) => void;
 
   constructor(
-    private readonly metrics: ReadonlyMap<number, TranscriptTurnMetrics>,
-    private readonly sink: (entry: LogEntry) => void,
-  ) {}
+    metrics: ReadonlyMap<number, TranscriptTurnMetrics>,
+    sink: (entry: LogEntry) => void,
+  ) {
+    this.metrics = metrics;
+    this.sink = sink;
+  }
 
   /** Cross a row boundary: flush the previous turn when `nextTurnId` differs. */
   cross(nextTurnId: number | null): void {
