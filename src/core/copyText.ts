@@ -71,23 +71,35 @@ function bashArgsProvider(payload: unknown): string | null {
  * a YAML front-matter runtime line, then `## stdout` / `## stderr`
  * sections. Declines when there is no runtime/exit fact to show.
  */
-function bashResultsProvider(payload: unknown): string | null {
-  const obj = payloadObject(payload);
-  if (obj === undefined) return null;
+/** One bash result output section (`## stdout` / `## stderr`); empty text
+ *  sections are skipped. */
+function resultSection(field: "stdout" | "stderr", value: unknown): string[] {
+  if (typeof value !== "string" || value === "") return [];
+  return [`## ${field}`, "", value.replace(/\n$/, ""), ""];
+}
+
+/** The YAML front-matter facts line: runtime/exit, when the payload has them. */
+function factsLine(obj: Record<string, unknown>): string | null {
   const runtime = numberField(obj, "runtimeMs") ?? numberField(obj, "runtime");
   const exit = numberField(obj, "exitCode");
   if (runtime === undefined && exit === undefined) return null;
   const facts: string[] = [];
   if (runtime !== undefined) facts.push(`runtime: ${runtime}ms`);
   if (exit !== undefined) facts.push(`exit code: ${exit}`);
-  const sections: string[] = [];
-  for (const field of ["stdout", "stderr"] as const) {
-    const value = obj[field];
-    if (typeof value !== "string" || value === "") continue;
-    sections.push(`## ${field}`, "", value.replace(/\n$/, ""), "");
-  }
+  return facts.join("\n");
+}
+
+function bashResultsProvider(payload: unknown): string | null {
+  const obj = payloadObject(payload);
+  if (obj === undefined) return null;
+  const facts = factsLine(obj);
+  if (facts === null) return null;
+  const sections = [
+    ...resultSection("stdout", obj["stdout"]),
+    ...resultSection("stderr", obj["stderr"]),
+  ];
   if (sections.length === 0) return null;
-  return `---\n${facts.join("\n")}\n---\n\n${sections.join("\n").trimEnd()}\n`;
+  return `---\n${facts}\n---\n\n${sections.join("\n").trimEnd()}\n`;
 }
 
 /**
@@ -134,16 +146,19 @@ export function entryCopyText(entry: LogEntry): string {
  * entry copies its own raw Markdown (one item, same thing); anything
  * else declines (null — nothing to whole-copy).
  */
+/** The entry's stamped whole-message text, or undefined when unstamped. */
+function stampedWholeOf(entry: LogEntry): string | undefined {
+  const whole = entry.copyIds?.wholeMessage;
+  return typeof whole === "string" && whole !== "" ? whole : undefined;
+}
+
 export function wholeMessageCopyText(entry: LogEntry): string | null {
   if (entry.kind === "user") return entryCopyText(entry);
   if (entry.kind !== "assistant") return null;
   // The whole-message stamp rides the LAST prose chunk of a logical
   // message (live) / run (rehydrate). A chunk BEFORE the tail carries no
   // stamp — resolve it by scanning the run in the store.
-  if (typeof entry.copyIds?.wholeMessage === "string" && entry.copyIds.wholeMessage !== "") {
-    return entry.copyIds.wholeMessage;
-  }
-  return proseWholeFromStore(entry);
+  return stampedWholeOf(entry) ?? proseWholeFromStore(entry);
 }
 
 /**
@@ -152,23 +167,30 @@ export function wholeMessageCopyText(entry: LogEntry): string | null {
  * assistant rows between tool calls), then forward to the run's stamped
  * tail. Pure read — no rebuild, no stamping here.
  */
+/** The first assistant chunk of the run `entry` belongs to: consecutive
+ *  assistant rows between tool calls. */
+function runStartOf(entries: LogEntry[], at: number): number {
+  let start = at;
+  while (start > 0 && entries[start - 1]?.kind === "assistant") start -= 1;
+  return start;
+}
+
+/** The stamped whole-message text of the run that starts at `start`:
+ *  the first chunk in the run carrying a stamp. */
+function stampedTailOf(entries: LogEntry[], start: number): string | null {
+  for (const e of entries.slice(start)) {
+    if (e.kind !== "assistant") break;
+    const whole = stampedWholeOf(e);
+    if (whole !== undefined) return whole;
+  }
+  return null;
+}
+
 function proseWholeFromStore(entry: LogEntry): string | null {
   const entries = getState().entries;
   const at = entries.indexOf(entry);
   if (at < 0) return null;
-  let start = at;
-  while (start > 0) {
-    const prev = entries[start - 1] as LogEntry | undefined;
-    if (prev === undefined || prev.kind !== "assistant") break;
-    start -= 1;
-  }
-  for (let i = start; i < entries.length; i++) {
-    const e = entries[i] as LogEntry | undefined;
-    if (e === undefined || e.kind !== "assistant") break;
-    const whole = e.copyIds?.wholeMessage;
-    if (typeof whole === "string" && whole !== "") return whole;
-  }
-  return null;
+  return stampedTailOf(entries, runStartOf(entries, at));
 }
 
 /**
@@ -178,14 +200,26 @@ function proseWholeFromStore(entry: LogEntry): string | null {
  * output re-parses to the same table; multi-line cells (<br> display
  * breaks) flatten to spaces — a pipe row must stay one line.
  */
+/** A cell's literal text: escaped pipes, flattened display breaks. */
+function cellText(cell: string): string {
+  return cell.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
+}
+
+/** One GFM row: `| a | b |`. */
+function markdownRow(cells: string[]): string {
+  return `| ${cells.map(cellText).join(" | ")} |`;
+}
+
+/** The delimiter row's alignment token for one column. */
+function alignToken(align: "left" | "center" | "right"): string {
+  if (align === "center") return ":---:";
+  return align === "right" ? "---:" : "---";
+}
+
 export function tableMarkdown(table: ParsedTable): string {
-  const escape = (cell: string): string => cell.replace(/\|/g, "\\|").replace(/\s*\n\s*/g, " ");
-  const row = (cells: string[]): string => `| ${cells.map(escape).join(" | ")} |`;
-  const align = (a: "left" | "center" | "right"): string =>
-    a === "center" ? ":---:" : a === "right" ? "---:" : "---";
   const head = table.columns.map((c) => c.title);
-  const delim = table.columns.map((c) => align(c.align));
-  return [row(head), row(delim), ...table.rows.map(row)].join("\n");
+  const delim = table.columns.map((c) => alignToken(c.align));
+  return [markdownRow(head), markdownRow(delim), ...table.rows.map(markdownRow)].join("\n");
 }
 /** The copy request for one table of a prose entry: the TABLE is the
  *  copy unit — its re-serialized raw Markdown, identified as the
@@ -205,7 +239,7 @@ export function tableCopyRequest(
   if (id === undefined) return null;
   return {
     content: tableMarkdown(table),
-    itemId: `${sessionId === undefined ? "" : `${sessionId}_`}${id}_${tableIndex}`,
+    itemId: `${qualifiedItemId(id, sessionId)}_${tableIndex}`,
     provided: true,
   };
 }
@@ -222,6 +256,11 @@ export interface CopyRequest {
 /** The item id of a focused entry, or undefined when it has none. */
 export function copyItemId(entry: LogEntry): string | undefined {
   return entry.copyIds?.itemId;
+}
+
+/** `<session id>_<item id>` (the bare item id when no session is known). */
+function qualifiedItemId(id: string, sessionId: string | undefined): string {
+  return sessionId === undefined ? id : `${sessionId}_${id}`;
 }
 
 /** The sink surface the viewport calls: the composition root wires
@@ -253,19 +292,23 @@ export function toolCopyRequest(
 ): CopyRequest | null {
   const id = copyItemId(entry);
   if (id === undefined) return null;
-  const providers = upper ? undefined : copyProvidersFor(entryToolName(entry));
-  const provider =
-    providers === undefined
-      ? undefined
-      : entry.kind === "tool"
-        ? providers.args
-        : providers.results;
+  const provider = providerFor(entry, upper);
   const provided = provider === undefined ? null : provider(copySourceOf(entry));
   return {
     content: provided ?? universalJsonCopy(entry),
-    itemId: sessionId === undefined ? id : `${sessionId}_${id}`,
+    itemId: qualifiedItemId(id, sessionId),
     provided: provided !== null,
   };
+}
+
+/** The tool's copy provider for this entry: the args provider on the call
+ *  entry, the results provider on its result rows; none on Shift (the
+ *  whole-call JSON wins, mirroring prose's whole-message copy). */
+function providerFor(entry: LogEntry, upper: boolean): CopyProvider | undefined {
+  if (upper) return undefined;
+  const providers = copyProvidersFor(entryToolName(entry));
+  if (providers === undefined) return undefined;
+  return entry.kind === "tool" ? providers.args : providers.results;
 }
 
 /** The copy request for `C` / `Shift+C` on a prose entry, or null. */
@@ -278,11 +321,7 @@ export function proseCopyRequest(
   if (id === undefined) return null;
   const content = upper ? wholeMessageCopyText(entry) : entryCopyText(entry);
   if (content === null || content === "") return null;
-  return {
-    content,
-    itemId: sessionId === undefined ? id : `${sessionId}_${id}`,
-    provided: true,
-  };
+  return { content, itemId: qualifiedItemId(id, sessionId), provided: true };
 }
 
 /** The tool name of a tool entry (registry key). Call lines and generic
@@ -290,11 +329,15 @@ export function proseCopyRequest(
  *  to the END), so the tool name is the second token; result chunks have
  *  no label — their header's first token IS the tool name
  *  (`bash → exit 0 · 42ms`), the same name the builders wrote. */
+/** The emoji labels the builders prepend to call lines and generic
+ *  results (the tool name follows them). */
+const LABEL_RUNES: ReadonlySet<string> = new Set(["⚙️", "🔚"]);
+
 function entryToolName(entry: LogEntry): string {
   const head = entry.label ?? entry.lines[0] ?? "";
-  const parts = head.split(" ");
-  if (parts[0] === "⚙️" || parts[0] === "🔚") return (parts[1] as string) ?? "tool";
-  if (entry.kind === "chunk" && parts[0] !== "") return parts[0] as string;
+  const [first, second] = head.split(" ");
+  if (first !== undefined && LABEL_RUNES.has(first)) return second ?? "tool";
+  if (entry.kind === "chunk" && first !== "") return (first as string) ?? "tool";
   return "tool";
 }
 
