@@ -195,7 +195,12 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "out\n" });
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "out\n" },
+    });
     const call = entries.find((e) => e.kind === "tool");
     expect(call?.label).toBe("⚙️ bash ✅");
     const chunk = entries.find((e) => e.kind === "chunk");
@@ -205,9 +210,14 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "noop", parseToolArgs("{}"));
-    turn.events.onToolResult?.("c1", "noop", true, {
-      note: "did nothing",
-      runtimeMs: 42,
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "noop",
+      ok: true,
+      result: {
+        note: "did nothing",
+        runtimeMs: 42,
+      },
     });
     const callIdx = entries.findIndex((e) => e.kind === "tool");
     expect(entries[callIdx + 1]?.kind).toBe("toolResult");
@@ -272,7 +282,7 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    turn.events.onToolResult?.({ id: "c1", name: "bash", ok: true, result: { exitCode: 0 } });
     turn.events.onAborted?.("turn aborted by operator", {
       prompt_tokens: 1000,
       completion_tokens: 500,
@@ -358,9 +368,9 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    turn.events.onToolResult?.({ id: "c1", name: "bash", ok: true, result: { exitCode: 0 } });
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 });
+    turn.events.onToolResult?.({ id: "c2", name: "bash", ok: true, result: { exitCode: 0 } });
     turn.events.onFinish?.(321_000, undefined);
     expect(entries.at(-1)).toEqual({
       kind: "status",
@@ -372,7 +382,7 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const first = createTurnPresenter(host);
     first.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    first.events.onToolResult?.("c1", "bash", true, { exitCode: 0 });
+    first.events.onToolResult?.({ id: "c1", name: "bash", ok: true, result: { exitCode: 0 } });
     first.events.onFinish?.(1000, undefined);
     const second = createTurnPresenter(host);
     second.events.onFinish?.(1000, undefined, {
@@ -390,7 +400,13 @@ describe("createTurnPresenter", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", false, { error: "boom" }, "boom");
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: false,
+      result: { error: "boom" },
+      error: "boom",
+    });
     const call = entries.find((e) => e.kind === "tool");
     expect(call?.label).toBe("⚙️ bash ❌ boom");
     expect(entries.filter((e) => e.kind === "chunk")).toHaveLength(0);
@@ -402,7 +418,12 @@ describe("createTurnPresenter", () => {
     turn.begin("check it");
     turn.events.onDelta?.("first prose");
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "out\n" });
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "out\n" },
+    });
     turn.events.onDelta?.("second prose");
     turn.finish();
     const prose = entries.filter((e) => e.kind === "assistant");
@@ -434,7 +455,12 @@ describe("createTurnPresenter", () => {
     turn.events.onDelta?.("");
     turn.events.onDelta?.("   ");
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0, stdout: "out\n" });
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "out\n" },
+    });
     turn.finish();
     expect(entries.filter((e) => e.kind === "assistant")).toHaveLength(0);
   });
@@ -771,16 +797,13 @@ describe("createTurnPresenter per-call tokens (live)", () => {
     };
     const presenter = createTurnPresenter(host);
     presenter.events.onToolCall?.("c1", "bash", "{}");
-    presenter.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "hi" },
-      undefined,
-      undefined,
-      undefined,
-      7,
-    );
+    presenter.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "hi" },
+      resultTokens: 7,
+    });
     const chunk = host.entries.find((e) => e.kind === "chunk");
     // The token count lands on THIS call's own result block: the bash
     // chunk header (issue #70), not the ⚙️ call line — a figure on the args
@@ -797,16 +820,13 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "out" },
-      undefined,
-      undefined,
-      undefined,
-      1200,
-    );
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "out" },
+      resultTokens: 1200,
+    });
     const chunk = entries.find((e) => e.kind === "chunk");
     // The count belongs to THIS call's bash chunk header, as +Nt (context
     // delta) — never appended to the ⚙️ call line after the args.
@@ -823,26 +843,20 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    turn.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "ls out" },
-      undefined,
-      undefined,
-      undefined,
-      2400,
-    );
-    turn.events.onToolResult?.(
-      "c2",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "pwd out" },
-      undefined,
-      undefined,
-      undefined,
-      40,
-    );
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "ls out" },
+      resultTokens: 2400,
+    });
+    turn.events.onToolResult?.({
+      id: "c2",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "pwd out" },
+      resultTokens: 40,
+    });
     // Each call's OWN chunk carries the count; the c2 chunk sits between
     // the c1 chunk and the c2 call line, so a figure appended to the c1
     // CALL LINE would visually belong to c2 — hence none goes there.
@@ -876,38 +890,29 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     // Batched round first.
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
     turn.events.onToolCall?.("c2", "bash", parseToolArgs('{"cmd":"pwd"}'));
-    turn.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "ls out" },
-      undefined,
-      undefined,
-      undefined,
-      2400,
-    );
-    turn.events.onToolResult?.(
-      "c2",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "pwd out" },
-      undefined,
-      undefined,
-      undefined,
-      40,
-    );
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "ls out" },
+      resultTokens: 2400,
+    });
+    turn.events.onToolResult?.({
+      id: "c2",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "pwd out" },
+      resultTokens: 40,
+    });
     // Then a plain single-call round.
     turn.events.onToolCall?.("c3", "bash", parseToolArgs('{"cmd":"date"}'));
-    turn.events.onToolResult?.(
-      "c3",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "date out" },
-      undefined,
-      undefined,
-      undefined,
-      30,
-    );
+    turn.events.onToolResult?.({
+      id: "c3",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "date out" },
+      resultTokens: 30,
+    });
     const chunks = entries.filter((e) => e.kind === "chunk");
     expect(chunks.map((c) => c.lines[0])).toEqual([
       "bash → exit 0 · ~2.4K tok",
@@ -923,16 +928,13 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"ls"}'));
-    turn.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "ls out" },
-      undefined,
-      undefined,
-      undefined,
-      55,
-    );
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "ls out" },
+      resultTokens: 55,
+    });
     const chunk = entries.find((e) => e.kind === "chunk");
     // No delta → the round's completion volume, absolute (no plus).
     expect(chunk?.lines[0]).toBe("bash → exit 0 · ~55 tok");
@@ -945,16 +947,13 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", parseToolArgs('{"cmd":"cat"}'));
-    turn.events.onToolResult?.(
-      "c1",
-      "bash",
-      true,
-      { exitCode: 0, stdout: "big output" },
-      undefined,
-      undefined,
-      undefined,
-      1200,
-    );
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0, stdout: "big output" },
+      resultTokens: 1200,
+    });
     const chunk = entries.find((e) => e.kind === "chunk");
     expect(chunk?.lines[0]).toBe("bash → exit 0 · ~1.2K tok");
     expect(chunk?.tokenNote).toBe("~1.2K tok");
@@ -975,8 +974,20 @@ describe("createTurnPresenter tool-result token counts (live)", () => {
     const turn = createTurnPresenter(host);
     turn.events.onToolCall?.("c1", "bash", "{}");
     turn.events.onToolCall?.("c2", "bash", "{}");
-    turn.events.onToolResult?.("c1", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
-    turn.events.onToolResult?.("c2", "bash", true, { exitCode: 0 }, undefined, undefined, 240);
+    turn.events.onToolResult?.({
+      id: "c1",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0 },
+      promptDelta: 240,
+    });
+    turn.events.onToolResult?.({
+      id: "c2",
+      name: "bash",
+      ok: true,
+      result: { exitCode: 0 },
+      promptDelta: 240,
+    });
     expect(deltas).toEqual([240]);
   });
 });
