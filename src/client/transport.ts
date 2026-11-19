@@ -5,15 +5,8 @@
  * by the failed call). One place so every route shares the error rules.
  */
 import { randomUUID } from "node:crypto";
-import {
-  authHeaders,
-  buildEnvelope,
-  isUnreachable,
-  toError,
-  toYogError,
-  unreachableError,
-} from "../yogClient.ts";
-import type { MessageResponse, MessageType } from "../yogClient.ts";
+import { authHeaders, isUnreachable, toError, toYogError, unreachableError } from "./errors.ts";
+import { buildEnvelope, type MessageResponse, type MessageType } from "./protocol.ts";
 
 /** The connection plumbing every route shares. */
 export abstract class Transport {

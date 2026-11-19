@@ -26,6 +26,22 @@
  */
 
 import { TurnObservation } from "./client/turnOutcome.ts";
+import {
+  MESSAGE_TYPES,
+  MESSAGE_VERSION,
+  buildEnvelope,
+  type MessageEnvelope,
+  type MessageResponse,
+  type MessageType,
+} from "./client/protocol.ts";
+import {
+  YogError,
+  authHeaders,
+  isUnreachable,
+  toError,
+  toYogError,
+  unreachableError,
+} from "./client/errors.ts";
 import { turnEnvelopeHandler } from "./client/envelope.ts";
 import { sessionOf, statusOf, transcriptTurns } from "./client/transcriptRows.ts";
 import { abortResultOf, capabilityQuery, replayStoredTurn } from "./client/replies.ts";
@@ -64,23 +80,21 @@ export type {
   TurnOutcome,
 };
 
-/** Envelope version this client speaks (omitted on the wire means 1). */
-export const MESSAGE_VERSION = 1;
-
-/** Message `type`s the client sends on the messages channel. */
-export const MESSAGE_TYPES = [
-  "session.get",
-  "session.detach",
-  "transcript.get",
-  "turn.get",
-  "turn.abort",
-  "turn.start",
-  "compaction.run",
-  "transcript.shake",
-] as const;
-
-/** One message `type` the client can send. */
-export type MessageType = (typeof MESSAGE_TYPES)[number];
+// The protocol shapes and the transport error policy live in client/
+// modules (one-way graph); re-exported here as the client's public
+// surface.
+export {
+  MESSAGE_TYPES,
+  MESSAGE_VERSION,
+  buildEnvelope,
+  YogError,
+  authHeaders,
+  isUnreachable,
+  toError,
+  toYogError,
+  unreachableError,
+};
+export type { MessageEnvelope, MessageResponse, MessageType };
 
 /** One server-advertised slash command (mirrors the daemon wire shape). */
 export interface ServerCommandDescriptor {
@@ -91,22 +105,6 @@ export interface ServerCommandDescriptor {
   readonly data?: Readonly<Record<string, unknown>>;
   readonly argField?: string;
   readonly requiresIdle?: boolean;
-}
-
-/** Client → server envelope (`data` carries the per-type payload). */
-export interface MessageEnvelope {
-  type: MessageType | (string & {});
-  version?: number;
-  requestId?: string;
-  data?: Record<string, unknown>;
-}
-
-/** Server → client envelope (`data` carries the per-type payload). */
-export interface MessageResponse {
-  type: string;
-  version?: number;
-  requestId?: string;
-  data: Record<string, unknown>;
 }
 
 /** Advertised server capabilities. */
@@ -148,84 +146,6 @@ export interface SessionStream {
   readonly closed: Promise<Error | undefined>;
   /** Detach the stream (aborts its fetch; the server treats it as a hang-up). */
   close(): void;
-}
-
-/** Build the envelope for one message. */
-export function buildEnvelope(
-  type: MessageType | (string & {}),
-  data: Record<string, unknown> = {},
-  requestId?: string,
-): MessageEnvelope {
-  return {
-    type,
-    version: MESSAGE_VERSION,
-    ...(requestId !== undefined ? { requestId } : {}),
-    data,
-  };
-}
-
-/** Structured error decoded from a `{ error: { code, message } }` body. */
-export class YogError extends Error {
-  readonly code: string;
-  readonly status: number;
-
-  constructor(code: string, message: string, status: number) {
-    super(message);
-    this.name = "YogError";
-    this.code = code;
-    this.status = status;
-  }
-}
-
-/** Build the bearer header when `YOG_API_TOKEN` is set. */
-export function authHeaders(): Record<string, string> | undefined {
-  const token = process.env["YOG_API_TOKEN"];
-  return token ? { authorization: `Bearer ${token}` } : undefined;
-}
-
-/** Decode a non-2xx JSON error envelope into a `YogError`. */
-export async function toYogError(res: Response, what: string): Promise<Error> {
-  try {
-    const body = (await res.json()) as { error?: { code?: string; message?: string } };
-    if (body?.error?.message) {
-      return new YogError(body.error.code ?? "unknown", body.error.message, res.status);
-    }
-  } catch {
-    /* non-JSON body; fall through to the status line */
-  }
-  return new YogError("http_error", `${what}: HTTP ${res.status}`, res.status);
-}
-
-/**
- * Walk a `fetch` failure chain looking for connection-establishment codes.
- * A server that dies *mid-session* (reset after connect) is not "never
- * started", so only ECONNREFUSED & friends count as unreachable.
- */
-export function isUnreachable(err: unknown): boolean {
-  const seen = new Set<unknown>();
-  let cur: unknown = err;
-  while (cur !== undefined && cur !== null && !seen.has(cur)) {
-    seen.add(cur);
-    const code = (cur as { code?: unknown }).code;
-    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "EHOSTUNREACH") return true;
-    cur = (cur as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
-/** Friendly guidance when the daemon cannot be reached (it is never spawned). */
-export function unreachableError(base: string, cause: unknown): Error {
-  const detail = cause instanceof Error ? cause.message : String(cause);
-  return new Error(
-    `cannot reach yog server at ${base} (${detail}); ` +
-      "start it first with `yog serve` (no server is spawned automatically) " +
-      "and point the client's `baseUrl` at the running daemon",
-  );
-}
-
-/** Coerce anything into an Error (fetch aborts may hand us non-Errors). */
-export function toError(err: unknown): Error {
-  return err instanceof Error ? err : new Error(String(err));
 }
 
 /** The terminal-event signal one `runTurn` waits on: resolved by the
