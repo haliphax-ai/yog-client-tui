@@ -44,51 +44,71 @@ export function matchSequence(rest: string): string | null {
   return null; // incomplete at the end of this chunk
 }
 
+/** The paste framing state that persists across chunks: inside a paste,
+ *  everything (sequences included) buffers verbatim until the end marker. */
+interface PasteBuffer {
+  pasting: boolean;
+  content: string;
+}
+
+/** A sequence seen while pasting: the end marker flushes the buffer (one
+ *  `onPasteEnd`), everything else accumulates literally. */
+function consumePastedSequence(pb: PasteBuffer, handlers: InputHandlers, seq: string): void {
+  if (seq !== PASTE_END) {
+    pb.content += seq;
+    return;
+  }
+  pb.pasting = false;
+  const content = pb.content;
+  pb.content = "";
+  handlers.onPasteEnd(content);
+}
+
+/** One well-formed escape sequence at the head of the unconsumed input. */
+function consumeSequence(pb: PasteBuffer, handlers: InputHandlers, seq: string): void {
+  if (pb.pasting) {
+    consumePastedSequence(pb, handlers, seq);
+    return;
+  }
+  if (seq === PASTE_START) {
+    pb.pasting = true;
+    pb.content = "";
+    return;
+  }
+  handlers.onSequence(seq);
+}
+
+/** One decoded character at the head of the unconsumed input: buffered
+ *  verbatim inside a paste, dispatched to `onChar` otherwise. */
+function consumeChar(pb: PasteBuffer, handlers: InputHandlers, ch: string): void {
+  if (pb.pasting) {
+    pb.content += ch;
+    return;
+  }
+  handlers.onChar(ch);
+}
+
 /**
  * A streaming decoder for stdin chunks. Paste framing state (in-paste flag,
  * buffer) persists across chunks so a paste split over several `data` events
  * is still reassembled correctly.
  */
 export function createInputDecoder(handlers: InputHandlers): (chunk: string) => void {
-  let pasting = false;
-  let pasteBuffer = "";
+  const pb: PasteBuffer = { pasting: false, content: "" };
   return (chunk: string): void => {
     let i = 0;
     while (i < chunk.length) {
       const rest = chunk.slice(i);
       const seq = matchSequence(rest);
       if (seq !== null) {
-        if (pasting) {
-          if (seq === PASTE_END) {
-            pasting = false;
-            const content = pasteBuffer;
-            pasteBuffer = "";
-            handlers.onPasteEnd(content);
-          } else {
-            pasteBuffer += seq;
-          }
-          i += seq.length;
-          continue;
-        }
-        if (seq === PASTE_START) {
-          pasting = true;
-          pasteBuffer = "";
-          i += seq.length;
-          continue;
-        }
-        handlers.onSequence(seq);
+        consumeSequence(pb, handlers, seq);
         i += seq.length;
         continue;
       }
       const cp = rest.codePointAt(0);
       if (cp === undefined) break;
       const ch = String.fromCodePoint(cp);
-      if (pasting) {
-        pasteBuffer += ch;
-        i += ch.length;
-        continue;
-      }
-      handlers.onChar(ch);
+      consumeChar(pb, handlers, ch);
       i += ch.length;
     }
   };

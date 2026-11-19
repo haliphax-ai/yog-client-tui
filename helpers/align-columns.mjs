@@ -60,73 +60,91 @@ function isCommentLine(line) {
 }
 
 /**
+ * One parsed block line: a LABEL line ("label<2+ spaces>description"), a
+ * CONTinuation line (2+ spaces of body under an active label), or an
+ * OTHER line (prose/code) that closes the active label run.
+ */
+const LABEL = "label";
+const CONT = "cont";
+const OTHER = "other";
+
+/** Split a block line into its comment furniture and its body. */
+function partsOf(line) {
+  const m = line.match(/^(\s*)(\*|\/\/|#)(\s*)/);
+  if (m === null) return { lead: "", marker: "", indent: "", baseLen: 0, body: line };
+  const [, lead, marker, indent] = m;
+  const baseLen = lead.length + marker.length + indent.length;
+  return {
+    lead,
+    marker,
+    indent,
+    baseLen,
+    body: line.slice(baseLen),
+  };
+}
+
+/** Parse a comment block into label/continuation/other records. */
+function parseBlock(block) {
+  const parsed = [];
+  let active = false;
+  for (const line of block) {
+    const { lead, marker, indent, baseLen, body } = partsOf(line);
+    const fm = /^(.*?)\s{2,}(\S.*)$/.exec(body);
+    if (fm !== null) {
+      active = true;
+      parsed.push({
+        type: LABEL,
+        prefix: lead + marker + indent,
+        label: fm[1],
+        desc: fm[2],
+        labelEnd: baseLen + fm[1].length,
+      });
+    } else if (active && /^\s{2,}\S/.test(body)) {
+      parsed.push({ type: CONT, lead, marker, baseLen, body });
+    } else {
+      active = false;
+      parsed.push({ type: OTHER });
+    }
+  }
+  return parsed;
+}
+
+/** The aligned replacement for one parsed record (OTHER keeps its line). */
+function alignedLineOf(p, original, target) {
+  if (p.type === LABEL) return labelLineOf(p, target);
+  if (p.type === CONT) return contLineOf(p, target);
+  return original;
+}
+
+/** The aligned label line: description pinned at the target column. */
+function labelLineOf(p, target) {
+  const pad = Math.max(2, target - p.labelEnd);
+  return p.prefix + p.label + " ".repeat(pad) + p.desc;
+}
+
+/** The aligned continuation line: body pinned at the target column. */
+function contLineOf(p, target) {
+  const pad = Math.max(0, target - p.baseLen);
+  return p.lead + p.marker + " ".repeat(pad) + p.body.trimStart();
+}
+
+/**
  * Rebuild one comment block so label/description lines (and their
  * continuations) share a column. Returns the new block, or the original
  * array when nothing changes.
  */
 function alignBlock(block, explicitColumn) {
-  const items = block.map((line) => {
-    const m = line.match(/^(\s*)(\*|\/\/|#)(\s*)/);
-    if (m === null) return { line, lead: "", marker: "", baseLen: 0, body: line };
-    const lead = m[1];
-    const marker = m[2];
-    const indent = m[3];
-    const baseLen = lead.length + marker.length;
-    return { line, lead, marker, indent, baseLen, body: line.slice(baseLen + indent.length) };
-  });
-
-  const parsed = [];
-  let active = false;
-  for (const it of items) {
-    const fm = /^(.*?)\s{2,}(\S.*)$/.exec(it.body);
-    if (fm !== null) {
-      active = true;
-      parsed.push({
-        type: "label",
-        line: it.line,
-        prefix: it.lead + it.marker + it.indent,
-        label: fm[1],
-        desc: fm[2],
-        labelEnd: it.lead.length + it.marker.length + it.indent.length + fm[1].length,
-      });
-    } else if (active && /^\s{2,}\S/.test(it.line.slice(it.baseLen))) {
-      parsed.push({
-        type: "cont",
-        line: it.line,
-        lead: it.lead,
-        marker: it.marker,
-        baseLen: it.baseLen,
-        body: it.body,
-      });
-    } else {
-      active = false;
-      parsed.push({ type: "other", line: it.line });
-    }
-  }
-
-  const labels = parsed.filter((p) => p.type === "label");
+  const parsed = parseBlock(block);
+  const labels = parsed.filter((p) => p.type === LABEL);
   if (labels.length === 0) return block;
   const maxLabelEnd = Math.max(...labels.map((l) => l.labelEnd));
   const target = explicitColumn ?? maxLabelEnd + 2;
 
   const out = [];
-  let changed = false;
-  for (const p of parsed) {
-    if (p.type === "label") {
-      const pad = Math.max(2, target - p.labelEnd);
-      const rebuilt = p.prefix + p.label + " ".repeat(pad) + p.desc;
-      if (rebuilt !== p.line) changed = true;
-      out.push(rebuilt);
-    } else if (p.type === "cont") {
-      const pad = Math.max(0, target - p.baseLen);
-      const rebuilt = p.lead + p.marker + " ".repeat(pad) + p.body.trimStart();
-      if (rebuilt !== p.line) changed = true;
-      out.push(rebuilt);
-    } else {
-      out.push(p.line);
-    }
+  for (let i = 0; i < block.length; i++) {
+    out.push(alignedLineOf(parsed[i], block[i], target));
   }
-  return changed ? out : block;
+  return out.some((line, i) => line !== block[i]) ? out : block;
 }
 
 let anyChanged = false;

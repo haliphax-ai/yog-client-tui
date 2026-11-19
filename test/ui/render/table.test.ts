@@ -342,8 +342,8 @@ describe("renderTable — styled output", () => {
   const table = parseTable(md)!;
 
   it("renders light border runes in both modes; focus tints them blue", () => {
-    const focused = renderTable(table, 80, true, 0);
-    const unfocused = renderTable(table, 80, false, 0);
+    const focused = renderTable(table, 80, { focused: true });
+    const unfocused = renderTable(table, 80);
     // Light runes in both modes — focus is a color, not a weight change
     expect(focused.join("")).toContain("│");
     expect(focused.join("")).toContain("─");
@@ -360,14 +360,14 @@ describe("renderTable — styled output", () => {
   });
 
   it("renders the header row in bold", () => {
-    const rows = renderTable(table, 80, false, 0);
+    const rows = renderTable(table, 80);
     // Header is row 2 (after top margin + top border)
     expect(rows[2]).toContain("\x1b[1m");
     expect(rows[2]).toContain("\x1b[m"); // SGR reset (lipgloss emits \x1b[m, not \x1b[22m)
   });
 
   it("applies zebra background starting on the first data row", () => {
-    const rows = renderTable(table, 80, false, 0);
+    const rows = renderTable(table, 80);
     // Row 4 = data row 0 (striped), row 5 = divider, row 6 = data row 1
     // (not striped). ST.tableZebra bg is #1a1a2e → ANSI 48;2;26;26;46
     expect(rows[4]).toMatch(/48;2;26;26;46/);
@@ -376,8 +376,8 @@ describe("renderTable — styled output", () => {
   });
 
   it("focus paints data rows with the focused zebra (issue #65)", () => {
-    const focused = renderTable(table, 80, true, 0);
-    const unfocused = renderTable(table, 80, false, 0);
+    const focused = renderTable(table, 80, { focused: true });
+    const unfocused = renderTable(table, 80);
     // Focused table's even data rows carry the FOCUSED zebra: white text on
     // the focus blue (#1e3a8a → 48;2;30;58;138) instead of the plain dark
     // zebra (#1a1a2e → 48;2;26;26;46). Unfocused rows keep the plain zebra
@@ -393,8 +393,8 @@ describe("renderTable — styled output", () => {
   });
 
   it("scrollX truncates leading cells from each line", () => {
-    const noScroll = renderTable(table, 80, false, 0);
-    const scrolled = renderTable(table, 80, false, 3);
+    const noScroll = renderTable(table, 80);
+    const scrolled = renderTable(table, 80, { scrollX: 3 });
     // scrollX=3 slices the first 3 chars off data rows: "│ Alice..." → "lice..."
     expect(stripAnsi(noScroll[4]!).charAt(0)).toBe("│");
     expect(stripAnsi(scrolled[4]!).startsWith("lice")).toBe(true);
@@ -409,7 +409,7 @@ describe("renderTable — styled output", () => {
     // cuts between its two cells: first cell gone, second → space.
     const md = `| Name | Value |\n| --- | --- |\n| 🧠 brain | x |`;
     const table = parseTable(md)!;
-    const scrolled = renderTable(table, 80, false, 3);
+    const scrolled = renderTable(table, 80, { scrollX: 3 });
     const plain = stripAnsi(scrolled[4]!);
     // The visible half of 🧠 is ONE cell (a space), not the 2-cell glyph.
     expect(plain.startsWith(" ")).toBe(true);
@@ -420,7 +420,7 @@ describe("renderTable — styled output", () => {
 
   it("emits one physical line per <br> display break", () => {
     const md = `| A | B |\n| --- | --- |\n| line1<br>line2 | single |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     // margins(2) + borders(2) + header(1) + separator(1) + 2 physical lines
     // (single-row table: no divider after the last row)
     expect(rows.length).toBe(8);
@@ -436,7 +436,7 @@ describe("renderTable — styled output", () => {
 
   it("keeps zebra stripes per logical row across <br> splits", () => {
     const md = `| A | B |\n| --- | --- |\n| one | x |\n| two<br>two-b | y |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     // rows: 0 margin, 1 top, 2 header, 3 separator, 4 data0, 5 divider,
     // 6-7 data1's two physical lines, 8 bottom, 9 margin
     // data0 is logical row index 0 → zebra on BOTH its physical lines;
@@ -451,7 +451,7 @@ describe("renderTable — styled output", () => {
 
   it("splits <br> in header cells into stacked lines", () => {
     const md = `| First<br>Second | B |\n| --- | --- |\n| a | b |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     // 2 margins + 2 borders + 2 header lines + 1 separator + 1 data row = 8
     expect(rows.length).toBe(8);
     expect(rows[2]).toContain("First");
@@ -462,7 +462,7 @@ describe("renderTable — styled output", () => {
 
   it("draws dividers between data rows only (not after the last)", () => {
     const md = `| A |\n| --- |\n| one |\n| two |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     // 0 margin, 1 top, 2 header, 3 sep, 4 data0, 5 divider, 6 data1,
     // 7 bottom, 8 margin
     expect(rows.length).toBe(9);
@@ -471,7 +471,7 @@ describe("renderTable — styled output", () => {
 
   it("never stripes dividers (zebra is for content rows only)", () => {
     const md = `| A |\n| --- |\n| one |\n| two |\n| three |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     const zebra = "48;2;26;26;46";
     // Layout: 4 data0, 5 divider, 6 data1, 7 divider, 8 data2,
     // 9 bottom, 10 margin — striped rows are 0 and 2 (even indices)
@@ -489,7 +489,7 @@ describe("renderTable — styled output", () => {
     const t = parseTable(md)!;
     expect(t.rows[0]![0]).toBe("text\n");
     expect(t.columns[0]!.width).toBe(4); // widest line is "text"
-    const rows = renderTable(t, 80, false, 0);
+    const rows = renderTable(t, 80);
     // second physical line is blank inside the borders (w=4 cell → 6 spaces)
     expect(stripAnsi(rows[5]!)).toBe("│      │");
   });
@@ -499,7 +499,7 @@ describe("renderTable — styled output", () => {
     const t = parseTable(md)!;
     // rendered "Pour Over" = 9 cells; raw **Pour Over** = 13
     expect(t.columns[0]!.width).toBe(9);
-    const rows = renderTable(t, 80, false, 0);
+    const rows = renderTable(t, 80);
     // top border segment spans width + 2 = 11 dashes (not 15)
     // (strip ANSI — the white fg now wraps each dash)
     expect(stripAnsi(rows[1]!)).toContain("─".repeat(11));
@@ -509,7 +509,7 @@ describe("renderTable — styled output", () => {
 
   it("keeps padded blank cells on continuation lines (dividers align)", () => {
     const md = `| A | B |\n| --- | --- |\n| one<br>two | x |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     const line1 = stripAnsi(rows[4]!);
     const line2 = stripAnsi(rows[5]!);
     // Line 2: cell A shows its second break-line, cell B is blank padding
@@ -522,7 +522,7 @@ describe("renderTable — styled output", () => {
 
   it("renders a markdown-link cell as its title, OSC 8 linked", () => {
     const md = `| Link |\n| --- |\n| [Example Docs](https://example.com/docs/page?lang=en#section-2) |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     const joined = rows.join("\n");
     // Glamour OSC 8 (id-prefixed) wraps the URL; the label renders as text
     // and the raw markdown markers are gone.
@@ -534,7 +534,7 @@ describe("renderTable — styled output", () => {
 
   it("renders a bare-URL cell as the full URL, query and anchor intact", () => {
     const md = `| URL |\n| --- |\n| https://x.io/a/long/path?query=alpha&other=beta#anchor-here |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     const joined = rows.join("\n");
     // Full URL stays visible and OSC 8-linked, query + anchor intact.
     expect(joined).toContain("https://x.io/a/long/path?query=alpha&other=beta#anchor-here\x07");
@@ -543,7 +543,7 @@ describe("renderTable — styled output", () => {
 
   it("does not shave trailing letters after emoji (cell-unit trim)", () => {
     const md = `| Status |\n| --- |\n| ✅ Done |`;
-    const rows = renderTable(parseTable(md)!, 80, false, 0);
+    const rows = renderTable(parseTable(md)!, 80);
     const plain = stripAnsi(rows.join("\n"));
     expect(plain).toContain("✅ Done");
     expect(plain).not.toContain("✅ Don\n");
@@ -555,15 +555,15 @@ describe("renderTable — styled output", () => {
     // Default keeps both margins.
     expect(renderTable(t, 80)).toHaveLength(7);
     // Top margin dropped: starts at the border, one row fewer.
-    const flushTop = renderTable(t, 80, false, 0, { top: false, bottom: true });
+    const flushTop = renderTable(t, 80, { margin: { top: false, bottom: true } });
     expect(flushTop).toHaveLength(6);
     expect(stripAnsi(flushTop[0]!).startsWith("┌")).toBe(true);
     // Bottom margin dropped: ends at the border.
-    const flushBottom = renderTable(t, 80, false, 0, { top: true, bottom: false });
+    const flushBottom = renderTable(t, 80, { margin: { top: true, bottom: false } });
     expect(flushBottom).toHaveLength(6);
     expect(stripAnsi(flushBottom[flushBottom.length - 1]!).endsWith("┘")).toBe(true);
     // Both dropped.
-    const flushBoth = renderTable(t, 80, false, 0, { top: false, bottom: false });
+    const flushBoth = renderTable(t, 80, { margin: { top: false, bottom: false } });
     expect(flushBoth).toHaveLength(5);
   });
 
@@ -661,7 +661,7 @@ describe("renderTable — wrapped list cells keep their styling (regression)", (
     const table = parseTable(md)!;
     // Narrow second column forces the list cell to wrap onto several
     // physical rows; the hang-indent path must not strip their SGRs.
-    const rows = renderTable(table, 40, false, 0, undefined, [4, 18]);
+    const rows = renderTable(table, 40, { widths: [4, 18] });
     const dataRows = rows.filter((r) => {
       const plain = stripAnsi(r);
       return plain.includes("styled") || plain.includes("wrap and") || plain.includes("here");

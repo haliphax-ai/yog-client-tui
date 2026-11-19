@@ -127,14 +127,12 @@ function tableRows(section: Extract<TableSection, { kind: "table" }>, ctx: Table
   const scrollX = Math.max(0, Math.min(ctx.state?.scrollX ?? 0, maxScroll));
   // The table's cell budget is the entry's body width: a row wider than
   // that (the expanded layout) is clipped to the visible window.
-  return renderTable(
-    section.table,
-    ctx.bodyW,
-    ctx.focused,
+  return renderTable(section.table, ctx.bodyW, {
+    focused: ctx.focused,
     scrollX,
-    ctx.margin,
-    resolved.widths,
-  ).map((row) => truncateAnsi(row, ctx.bodyW));
+    margin: ctx.margin,
+    widths: resolved.widths,
+  }).map((row) => truncateAnsi(row, ctx.bodyW));
 }
 
 /** The prompt bubble: focus recolors the whole bubble (white on dark blue,

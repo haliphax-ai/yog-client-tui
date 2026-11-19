@@ -40,35 +40,11 @@ import type { TextareaModel, TextareaStyles } from "@oakoliver/bubbles";
 import { newStyle } from "@oakoliver/lipgloss";
 import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/store.ts";
-import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
+import { type SeqKey, LEGACY_SEQ_KEYS, parseSeqKey } from "./seqKeys.ts";
 import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
-import {
-  SLASH_COMMANDS,
-  completeSlash,
-  resolveSlash,
-  registryVersion,
-  slashTokenEnd,
-  type SlashCommand,
-} from "../../core/commands.ts";
+import { completeSlash, resolveSlash, slashTokenEnd } from "../../core/commands.ts";
+import { slashMenu } from "./slashMenu.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
-
-/**
- * Slash-command lookup by "/name", version-stamped on the command
- * registry: server descriptors land after module init (capabilities probe),
- * so a once-built map would go stale. Rebuilt only when the registry
- * version changes — the render hot path reads it per frame.
- */
-let slashByNameCache: { version: number; value: Map<string, SlashCommand> } | null = null;
-
-function slashByName(): Map<string, SlashCommand> {
-  if (slashByNameCache === null || slashByNameCache.version !== registryVersion) {
-    slashByNameCache = {
-      version: registryVersion,
-      value: new Map(SLASH_COMMANDS.map((command) => ["/" + command.name, command])),
-    };
-  }
-  return slashByNameCache.value;
-}
 
 /** Rows the input's visible viewport grows to before it scrolls internally. */
 export const MAX_LINES = 10;
@@ -85,9 +61,6 @@ export const MAX_INPUT_CHARS = 5000;
  * so it is simply derived from the character cap.
  */
 export const MAX_CONTENT_ROWS = MAX_INPUT_CHARS;
-
-/** Maximum rows the slash autocomplete menu shows (candidates in ranked order). */
-export const MAX_MENU_ROWS = 5;
 
 /**
  * Shift+Enter sequences across modifier-reporting schemes:
@@ -106,152 +79,6 @@ const SHIFT_UP_SEQS: ReadonlySet<string> = new Set([
   "\x1b[1;2A", // xterm-style
   "\x1b[65;2u", // CSI-u / Kitty
 ]);
-
-/** A key event fed to the textarea model (shape of bubbletea's `Key`). */
-interface SeqKey {
-  readonly text?: string;
-  readonly mod?: number;
-  readonly code: number;
-}
-
-/**
- * Legacy (non-CSI) sequences the input claims: SS3 application-mode arrows
- * (ESC O x) and the Alt+letter escapes some terminals still send for word
- * navigation / case transforms.
- */
-const LEGACY_SEQ_KEYS: Readonly<Record<string, SeqKey>> = {
-  "\x1bOA": { code: KeyCode.Up },
-  "\x1bOB": { code: KeyCode.Down },
-  "\x1bOC": { code: KeyCode.Right },
-  "\x1bOD": { code: KeyCode.Left },
-  "\x1bOH": { code: KeyCode.Home },
-  "\x1bOF": { code: KeyCode.End },
-  "\x1b[1~": { code: KeyCode.Home }, // rxvt
-  "\x1b[4~": { code: KeyCode.End }, // rxvt
-  "\x1b[3~": { code: KeyCode.Delete },
-  "\x1bb": { code: KeyCode.Left, mod: KeyMod.Alt }, // alt+left
-  "\x1bf": { code: KeyCode.Right, mod: KeyMod.Alt }, // alt+right
-  "\x1bc": { code: 99, mod: KeyMod.Alt }, // alt+c
-  "\x1bl": { code: 108, mod: KeyMod.Alt }, // alt+l
-  "\x1bu": { code: 117, mod: KeyMod.Alt }, // alt+u
-  "\x1bd": { code: 100, mod: KeyMod.Alt }, // alt+d
-  "\x1b<": { code: 60, mod: KeyMod.Alt }, // alt+<
-  "\x1b>": { code: 62, mod: KeyMod.Alt }, // alt+>
-  "\x1bF": { code: 70, mod: KeyMod.Alt | KeyMod.Shift }, // alt+shift+f
-  "\x1bB": { code: 66, mod: KeyMod.Alt | KeyMod.Shift }, // alt+shift+b
-};
-
-/** Modifier bits for a CSI parameter byte (1=shift, 2=alt, 4=ctrl…). */
-function modFor(param: number): number {
-  switch (param) {
-    case 1:
-      return KeyMod.Shift;
-    case 2:
-      return KeyMod.Shift;
-    case 3:
-      return KeyMod.Alt;
-    case 4:
-      return KeyMod.Alt | KeyMod.Shift;
-    case 5:
-      return KeyMod.Ctrl;
-    case 6:
-      return KeyMod.Ctrl | KeyMod.Shift;
-    case 7:
-      return KeyMod.Ctrl | KeyMod.Alt;
-    case 8:
-      return KeyMod.Ctrl | KeyMod.Alt | KeyMod.Shift;
-    default:
-      return KeyMod.None;
-  }
-}
-
-/** Key code for a CSI-u (Kitty) code point. */
-function codeForU(cp: number): number | undefined {
-  switch (cp) {
-    case 13:
-      return KeyCode.Enter;
-    case 127:
-    case 8:
-      return KeyCode.Backspace;
-    case 9:
-      return KeyCode.Tab;
-    case 27:
-      return KeyCode.Escape;
-    case 32:
-      return KeyCode.Space;
-    case 65:
-      return KeyCode.Up;
-    case 66:
-      return KeyCode.Down;
-    case 67:
-      return KeyCode.Right;
-    case 68:
-      return KeyCode.Left;
-    case 70:
-      return KeyCode.End;
-    case 72:
-      return KeyCode.Home;
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Parse a CSI sequence (ESC [ params final) into a key event: arrows, Home/
- * End (C and `~` forms), PgUp/PgDn, Delete, Backspace, Enter, Tab, Esc —
- * each with its modifier bits. Returns undefined for sequences the textarea
- * does not bind (unknown finals, printable/other CSI-u code points).
- */
-function parseSeqKey(seq: string): SeqKey | undefined {
-  if (!seq.startsWith("\x1b[")) return undefined;
-  const match = /^([\d;]*)([A-Za-z~])$/.exec(seq.slice(2));
-  if (match === null) return undefined;
-  const paramStr = match[1] as string;
-  const final = match[2] as string;
-  const params = paramStr === "" ? [] : paramStr.split(";").map(Number);
-  const mod = params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
-
-  let code: number | undefined;
-  switch (final) {
-    case "A":
-      code = KeyCode.Up;
-      break;
-    case "B":
-      code = KeyCode.Down;
-      break;
-    case "C":
-      code = KeyCode.Right;
-      break;
-    case "D":
-      code = KeyCode.Left;
-      break;
-    case "H":
-      code = KeyCode.Home;
-      break;
-    case "F":
-      code = KeyCode.End;
-      break;
-    case "u": {
-      const cp = params[0];
-      if (cp === undefined) return undefined;
-      code = codeForU(cp);
-      break;
-    }
-    case "~": {
-      const kind = params[0];
-      if (kind === 1) code = KeyCode.Home;
-      else if (kind === 4) code = KeyCode.End;
-      else if (kind === 3) code = KeyCode.Delete;
-      else if (kind === 5) code = KeyCode.PgUp;
-      else if (kind === 6) code = KeyCode.PgDown;
-      break;
-    }
-    default:
-      return undefined;
-  }
-  if (code === undefined) return undefined;
-  return { code, mod };
-}
 
 /** Textarea styles mapped onto the theme (black backing, purple left border).
  *  When `blurred` is true the text renders dark grey and the cursor uses the
@@ -299,6 +126,21 @@ export class InputComponent extends BaseComponent {
 
   constructor() {
     super(true);
+    const ta = InputComponent.newTextareaModel();
+    const stylesFocused = inputStyles(false);
+    const stylesBlurred = inputStyles(true);
+    this.stylesFocused = stylesFocused;
+    this.stylesBlurred = stylesBlurred;
+    this.activeStyles = stylesFocused;
+    ta.setStyles(stylesFocused);
+    ta.focus();
+    this.textarea = ta;
+  }
+
+  /** The textarea model configured for the input bar: no prompt or line
+   *  numbers, dynamic height between 1 and MAX_LINES rows, the content
+   *  caps, and Shift+Enter as the only newline binding. */
+  private static newTextareaModel(): TextareaModel {
     const ta = newTextarea();
     ta.prompt = "";
     ta.showLineNumbers = false;
@@ -311,14 +153,7 @@ export class InputComponent extends BaseComponent {
       withKeys("shift+enter"),
       withHelp("Shift+Enter", "insert newline"),
     );
-    const stylesFocused = inputStyles(false);
-    const stylesBlurred = inputStyles(true);
-    this.stylesFocused = stylesFocused;
-    this.stylesBlurred = stylesBlurred;
-    this.activeStyles = stylesFocused;
-    ta.setStyles(stylesFocused);
-    ta.focus();
-    this.textarea = ta;
+    return ta;
   }
 
   /** Swap the textarea styles to match the current ring target. */
@@ -437,69 +272,24 @@ export class InputComponent extends BaseComponent {
 
   /**
    * Slash-command autocomplete list: shown only when the input starts with
-   * "/" (the trigger) and at least one command matches. The selected
-   * candidate is highlighted; Tab cycles through and applies the selection.
+   * "/" (the trigger) and at least one command matches (see slashMenu.ts).
+   * Cached per frame: the key is the O(1) (length, head, selection, cols)
+   * tuple — the menu depends on the slash token at the head of the input,
+   * and joining a 5000-char buffer into the key per frame would
+   * reintroduce the O(buffer) cost this cache avoids.
    */
   private renderMenu(cols: number): string {
     const state = getState();
-    // Key on length + prefix only: the menu depends on the slash token at
-    // the head of the input, and joining a 5000-char buffer into the key
-    // per frame would reintroduce the O(buffer) cost this cache avoids.
     const input = state.input;
     const menuKey = `${input.length}:${input.slice(0, 64)}:${state.commandSel}:${cols}`;
     if (this.menuCache !== null && this.menuCache.key === menuKey) {
       return this.menuCache.value;
     }
-    const value = this.renderMenuUncached(state.input, state.commandSel, cols);
+    const value = slashMenu(input, state.commandSel, cols);
     this.menuCache = { key: menuKey, value };
     return value;
   }
 
-  private renderMenuUncached(input: string, commandSel: number, cols: number): string {
-    const state = { input, commandSel };
-    const resolved = resolveSlash(state.input);
-    // Once the command token resolves — typed exactly or with args — show the
-    // args view instead of the fuzzy list. The list only returns when the
-    // input no longer matches up (partial/unknown token).
-    if (resolved !== undefined) {
-      return this.renderExactMenu(resolved, cols);
-    }
-    const candidates = completeSlash(state.input);
-    if (candidates.length === 0) return "";
-    const sel = Math.max(0, Math.min(state.commandSel, candidates.length - 1));
-    const shown = candidates.slice(0, MAX_MENU_ROWS);
-    const byName = slashByName();
-    const labels = shown.map((candidate) =>
-      candidate.startsWith("/") ? candidate.slice(1) : candidate,
-    );
-    const labelW = Math.max(...labels.map((label) => displayWidth(label)));
-    const body: string[] = [];
-    for (let index = 0; index < labels.length; index++) {
-      const command = byName.get(candidates[index] as string);
-      const label = labels[index] as string;
-      const lead = index === 0 ? "↹ " : "  ";
-      const labelPadded = label + " ".repeat(labelW - displayWidth(label) + 2);
-      const head = lead + labelPadded;
-      const room = Math.max(0, cols - displayWidth(head));
-      let desc = command?.summary ?? "";
-      if (displayWidth(desc) > room) {
-        desc = room >= 2 ? truncateAnsi(desc, room - 1) + "…" : "";
-      }
-      const style = index === sel ? ST.suggestionSel : ST.suggestion;
-      body.push(style.width(cols).render(head + desc));
-    }
-    return body.join("\n");
-  }
-
-  /** Single-command view: highlighted header + dim flush-left description. */
-  private renderExactMenu(command: SlashCommand, cols: number): string {
-    const head = command.name + " ";
-    const body: string[] = [ST.suggestionSel.width(cols).render(head + (command.args ?? ""))];
-    for (const wline of wrapText(command.summary, cols)) {
-      body.push(ST.suggestion.render(wline));
-    }
-    return body.join("\n");
-  }
   /** Insert pasted text verbatim (newlines included) — never submits. */
   paste(content: string): void {
     const normalized = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -518,35 +308,15 @@ export class InputComponent extends BaseComponent {
   }
 
   /** Feed a control character (Ctrl+letter) to the textarea model. */
-  private feedControl(code: number): void {
+  private feedControl(code: number): KeyResult {
     this.textarea.update(new KeyPressMsg({ text: "", mod: KeyMod.Ctrl, code }));
     this.version += 1;
     this.commitEdit();
+    return "handled";
   }
 
-  override handleChar(ch: string): KeyResult {
-    if (ch === "\r" || ch === "\n") return "unhandled"; // submit → globals
-    if (ch === "\t") {
-      // The args view has nothing to complete — Tab is a no-op there.
-      if (resolveSlash(getState().input) !== undefined) return "handled";
-      return this.completeTab() ? "handled" : "unhandled";
-    }
-    if (ch === "\x1b") return "unhandled"; // Esc → viewport or globals
-    if (ch === "\x03") return "unhandled"; // Ctrl+C is intentionally unbound
-    if (ch === "\x7f") {
-      this.feed({ code: KeyCode.Backspace });
-      this.commitEdit();
-      return "handled";
-    }
-    const code = ch.charCodeAt(0);
-    // The textarea binds every Ctrl+letter editing key (ctrl+a/e/k/u/w/f/b/
-    // n/p/t/g/h/d…); route them all to the model. Unknown control chars are
-    // still swallowed so they never leak into the text.
-    if (code >= 1 && code <= 26) {
-      this.feedControl(code);
-      return "handled";
-    }
-    if (ch < " ") return "handled"; // other control chars stay swallowed
+  /** One editable character: fed to the textarea model verbatim. */
+  private feedPrintable(ch: string): KeyResult {
     this.textarea.update(
       new KeyPressMsg({
         text: ch,
@@ -557,6 +327,42 @@ export class InputComponent extends BaseComponent {
     this.version += 1;
     this.commitEdit();
     return "handled";
+  }
+
+  /** Backspace (DEL), the textarea's own binding. */
+  private feedBackspace(): KeyResult {
+    this.feed({ code: KeyCode.Backspace });
+    this.commitEdit();
+    return "handled";
+  }
+
+  /** Tab: accept the highlighted slash completion. The args view has
+   *  nothing to complete — Tab is a no-op there. */
+  private acceptCompletion(): KeyResult {
+    if (resolveSlash(getState().input) !== undefined) return "handled";
+    return this.completeTab() ? "handled" : "unhandled";
+  }
+
+  /** The control characters that never reach the textarea: Enter/submit,
+   *  Esc (viewport or globals), and Ctrl+C (intentionally unbound — the
+   *  app aborts via Esc). */
+  private static readonly UNBOUND: ReadonlySet<string> = new Set(["\r", "\n", "\x1b", "\x03"]);
+
+  override handleChar(ch: string): KeyResult {
+    if (InputComponent.UNBOUND.has(ch)) return "unhandled";
+    if (ch === "\t") return this.acceptCompletion();
+    if (ch === "\x7f") return this.feedBackspace();
+    // C0 control chars: the textarea binds every Ctrl+letter editing key
+    // (ctrl+a/e/k/u/w/f/b/n/p/t/g/h/d…); route them all to the model. The
+    // rest are swallowed so they never leak into the text.
+    if (ch < " ") return this.isCtrlLetter(ch) ? this.feedControl(ch.charCodeAt(0)) : "handled";
+    return this.feedPrintable(ch);
+  }
+
+  /** True when the control char encodes Ctrl+letter (0x01–0x1A). */
+  private isCtrlLetter(ch: string): boolean {
+    const code = ch.charCodeAt(0);
+    return code >= 1 && code <= 26;
   }
 
   /**

@@ -90,7 +90,7 @@ describe("renderTable — expanded layout renders at the resolved widths", () =>
       40,
       true,
     );
-    const rows = renderTable(table, 40, true, 0, undefined, expanded.widths);
+    const rows = renderTable(table, 40, { focused: true, widths: expanded.widths });
     // Row width exceeds the viewport: the pre-slice row is wider than cols.
     const border = rows[1]!;
     expect(displayWidth(stripAnsi(border))).toBe(tableRowWidth(expanded.widths));
@@ -105,7 +105,7 @@ describe("renderTable — expanded layout renders at the resolved widths", () =>
       true,
     );
     const total = tableRowWidth(expanded.widths);
-    const rows = renderTable(table, 40, true, 5, undefined, expanded.widths);
+    const rows = renderTable(table, 40, { focused: true, scrollX: 5, widths: expanded.widths });
     // Row 1 = top border; header at 2, separator at 3, data at 4.
     // scrollX=5 eats the left border, both pads, and 'S u' of the cell.
     expect(stripAnsi(rows[4]!).startsWith("ercalifr")).toBe(true);

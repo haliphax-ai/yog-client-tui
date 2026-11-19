@@ -11,6 +11,7 @@
  * rows are tolerated defensively — conversion never throws.
  */
 import type { TranscriptMessage, TokenUsage } from "../yogClient.ts";
+import type { TranscriptTurnMetrics } from "./turnMetrics.ts";
 import { estimateTokenCount } from "tokenx";
 
 /** Roles a transcript row can carry. */
@@ -24,30 +25,56 @@ export interface TranscriptEntry {
   raw: TranscriptMessage;
 }
 
+/** The value as a plain object (arrays and primitives decline). */
+function plainObject(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
+}
+
+/** One string field of an object (other types read as ""). */
+function stringField(obj: Record<string, unknown>, key: string): string {
+  return typeof obj[key] === "string" ? (obj[key] as string) : "";
+}
+
+/** One decoded wire tool call: id/name may be empty (see decodeToolCalls). */
+interface WireToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+}
+
+/** Decode one OpenAI-shaped call object; undefined when it is not an object. */
+function decodeToolCall(item: unknown): WireToolCall | undefined {
+  const obj = plainObject(item);
+  if (obj === undefined) return undefined;
+  const fn = plainObject(obj["function"]) ?? {};
+  const call: WireToolCall = {
+    id: stringField(obj, "id"),
+    name: stringField(fn, "name"),
+    arguments: stringField(fn, "arguments"),
+  };
+  return call.id === "" && call.name === "" ? undefined : call;
+}
+
 /**
  * Decode an assistant row's `toolCalls` array: the wire carries OpenAI-shaped
  * calls (`{ id, type, function: { name, arguments } }`, arguments as an
  * accumulated JSON *string*). Returns `[]` for absent/malformed data; rows
  * with neither an id nor a name are skipped.
  */
-export function decodeToolCalls(
-  raw: unknown,
-): Array<{ id: string; name: string; arguments: string }> {
+export function decodeToolCalls(raw: unknown): WireToolCall[] {
   if (!Array.isArray(raw)) return [];
-  const out: Array<{ id: string; name: string; arguments: string }> = [];
-  for (const item of raw) {
-    if (item === null || typeof item !== "object" || Array.isArray(item)) continue;
-    const obj = item as Record<string, unknown>;
-    const fn =
-      typeof obj["function"] === "object" && obj["function"] !== null
-        ? (obj["function"] as Record<string, unknown>)
-        : {};
-    const id = typeof obj["id"] === "string" ? obj["id"] : "";
-    const name = typeof fn["name"] === "string" ? fn["name"] : "";
-    if (id === "" && name === "") continue;
-    out.push({ id, name, arguments: typeof fn["arguments"] === "string" ? fn["arguments"] : "" });
-  }
-  return out;
+  return raw
+    .map((item) => decodeToolCall(item))
+    .filter((call): call is WireToolCall => call !== undefined);
+}
+
+/** The `{ error }` field of a parsed result (objects only); undefined when
+ *  the result carries no error string. */
+function errorFieldOf(value: unknown): string | undefined {
+  const obj = plainObject(value);
+  const error = obj?.["error"];
+  return typeof error === "string" ? error : undefined;
 }
 
 /**
@@ -68,11 +95,13 @@ export function decodeToolResult(m: TranscriptMessage): {
   } catch {
     /* not JSON: keep the raw text as the value */
   }
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    const obj = value as Record<string, unknown>;
-    if (typeof obj["error"] === "string") return { ok: false, value, error: obj["error"] };
-  }
-  return { ok: true, value };
+  const error = errorFieldOf(value);
+  return error === undefined ? { ok: true, value } : { ok: false, value, error };
+}
+
+/** A finite number, or undefined (the only numeric shape callers accept). */
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /**
@@ -81,18 +110,16 @@ export function decodeToolResult(m: TranscriptMessage): {
  * callers can treat the turn as having no usage (never throw).
  */
 export function decodeTurnUsage(value: unknown): TokenUsage | undefined {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-  const rec = value as Record<string, unknown>;
-  const out: TokenUsage = {};
-  let has = false;
-  for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"] as const) {
-    const n = rec[key];
-    if (typeof n === "number" && Number.isFinite(n)) {
-      out[key] = n;
-      has = true;
-    }
-  }
-  return has ? out : undefined;
+  const rec = plainObject(value);
+  if (rec === undefined) return undefined;
+  const keys = ["prompt_tokens", "completion_tokens", "total_tokens"] as const;
+  const picked = keys.map((key) => finiteNumber(rec[key]));
+  const usage: TokenUsage = {};
+  keys.forEach((key, i) => {
+    const n = picked[i];
+    if (n !== undefined) usage[key] = n;
+  });
+  return Object.keys(usage).length > 0 ? usage : undefined;
 }
 
 /** The current context weight: the last known absolute total (0 when none). */
@@ -100,13 +127,25 @@ export function finalContextTotal(
   turns: ReadonlyArray<{ usage?: TokenUsage } | undefined> | undefined,
 ): number {
   if (!Array.isArray(turns)) return 0;
-  let last = 0;
-  for (const t of turns) {
-    const n = t?.usage?.total_tokens;
-    if (typeof n === "number" && Number.isFinite(n) && n > 0) last = n;
-  }
-  return last;
+  const totals = turns
+    .map((turn) => finiteNumber(turn?.usage?.total_tokens))
+    .filter((n): n is number => n !== undefined && n > 0);
+  return totals.length > 0 ? (totals[totals.length - 1] as number) : 0;
 }
+/** One row's estimated token weight: its content plus its tool calls. */
+function rowTokenEstimate(m: { content?: string; toolCalls?: unknown }): number {
+  let total = 0;
+  if (typeof m.content === "string" && m.content !== "") total += estimateTokenCount(m.content);
+  if (m.toolCalls !== undefined) {
+    try {
+      total += estimateTokenCount(JSON.stringify(m.toolCalls));
+    } catch {
+      // ignore malformed tool-call payloads
+    }
+  }
+  return total;
+}
+
 /**
  * Estimate the current context weight directly from the transcript rows when
  * no provider-reported totals exist (e.g. a fresh handoff/compaction session
@@ -117,19 +156,10 @@ export function estimatedContextTotal(
   messages: ReadonlyArray<{ content?: string; toolCalls?: unknown } | undefined> | undefined,
 ): number {
   if (!Array.isArray(messages)) return 0;
-  let total = 0;
-  for (const m of messages) {
-    if (m === null || typeof m !== "object") continue;
-    if (typeof m.content === "string" && m.content !== "") total += estimateTokenCount(m.content);
-    if (m.toolCalls !== undefined) {
-      try {
-        total += estimateTokenCount(JSON.stringify(m.toolCalls));
-      } catch {
-        // ignore malformed tool-call payloads
-      }
-    }
-  }
-  return total;
+  const rows = messages.filter(
+    (m): m is { content?: string; toolCalls?: unknown } => m !== null && typeof m === "object",
+  );
+  return rows.reduce((total, row) => total + rowTokenEstimate(row), 0);
 }
 
 /**
@@ -142,53 +172,94 @@ export function estimatedContextTotal(
  * deltas that would be negative (provider inconsistency) are omitted rather
  * than shown as a nonsensical decrease.
  */
+/** The turn fields a captured transcript dump carries. */
+interface CapturedTurn {
+  turnId: number;
+  usage?: TokenUsage;
+  durationMs?: number;
+}
+
+/** A finite nonnegative turn id, or undefined. */
+function turnIdOf(turn: CapturedTurn): number | undefined {
+  const id = turn.turnId;
+  return typeof id === "number" && Number.isFinite(id) ? id : undefined;
+}
+
+/**
+ * One turn's metrics against the total BEFORE it: the delta each turn
+ * contributed (`delta > 0` — a negative or zero delta is a provider
+ * inconsistency, omitted rather than shown as a nonsensical decrease).
+ * A turn with no usage contributes only its duration (or nothing, when
+ * it has neither — the caller drops empty entries).
+ */
+function turnMetrics(turn: CapturedTurn, prevTotal: number): TranscriptTurnMetrics {
+  const metrics: TranscriptTurnMetrics = {};
+  const duration = finiteNumber(turn.durationMs);
+  if (duration !== undefined) metrics.durationMs = duration;
+  const delta = reportedTotalOf(turn) - prevTotal;
+  if (reportedTotalOf(turn) > 0 && delta > 0) metrics.usage = { total_tokens: delta };
+  return metrics;
+}
+
+/** Sort key of a captured turn: its finite turn id (guards removed upstream). */
+function byTurnId(a: CapturedTurn, b: CapturedTurn): number {
+  return (turnIdOf(a) as number) - (turnIdOf(b) as number);
+}
+
+/** Is the metrics entry worth a map slot: it carries anything at all? */
+function hasMetrics(metrics: TranscriptTurnMetrics): boolean {
+  return metrics.usage !== undefined || metrics.durationMs !== undefined;
+}
+
+/** The captured turns with usable ids, in turn order. */
+function orderedTurns(
+  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }>,
+): CapturedTurn[] {
+  return turns
+    .filter((t): t is CapturedTurn => t !== null && typeof t === "object")
+    .filter((t) => turnIdOf(t) !== undefined)
+    .sort(byTurnId);
+}
+
+/** The turn's absolute context total (the running-total input), 0 when absent. */
+function reportedTotalOf(turn: CapturedTurn): number {
+  return finiteNumber(turn.usage?.total_tokens) ?? 0;
+}
+
 export function perTurnDeltas(
   turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }> | undefined,
-): Map<number, { usage?: TokenUsage; durationMs?: number }> {
-  const out = new Map<number, { usage?: TokenUsage; durationMs?: number }>();
+): Map<number, TranscriptTurnMetrics> {
+  const out = new Map<number, TranscriptTurnMetrics>();
   if (!Array.isArray(turns)) return out;
   let prevTotal = 0;
-  const ordered = [...turns]
-    .filter(
-      (t): t is { turnId: number; usage?: TokenUsage; durationMs?: number } =>
-        t !== null && typeof t === "object",
-    )
-    .sort((a, b) => a.turnId - b.turnId);
-  for (const t of ordered) {
-    if (t === null || typeof t !== "object") continue;
-    const turnId = t.turnId;
-    if (typeof turnId !== "number" || !Number.isFinite(turnId)) continue;
-    const total = t.usage?.total_tokens;
-    const entry: { usage?: TokenUsage; durationMs?: number } = {};
-    if (typeof t.durationMs === "number" && Number.isFinite(t.durationMs)) {
-      entry.durationMs = t.durationMs;
-    }
-    if (typeof total === "number" && Number.isFinite(total) && total > 0) {
-      const delta = total - prevTotal;
-      if (delta > 0) entry.usage = { total_tokens: delta };
-      prevTotal = total;
-    }
-    if (entry.usage !== undefined || entry.durationMs !== undefined) out.set(turnId, entry);
+  for (const turn of orderedTurns(turns)) {
+    const metrics = turnMetrics(turn, prevTotal);
+    prevTotal = Math.max(prevTotal, reportedTotalOf(turn));
+    if (hasMetrics(metrics)) out.set(turnIdOf(turn) as number, metrics);
   }
   return out;
 }
 
+/** The result content pretty-printed as JSON (objects only); undefined when
+ *  the content is absent or not a JSON object. */
+function prettyJsonOf(content: string | undefined): string | undefined {
+  if (content === undefined) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(content);
+    return parsed !== null && typeof parsed === "object"
+      ? JSON.stringify(parsed, null, 2)
+      : undefined;
+  } catch {
+    return undefined; // not JSON — the raw text is the value
+  }
+}
+
 /** Pretty text for a tool result row: `name → <result>`. */
 function toolResultText(m: TranscriptMessage): string {
-  const name = typeof m.name === "string" && m.name !== "" ? m.name : (m.toolCallId ?? "tool");
-  let pretty: string | undefined;
-  const content = typeof m.content === "string" ? m.content : undefined;
-  if (content !== undefined) {
-    try {
-      const parsed: unknown = JSON.parse(content);
-      if (parsed !== null && typeof parsed === "object") {
-        pretty = JSON.stringify(parsed, null, 2);
-      }
-    } catch {
-      /* not JSON — fall through */
-    }
-  }
-  const right = pretty ?? (content !== "" ? content : "(no result)");
+  const hasName = typeof m.name === "string" && m.name !== "";
+  const name = hasName ? m.name : (m.toolCallId ?? "tool");
+  const content = contentOf(m);
+  const right = prettyJsonOf(content) ?? (content === "" ? "(no result)" : content);
   return `${name} → ${right}`;
 }
 
@@ -200,6 +271,11 @@ function toolCallSummary(m: TranscriptMessage): string {
   return `tool call: ${names === "" ? "tool" : names}`;
 }
 
+/** The row's string content (other types read as ""). */
+function contentOf(m: TranscriptMessage): string {
+  return typeof m.content === "string" ? m.content : "";
+}
+
 /**
  * Primary display text for one wire row (derived from every field present).
  * Plain rows use their content verbatim; assistant rows carrying tool calls
@@ -207,15 +283,16 @@ function toolCallSummary(m: TranscriptMessage): string {
  * result rows render as `name → result`.
  */
 export function transcriptText(m: TranscriptMessage): string {
-  const content = typeof m.content === "string" ? m.content : "";
-  if (m.role === "assistant") {
-    if (m.toolCalls === undefined) return content;
-    const summary = toolCallSummary(m);
-    if (content !== "") return `${content} [${summary}]`;
-    return summary;
-  }
   if (m.role === "tool") return toolResultText(m);
-  return content;
+  if (m.role !== "assistant" || m.toolCalls === undefined) return contentOf(m);
+  return assistantText(contentOf(m), toolCallSummary(m));
+}
+
+/** Assistant display text: the summary carries the line when the prose is
+ *  empty; prose and summary compose when both exist. */
+function assistantText(content: string, summary: string): string {
+  if (content === "") return summary;
+  return `${content} [${summary}]`;
 }
 
 /**
@@ -225,18 +302,20 @@ export function transcriptText(m: TranscriptMessage): string {
  * fallback mode); malformed rows — non-objects or roleless — are skipped
  * without throwing.
  */
+/** The display role of one wire row: user/assistant/tool pass through,
+ *  everything else renders as system (unknown roles normalized, never a
+ *  fallback mode). */
+function displayRoleOf(role: unknown): TranscriptRole {
+  return role === "user" || role === "assistant" || role === "tool" ? role : "system";
+}
+
+/** Is the row well-formed enough to convert: a plain object with a role. */
+function isConvertible(m: TranscriptMessage): boolean {
+  return plainObject(m) !== undefined && typeof m.role === "string";
+}
+
 export function toTranscriptEntries(messages: TranscriptMessage[]): TranscriptEntry[] {
-  const entries: TranscriptEntry[] = [];
-  for (const m of messages) {
-    if (m === null || typeof m !== "object" || Array.isArray(m)) continue;
-    if (typeof m.role !== "string") continue;
-    if (m.role === "user" || m.role === "assistant" || m.role === "tool") {
-      entries.push({ role: m.role, text: transcriptText(m), raw: m });
-      continue;
-    }
-    // `system` rows render as system entries; a row with no recognizable
-    // role at all is malformed and skipped (defense, never a fallback).
-    entries.push({ role: "system", text: transcriptText(m), raw: m });
-  }
-  return entries;
+  return messages
+    .filter((m) => isConvertible(m))
+    .map((m) => ({ role: displayRoleOf(m.role), text: transcriptText(m), raw: m }));
 }

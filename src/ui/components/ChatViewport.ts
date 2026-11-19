@@ -26,7 +26,88 @@ import {
   tableScrollChar,
   tableScrollKey,
 } from "../render/table/index.ts";
-import { type CopyActions } from "../../core/copyText.ts";
+import { type CopyActions, type CopyRequest } from "../../core/copyText.ts";
+import type { CopySinks } from "../../app/copySinks.ts";
+
+/**
+ * The focused table: its entry and its index within that entry. A table is
+ * only scrollable when its layout overflows the viewport — the expanded
+ * layout of a squeezable table. Null when nothing (or a non-prose entry)
+ * is focused.
+ */
+function focusedTable(viewport: ChatViewport): { entry: LogEntry; index: number } | null {
+  viewport.syncFromStore();
+  const index = viewport.getFocusTable();
+  if (index < 0) return null;
+  const entry = viewport.getEntries()[viewport.getFocusIndex()];
+  if (entry === undefined) return null;
+  if (entry.kind !== "user" && entry.kind !== "assistant") return null;
+  return { entry, index };
+}
+
+/**
+ * The focused-unit action a plain character encodes; undefined for
+ * characters the log leaves to the other responders. Every arm either
+ * fully claims the key ("handled") or bubbles it ("unhandled").
+ */
+const CHAR_KEYS: Readonly<Record<string, (viewport: ChatViewport) => "handled" | "unhandled">> = {
+  c: (v) => v.requestCopy(false, false), // copy the focused unit
+  C: (v) => v.requestCopy(true, false), // Shift+C: the whole item
+  o: (v) => v.requestCopy(false, true), // output the focused unit to `out/`
+  O: (v) => v.requestCopy(true, true), // Shift+O: the whole item to `out/` (#109)
+  t: (v) => v.cycleTable(1), // cycle forward through the entry's tables
+  h: (v) => v.scrollFocusedTable("h"), // fine-grained horizontal scroll
+  l: (v) => v.scrollFocusedTable("l"),
+  "\r": (v) => v.toggleFocusedEntry(), // Enter: toggle + reveal
+  "\n": (v) => v.toggleFocusedEntry(),
+  "\x1b": (v) => v.leaveFocus(), // Esc: leave entry focus mode
+};
+
+/** The focused-unit action for `ch`, or undefined when it is not one. */
+function charKeyOf(ch: string): ((viewport: ChatViewport) => "handled" | "unhandled") | undefined {
+  return CHAR_KEYS[ch];
+}
+
+/**
+ * The copy request for the focused unit: the TABLE at the inner ring, the
+ * entry everywhere else. Shift at the inner ring bubbles to the OUTER item
+ * (the whole message / whole tool call) — Shift means "the whole thing",
+ * and the only larger unit IS the parent entry. Plain stays at the table
+ * (no bubbling, ever).
+ */
+function copyRequestFor(
+  actions: CopySinks,
+  entry: LogEntry,
+  table: number,
+  upper: boolean,
+): CopyRequest | null {
+  return table >= 0 && !upper ? actions.requestTable(entry, table) : actions.request(entry, upper);
+}
+
+/**
+ * Scroll geometry of the focused table at the log's width: the viewport-body
+ * width and the table's total rendered width. Same `resolveTableLayout` the
+ * entry renderer uses, and the SAME table (the focused one, not the first),
+ * so the scroll bounds always match what is on screen.
+ */
+function focusedTableLayout(
+  entry: LogEntry,
+  tableIndex: number,
+  cols: number,
+): { cols: number; totalW: number } {
+  const bodyW = Math.max(1, cols - 2);
+  const sections = splitTableSections(entry.lines.join("\n"));
+  const tables = sections.filter((s) => s.kind === "table");
+  const section = tables[tableIndex];
+  if (section === undefined || section.kind !== "table") return { cols: bodyW, totalW: 0 };
+  const state = entry.tables?.[tableIndex];
+  const layout = resolveTableLayout(
+    section.table.columns.map((c) => c.width),
+    bodyW,
+    state?.expanded === true,
+  );
+  return { cols: bodyW, totalW: tableRowWidth(layout.widths) };
+}
 
 /** Shift+Down encodings — move top-level focus from the log to the input. */
 const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
@@ -66,30 +147,6 @@ const SHIFT_O_SEQS: ReadonlySet<string> = new Set([
   "\x1b[27;2;79~", // xterm modifyOtherKeys (numeric form)
   "\x1bO", // legacy
 ]);
-/**
- * Scroll geometry of the focused table at the log's width: the viewport-body
- * width and the table's total rendered width. Same `resolveTableLayout` the
- * entry renderer uses, and the SAME table (the focused one, not the first),
- * so the scroll bounds always match what is on screen.
- */
-function focusedTableLayout(
-  entry: LogEntry,
-  tableIndex: number,
-  cols: number,
-): { cols: number; totalW: number } {
-  const bodyW = Math.max(1, cols - 2);
-  const sections = splitTableSections(entry.lines.join("\n"));
-  const tables = sections.filter((s) => s.kind === "table");
-  const section = tables[tableIndex];
-  if (section === undefined || section.kind !== "table") return { cols: bodyW, totalW: 0 };
-  const state = entry.tables?.[tableIndex];
-  const layout = resolveTableLayout(
-    section.table.columns.map((c) => c.width),
-    bodyW,
-    state?.expanded === true,
-  );
-  return { cols: bodyW, totalW: tableRowWidth(layout.widths) };
-}
 
 export class ChatViewport extends ChatLogComponent {
   /**
@@ -101,7 +158,7 @@ export class ChatViewport extends ChatLogComponent {
   copyActions?: CopyActions;
 
   /** Pull store state (entries, scroll, follow, focus ring) into the log. */
-  private syncFromStore(): void {
+  syncFromStore(): void {
     const state = getState();
     this.entries = state.entries;
     this.scrollOffset = state.scrollOffset;
@@ -175,21 +232,6 @@ export class ChatViewport extends ChatLogComponent {
     this.commit();
   }
 
-  /**
-   * The focused table: its entry and its index within that entry. A table
-   * is only scrollable when its layout overflows the viewport — the
-   * expanded layout of a squeezable table.
-   */
-  private focusedTable(): { entry: LogEntry; index: number } | null {
-    this.syncFromStore();
-    const index = this.focusTarget.table;
-    if (index < 0) return null;
-    const entry = this.entries[this.focusTarget.entry];
-    if (entry === undefined) return null;
-    if (entry.kind !== "user" && entry.kind !== "assistant") return null;
-    return { entry, index };
-  }
-
   override handleKey(seq: string): "handled" | "unhandled" {
     if (SHIFT_DOWN_SEQS.has(seq)) {
       // Shift+Down: hand the top-level ring back to the input.
@@ -203,70 +245,71 @@ export class ChatViewport extends ChatLogComponent {
     if (SHIFT_O_SEQS.has(seq)) return this.requestCopy(true, true);
     // Shift+T cycles backward through the focused entry's tables.
     if (TABLE_CYCLE_SEQS.has(seq)) return this.cycleTable(-1);
-    const focused = this.focusedTable();
-    if (focused === null) return "unhandled";
+    return this.scrollFocusedTable(seq);
+  }
+
+  override handleChar(ch: string): "handled" | "unhandled" {
+    const key = charKeyOf(ch);
+    if (key === undefined) return "unhandled";
+    return key(this);
+  }
+
+  /**
+   * Horizontal table scrolling for the focused table (Left/Right/Home/End
+   * keys and h/l chars). Unhandled when nothing is focused, the key is not
+   * a scroll key, or the step is already at its edge. Dispatched from both
+   * the char-key table (h/l) and `handleKey` (the sequences).
+   */
+  scrollFocusedTable(key: string): "handled" | "unhandled" {
     // Fast path: skip the expensive parse for keys that can't scroll
     // horizontally — the layout is only needed for scroll steps.
-    if (!isTableScrollSeq(seq)) return "unhandled";
+    const isSeq = key.length > 1;
+    if (isSeq && !isTableScrollSeq(key)) return "unhandled";
+    const focused = focusedTable(this);
+    if (focused === null) return "unhandled";
     const layout = focusedTableLayout(focused.entry, focused.index, this.cols);
-    const step = tableScrollKey(
-      seq,
-      tableStateOf(focused.entry, focused.index).scrollX,
-      layout.totalW,
-      layout.cols,
-    );
+    const step = isSeq
+      ? tableScrollKey(
+          key,
+          tableStateOf(focused.entry, focused.index).scrollX,
+          layout.totalW,
+          layout.cols,
+        )
+      : tableScrollChar(
+          key,
+          tableStateOf(focused.entry, focused.index).scrollX,
+          layout.totalW,
+          layout.cols,
+        );
     if (step === null) return "unhandled";
     tableState(focused.entry, focused.index).scrollX = step.scrollX;
     this.commit();
     return "handled";
   }
 
-  override handleChar(ch: string): "handled" | "unhandled" {
-    // C / O copy or output the focused entry's raw Markdown;
-    // Shift+C copies the whole message / whole item.
-    if (ch === "c") return this.requestCopy(false, false);
-    if (ch === "C") return this.requestCopy(true, false);
-    if (ch === "o") return this.requestCopy(false, true);
-    if (ch === "O") return this.requestCopy(true, true);
-    // T: cycle forward through the focused prose entry's tables.
-    if (ch === "t") return this.cycleTable(1);
-    if (ch === "h" || ch === "l") {
-      const focused = this.focusedTable();
-      if (focused === null) return "unhandled";
-      const layout = focusedTableLayout(focused.entry, focused.index, this.cols);
-      const step = tableScrollChar(
-        ch,
-        tableStateOf(focused.entry, focused.index).scrollX,
-        layout.totalW,
-        layout.cols,
-      );
-      if (step === null) return "unhandled";
-      tableState(focused.entry, focused.index).scrollX = step.scrollX;
-      this.commit();
+  /** Enter: toggle the focused unit and reveal it. Unhandled when nothing
+   *  is focused or the unit has nothing to toggle (bubbles to submit). */
+  toggleFocusedEntry(): "handled" | "unhandled" {
+    this.syncFromStore();
+    // No focused entry (or a non-toggleable one) → bubble to submit.
+    if (this.focusTarget.entry < 0) return "unhandled";
+    if (!this.toggleFocused()) return "unhandled";
+    this.commit(); // entries mutated in place — notify subscribers
+    this.reveal();
+    return "handled";
+  }
+
+  /** Esc: leave entry focus mode. With the ring empty, hand the top-level
+   *  ring back to the input (the abort path lives on the input side). */
+  leaveFocus(): "handled" | "unhandled" {
+    this.syncFromStore();
+    if (this.focusTarget.entry >= 0) {
+      this.clearFocus();
       return "handled";
     }
-    if (ch === "\r" || ch === "\n") {
-      this.syncFromStore();
-      // No focused entry (or a non-toggleable one) → bubble to submit.
-      if (this.focusTarget.entry < 0) return "unhandled";
-      if (!this.toggleFocused()) return "unhandled";
-      this.commit(); // entries mutated in place — notify subscribers
-      this.reveal();
-      return "handled";
-    }
-    if (ch === "\x1b") {
-      // Esc: leave entry focus mode. With the ring empty, return to the
-      // input (the abort path lives on the input side of the ring).
-      this.syncFromStore();
-      if (this.focusTarget.entry >= 0) {
-        this.clearFocus();
-        return "handled";
-      }
-      setTopLevel("input");
-      setState({}); // notify the scheduler so the input un-blurs
-      return "handled";
-    }
-    return "unhandled";
+    setTopLevel("input");
+    setState({}); // notify the scheduler so the input un-blurs
+    return "handled";
   }
 
   /**
@@ -276,7 +319,7 @@ export class ChatViewport extends ChatLogComponent {
    * entry, so cycling moves into/out of its tables). Enter stays with the
    * table's expand/collapse; Esc unfocuses back to the log ring as usual.
    */
-  private cycleTable(dir: 1 | -1): "handled" | "unhandled" {
+  cycleTable(dir: 1 | -1): "handled" | "unhandled" {
     this.syncFromStore();
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return "unhandled";
@@ -314,27 +357,19 @@ export class ChatViewport extends ChatLogComponent {
    * instead of the clipboard). Unhandled when nothing is focused, the
    * entry carries no copy identity, or no sink is wired (tests).
    */
-  private requestCopy(upper: boolean, output: boolean): "handled" | "unhandled" {
+  requestCopy(upper: boolean, output: boolean): "handled" | "unhandled" {
     const actions = this.copyActions;
     if (actions === undefined) return "unhandled";
     this.syncFromStore();
     if (this.focusTarget.entry < 0) return "unhandled";
     const entry = this.entries[this.focusTarget.entry];
     if (entry === undefined) return "unhandled";
-    // The copy unit follows the ring — BUT Shift at the inner ring
-    // bubbles to the OUTER item (the whole message / whole tool call):
-    // Shift means "the whole thing", and the only larger unit IS the
-    // parent entry. Plain stays at the table (no bubbling, ever).
-    const request =
-      this.focusTarget.table >= 0 && !upper
-        ? actions.requestTable(entry, this.focusTarget.table)
-        : actions.request(entry, upper);
+    const request = copyRequestFor(actions, entry, this.focusTarget.table, upper);
     if (request === null) return "unhandled";
     if (output) actions.output(request);
     else actions.copy(request);
     return "handled";
   }
-
   /** Tab / Shift-Tab: move the focus ring and keep the target visible. */
   cycleFocus(dir: 1 | -1): void {
     this.syncFromStore();
