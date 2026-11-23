@@ -9,7 +9,7 @@ import { transcriptLogEntries } from "../core/index.ts";
 import { perTurnDeltas } from "../core/index.ts";
 import { setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { TranscriptResult, YogClient } from "../yogClient.ts";
+import type { TranscriptResult, YogClient } from "../client/index.ts";
 import { statusTotals, termCols, transcriptTokenWeight } from "./transcriptRebuild.ts";
 
 /** The poll cadence (ms) while a resumed turn is in flight. */

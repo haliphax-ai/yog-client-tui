@@ -20,7 +20,7 @@ import {
   SLASH_COMMANDS,
   type SlashCommand,
 } from "../core/index.ts";
-import type { YogClient } from "../yogClient.ts";
+import type { YogClient } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { compactionNote, applyCompaction } from "./transcriptRebuild.ts";
 import { isSlash } from "../core/index.ts";

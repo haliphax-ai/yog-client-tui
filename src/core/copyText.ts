@@ -14,7 +14,7 @@
  * back to the universal whole-call JSON blob.
  */
 import { getState } from "./store.ts";
-import { parseToolArgs } from "../yogClient.ts";
+import { parseToolArgs } from "../client/index.ts";
 import type { LogEntry } from "./entries.ts";
 import type { ParsedTable } from "./tableShape.ts";
 

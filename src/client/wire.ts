@@ -1,9 +1,9 @@
 /**
  * The yog wire shapes: the typed events, outcomes, and transcript rows the
- * transport (src/yogClient.ts) and its client/ helpers share.
+ * transport (src/client/client.ts) and its client/ helpers share.
  *
  * A separate module so the helpers can import the shapes WITHOUT
- * importing the client itself (no client/ → yogClient edge, so the
+ * importing the client itself (no client/ → client.ts edge, so the
  * dependency graph stays one-way).
  */
 /** Well-known event types on the turn stream. */

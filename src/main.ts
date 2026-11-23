@@ -1,6 +1,6 @@
 /**
  * Entry point / wiring only: terminal lifecycle, key handling, render
- * scheduling, and the config → yogClient → presenter → view pipeline.
+ * scheduling, and the config → client → presenter → view pipeline.
  * UI state lives in the central store (`core/store`); the render scheduler
  * subscribes to it once, coalesces bursts into one flush, and the flush runs
  * the staged render pipeline (`ui/pipeline`: layout → paint → compose → post
@@ -50,7 +50,7 @@ import { FOCUS_NONE_TARGET } from "./core/index.ts";
 import { getState, setState } from "./core/index.ts";
 import { noticeLine } from "./core/index.ts";
 import { setServerCommands, type CommandDescriptor } from "./core/index.ts";
-import { YogClient, type TranscriptResult } from "./yogClient.ts";
+import { YogClient, type TranscriptResult } from "./client/index.ts";
 import { driveRehydrate, stageRehydrate, statusTotals } from "./app/index.ts";
 import { pushLines } from "./app/index.ts";
 import { resolveSession } from "./app/index.ts";

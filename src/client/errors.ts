@@ -5,7 +5,7 @@
  *
  * A separate module so the transport (`client/transport.ts`) can use it
  * without importing the client itself — the dependency graph stays
- * one-way (`yogClient.ts` → `client/*`).
+ * one-way (`client.ts` → the other `client/*` modules).
  */
 /** Structured error decoded from a `{ error: { code, message } }` body. */
 export class YogError extends Error {

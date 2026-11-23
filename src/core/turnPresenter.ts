@@ -13,7 +13,7 @@
  * lifecycle into the `TurnPresenter` the client drives, and re-exports
  * the builders/rehydration surface the rest of the app imports.
  */
-import { type TurnEvents } from "../yogClient.ts";
+import { type TurnEvents } from "../client/index.ts";
 import { createTurnEventHandlers, createTurnLifecycle, ProseStream } from "./turnEvents.ts";
 import type { TurnHost } from "./turnHost.ts";
 

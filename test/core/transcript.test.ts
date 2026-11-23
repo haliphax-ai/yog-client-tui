@@ -10,7 +10,7 @@ import {
   toTranscriptEntries,
   transcriptText,
 } from "../../src/core/index.ts";
-import type { TranscriptMessage, TokenUsage } from "../../src/yogClient.ts";
+import type { TranscriptMessage, TokenUsage } from "../../src/client/index.ts";
 
 /** A minimal well-formed row with overrides. */
 function row(overrides: Partial<TranscriptMessage>): TranscriptMessage {

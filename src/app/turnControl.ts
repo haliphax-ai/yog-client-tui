@@ -10,12 +10,12 @@ import { addLiveCompletionTokens, getState, setState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
 import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
 import {
-  YogError,
   type TokenUsage,
   type TurnEvents,
   type TurnOutcome,
   type YogClient,
-} from "../yogClient.ts";
+  YogError,
+} from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 
 /** Save the resolved session id (the caller injects its own state writer). */

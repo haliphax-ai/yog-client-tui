@@ -27,8 +27,9 @@ src/
                     routing, render scheduling). The only module allowed to
                     import config/.
   config.ts         Config parsing/validation; config/state file locations.
-  yogClient.ts      The yog HTTP/SSE transport: capabilities, sessions,
-                    turns, transcript rehydration, recovery. Terminal-free.
+  client/           The yog HTTP/SSE transport (client.ts, behind the
+                    client/index.ts door): capabilities, sessions, turns,
+                    transcript rehydration, recovery. Terminal-free.
   core/             The domain model: log entries, the state store, the focus
                     ring, scroll math, transcript conversion, the turn
                     presenter, slash commands.

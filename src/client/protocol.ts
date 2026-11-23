@@ -5,7 +5,7 @@
  *
  * A separate module so the transport (`client/transport.ts`) can use it
  * without importing the client itself — the dependency graph stays
- * one-way (`yogClient.ts` → `client/*`).
+ * one-way (`client.ts` → the other `client/*` modules).
  */
 /** Envelope version this client speaks (omitted on the wire means 1). */
 export const MESSAGE_VERSION = 1;

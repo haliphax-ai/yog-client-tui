@@ -1,51 +1,23 @@
 /**
- * The transport's single public door.
+ * The client domain's public door: everything outside `src/client/`
+ * imports from here, never from an inner module.
  *
- * `src/yogClient.ts` owns the transport; the `client/` modules carry the
- * shared mechanics (wire shapes, protocol envelopes, SSE, errors, turn
- * outcome plumbing). This barrel exposes those internals without letting
- * importers reach past the door — `yogClient.ts` itself consumes the same
- * barrel.
+ * `client.ts` owns the transport (the `YogClient` class plus the
+ * capability/session-stream types it introduces); the other `client/`
+ * modules carry the shared mechanics (wire shapes, protocol envelopes,
+ * SSE, errors, turn outcome plumbing). The barrel exposes the public
+ * surface of both without letting importers reach past the door —
+ * `client.ts` itself consumes the mechanics directly, not through here.
  */
 export {
-  MESSAGE_TYPES,
-  MESSAGE_VERSION,
-  buildEnvelope,
-  type MessageEnvelope,
-  type MessageResponse,
-  type MessageType,
-} from "./protocol.ts";
-export {
-  YogError,
-  authHeaders,
-  isUnreachable,
-  toError,
-  toYogError,
-  unreachableError,
-} from "./errors.ts";
-export { parseToolArgs, parseUsage } from "./decode.ts";
-export { turnEnvelopeHandler } from "./envelope.ts";
-export {
-  type ParsedFrame,
-  parseFrame,
-  toEnvelope,
-  extractData,
-  type ConsumedStream,
-  readSseStream,
-  consumeStream,
-} from "./sse.ts";
-export { sessionOf, statusOf, type TurnRow, transcriptTurns } from "./transcriptRows.ts";
-export { replayStoredTurn, abortResultOf, capabilityQuery } from "./replies.ts";
-export { awaitTerminal, settleTurn, type Recover } from "./turnSettle.ts";
-export {
-  str,
-  TurnObservation,
-  directOutcome,
-  recoveredOutcome,
-  streamGapOutcome,
-  emptyRecoveryOutcome,
-} from "./turnOutcome.ts";
-export { Transport } from "./transport.ts";
+  YogClient,
+  type Capabilities,
+  type ServerCommandDescriptor,
+  type SessionStream,
+} from "./client.ts";
+export { YogError, isUnreachable, unreachableError, toYogError } from "./errors.ts";
+export { parseToolArgs } from "./decode.ts";
+export { parseFrame, toEnvelope, readSseStream } from "./sse.ts";
 export type {
   AbortTurnResult,
   ActiveToolCall,

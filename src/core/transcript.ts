@@ -10,7 +10,7 @@
  * `raw.content`), nothing is truncated, summarized, or skipped. Malformed
  * rows are tolerated defensively — conversion never throws.
  */
-import type { TranscriptMessage, TokenUsage } from "../yogClient.ts";
+import type { TranscriptMessage, TokenUsage } from "../client/index.ts";
 import type { TranscriptTurnMetrics } from "./turnMetrics.ts";
 import { estimateTokenCount } from "tokenx";
 

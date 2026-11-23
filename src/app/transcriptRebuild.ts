@@ -20,7 +20,7 @@ import { perTurnDeltas, toTranscriptEntries } from "../core/index.ts";
 import { estimatedContextTotal, finalContextTotal } from "../core/index.ts";
 import { getState, setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { TranscriptResult } from "../yogClient.ts";
+import type { TranscriptResult } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { noticeLine } from "../core/index.ts";
 

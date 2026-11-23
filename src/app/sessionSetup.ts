@@ -18,7 +18,7 @@ import {
 import { formatTokenTotal } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import { YogError, type TranscriptResult, type YogClient } from "../yogClient.ts";
+import { YogError, type TranscriptResult, type YogClient } from "../client/index.ts";
 import { placeholderLogEntries } from "../core/index.ts";
 
 /** What resolveSession produced: the resume facts and the log seed. */
