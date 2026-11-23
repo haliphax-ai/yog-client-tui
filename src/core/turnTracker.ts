@@ -7,7 +7,7 @@
  * which is why their summaries always agree.
  */
 import { formatRuntime, formatTokenTotal } from "./toolFormat.ts";
-import type { TokenUsage } from "../yogClient.ts";
+import type { TokenUsage } from "../client/index.ts";
 import type { LogEntry } from "./entries.ts";
 import type { TranscriptEntry } from "./transcript.ts";
 import type { TranscriptTurnMetrics } from "./turnMetrics.ts";

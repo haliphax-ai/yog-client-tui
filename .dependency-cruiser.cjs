@@ -31,9 +31,9 @@ const path = require("node:path");
  * render — with table and colorize nested inside render) each carry their
  * own door and are matched before the broader ui/ prefix.
  *
- * yogClient.ts is the root module of the transport group: the client/
- * helpers are its internals, so it is the one file allowed to import the
- * client/ barrel.
+ * The client domain's transport lives in client/client.ts: it composes the
+ * client/ helpers directly (intra-group imports), while everything outside
+ * the group goes through client/index.ts like any other domain.
  */
 const DOMAINS = [
   "app",
@@ -128,7 +128,7 @@ module.exports = {
       name: "client-no-config-fs",
       severity: "error",
       comment: "the yog client deals in plain data only",
-      from: { path: ["^src/yogClient\\.ts$", "^src/client/"] },
+      from: { path: "^src/client/" },
       to: { path: ["^src/config(\\.ts$|/)", "^(node:)?fs(/|$)"] },
     },
 
@@ -229,21 +229,6 @@ module.exports = {
         to: { path: `^src/${esc}/`, pathNot: doorAlt },
       };
     }),
-
-    // 11b. The transport root is the client group's owner: it composes the
-    // client/ helpers and re-exports their public surface, so it (alone)
-    // may import the client/ barrel directly. Tests and every other src
-    // module import the transport itself (src/yogClient.ts), which the
-    // client group's entry-only rule already forces: client/ internals
-    // are unreachable from outside except through that barrel, and the
-    // barrel is only reachable from yogClient.ts by this rule.
-    {
-      name: "client-barrel-only-from-yogclient",
-      severity: "error",
-      comment: "client/ internals compose only inside the transport root",
-      from: { path: "^(src|test)/", pathNot: "^src/yogClient\\\\.ts$" },
-      to: { path: "^src/client/index\\\\.ts$" },
-    },
   ],
   options: {
     doNotFollow: {

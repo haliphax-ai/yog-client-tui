@@ -18,7 +18,7 @@ import {
 import { createTurnPresenter } from "../src/core/index.ts";
 import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/index.ts";
 import { statusBody } from "../src/ui/components/index.ts";
-import { parseToolArgs } from "../src/yogClient.ts";
+import { parseToolArgs } from "../src/client/index.ts";
 import type { LogEntry } from "../src/core/index.ts";
 import { displayWidth, stripAnsi, wrapText } from "../src/util/index.ts";
 

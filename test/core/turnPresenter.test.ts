@@ -9,10 +9,10 @@ import {
   toolResultEntries,
   transcriptLogEntries,
 } from "../../src/core/index.ts";
-import type { TranscriptMessage, TokenUsage } from "../../src/yogClient.ts";
+import type { TranscriptMessage, TokenUsage } from "../../src/client/index.ts";
 import { toTranscriptEntries } from "../../src/core/index.ts";
 import type { LogEntry } from "../../src/core/index.ts";
-import { parseToolArgs } from "../../src/yogClient.ts";
+import { parseToolArgs } from "../../src/client/index.ts";
 
 /** Column width used across these tests. */
 const COLS = 80;

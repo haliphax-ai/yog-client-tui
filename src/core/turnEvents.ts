@@ -13,7 +13,7 @@
  * the shared entry builders (`toolEntries.ts`) also serve transcript
  * rehydration, so restored rows render exactly like live ones.
  */
-import type { ToolResultEvent, TurnEvents, TokenUsage } from "../yogClient.ts";
+import type { ToolResultEvent, TurnEvents, TokenUsage } from "../client/index.ts";
 import { formatDuration, formatRuntime, formatTokenTotal, tokenCountNote } from "./toolFormat.ts";
 import { displayWidth, truncateAnsi } from "../util/index.ts";
 import type { LogEntry } from "./entries.ts";

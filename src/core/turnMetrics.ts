@@ -4,7 +4,7 @@
  * Its own module so both the presenter's rehydration surface and the
  * callers that build the metrics map import one definition.
  */
-import type { TokenUsage } from "../yogClient.ts";
+import type { TokenUsage } from "../client/index.ts";
 
 /** Per-turn metrics for a rehydrated turn (usage/duration as captured). */
 export interface TranscriptTurnMetrics {

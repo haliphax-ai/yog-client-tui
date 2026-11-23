@@ -7,7 +7,7 @@ import {
   transcriptLogEntries,
 } from "../src/core/index.ts";
 import { toTranscriptEntries } from "../src/core/index.ts";
-import type { TranscriptMessage } from "../src/yogClient.ts";
+import type { TranscriptMessage } from "../src/client/index.ts";
 import { cachedRows, heightSummaryAnchored, totalRows } from "../src/ui/render/index.ts";
 import { stripAnsi, displayWidth } from "../src/util/index.ts";
 import { ChatLogComponent } from "../src/ui/components/index.ts";

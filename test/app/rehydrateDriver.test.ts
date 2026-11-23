@@ -5,7 +5,7 @@ import { clearRehydrate, driveRehydrate, stageRehydrate } from "../../src/app/in
 import { placeholderLogEntries } from "../../src/core/index.ts";
 import { toTranscriptEntries } from "../../src/core/index.ts";
 import type { LogEntry } from "../../src/core/index.ts";
-import type { TranscriptMessage, TranscriptResult } from "../../src/yogClient.ts";
+import type { TranscriptMessage, TranscriptResult } from "../../src/client/index.ts";
 
 function row(o: Partial<TranscriptMessage>): TranscriptMessage {
   return { seq: 1, role: "user", content: "hello", ...o } as TranscriptMessage;

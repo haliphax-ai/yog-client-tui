@@ -25,34 +25,14 @@
  * styling, or rendering. The UI drives it through the `TurnEvents` callbacks.
  */
 
-import { TurnObservation } from "./client/index.ts";
-import {
-  MESSAGE_TYPES,
-  MESSAGE_VERSION,
-  buildEnvelope,
-  type MessageEnvelope,
-  type MessageResponse,
-  type MessageType,
-} from "./client/index.ts";
-import {
-  YogError,
-  authHeaders,
-  isUnreachable,
-  toError,
-  toYogError,
-  unreachableError,
-} from "./client/index.ts";
-import { turnEnvelopeHandler } from "./client/index.ts";
-import { sessionOf, statusOf, transcriptTurns } from "./client/index.ts";
-import { abortResultOf, capabilityQuery, replayStoredTurn } from "./client/index.ts";
-import { awaitTerminal, settleTurn } from "./client/index.ts";
-import { Transport } from "./client/index.ts";
-import { parseToolArgs, parseUsage } from "./client/index.ts";
-import { consumeStream, parseFrame, readSseStream, toEnvelope } from "./client/index.ts";
-export { parseFrame, toEnvelope };
-
-export { parseToolArgs, parseUsage };
-export { readSseStream };
+import { TurnObservation } from "./turnOutcome.ts";
+import { YogError } from "./errors.ts";
+import { turnEnvelopeHandler } from "./envelope.ts";
+import { sessionOf, statusOf, transcriptTurns } from "./transcriptRows.ts";
+import { abortResultOf, capabilityQuery, replayStoredTurn } from "./replies.ts";
+import { awaitTerminal, settleTurn } from "./turnSettle.ts";
+import { Transport } from "./transport.ts";
+import { consumeStream, parseFrame, toEnvelope } from "./sse.ts";
 import type {
   AbortTurnResult,
   ActiveToolCall,
@@ -63,10 +43,10 @@ import type {
   TurnEvents,
   TokenUsage,
   TurnOutcome,
-} from "./client/index.ts";
+} from "./wire.ts";
 
-// The wire shapes are defined in client/wire.ts (so the client/ helpers
-// can share them without importing this module); they are re-exported
+// The wire shapes are defined in wire.ts (so the client/ helpers can
+// share them without importing this module); they are re-exported
 // here as the transport's public surface.
 export type {
   AbortTurnResult,
@@ -79,22 +59,6 @@ export type {
   TokenUsage,
   TurnOutcome,
 };
-
-// The protocol shapes and the transport error policy live in client/
-// modules (one-way graph); re-exported here as the client's public
-// surface.
-export {
-  MESSAGE_TYPES,
-  MESSAGE_VERSION,
-  buildEnvelope,
-  YogError,
-  authHeaders,
-  isUnreachable,
-  toError,
-  toYogError,
-  unreachableError,
-};
-export type { MessageEnvelope, MessageResponse, MessageType };
 
 /** One server-advertised slash command (mirrors the daemon wire shape). */
 export interface ServerCommandDescriptor {
@@ -120,18 +84,6 @@ export interface Capabilities {
   /** Context window sizes for advertised models, keyed by model id. */
   contextWindowSizes?: Record<string, number>;
 }
-
-/** Well-known event types on the turn stream. */
-export type TurnEventType =
-  | "stream.hello"
-  | "turn.started"
-  | "message.delta"
-  | "tool.call"
-  | "tool.result"
-  | "turn.finished"
-  | "turn.aborted"
-  | "rate_limited"
-  | "error";
 
 /**
  * Handle for the long-lived session stream (`GET /v1/sessions/{id}/stream`).

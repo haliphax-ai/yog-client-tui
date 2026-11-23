@@ -17,7 +17,7 @@
  * steps over the row list; the flat converter and the grouped walker
  * share them, which is why their outputs agree by construction.
  */
-import { parseToolArgs } from "../yogClient.ts";
+import { parseToolArgs } from "../client/index.ts";
 import { tokenCountNote } from "./toolFormat.ts";
 import { annotateToolCall, toolCallEntry, toolResultEntries } from "./toolEntries.ts";
 import type { LogEntry } from "./entries.ts";

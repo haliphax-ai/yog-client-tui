@@ -10,8 +10,8 @@ import {
   type TurnEnvelope,
   type TokenUsage,
   YogClient,
-} from "../src/yogClient.ts";
-import { readSseStream as readSseStreamRaw } from "../src/yogClient.ts";
+} from "../src/client/index.ts";
+import { readSseStream as readSseStreamRaw } from "../src/client/index.ts";
 
 /** The decode step the read loop needs (same wrapper the client uses). */
 function decodeBlock(block: string): TurnEnvelope | undefined {

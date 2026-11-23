@@ -4,14 +4,14 @@ The code is split into domains with enforced dependency rules
 (dependency-cruiser in `npm run depcruise`). Each domain has one job and a
 bounded set of things it may not touch.
 
-| Domain           | Location           | Job                                                                                                                                       |
-| ---------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Composition root | `src/main.ts`      | Wiring only: config loading, terminal lifecycle, key routing, render scheduling.                                                          |
-| `config`         | `src/config.ts`    | Parse and validate `config.json`; resolve the config/state file locations.                                                                |
-| `client`         | `src/yogClient.ts` | The yog HTTP/SSE transport: capabilities, sessions, turns, recovery.                                                                      |
-| `core`           | `src/core/`        | The domain model: log entries, state store, focus ring, scroll math, transcript conversion, the turn presenter, slash-command vocabulary. |
-| `ui`             | `src/ui/`          | Everything drawn: components, the render pipeline, the table engine, the theme.                                                           |
-| `util`           | `src/util/`        | ANSI cell math and fuzzy matching. A leaf: imports nothing from other domains.                                                            |
+| Domain           | Location        | Job                                                                                                                                       |
+| ---------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Composition root | `src/main.ts`   | Wiring only: config loading, terminal lifecycle, key routing, render scheduling.                                                          |
+| `config`         | `src/config.ts` | Parse and validate `config.json`; resolve the config/state file locations.                                                                |
+| `client`         | `src/client/`   | The yog HTTP/SSE transport: capabilities, sessions, turns, recovery.                                                                      |
+| `core`           | `src/core/`     | The domain model: log entries, state store, focus ring, scroll math, transcript conversion, the turn presenter, slash-command vocabulary. |
+| `ui`             | `src/ui/`       | Everything drawn: components, the render pipeline, the table engine, the theme.                                                           |
+| `util`           | `src/util/`     | ANSI cell math and fuzzy matching. A leaf: imports nothing from other domains.                                                            |
 
 ## The rules
 
@@ -26,12 +26,9 @@ bounded set of things it may not touch.
   (in `src/` and `test/` alike) may only import that barrel —
   `domain-entry-only:*` in `.dependency-cruiser.cjs` generates one rule per
   group, so adding a group to `DOMAINS` extends the guarantee. Inside a
-  group, imports stay direct: a group composes its own internals. The
-  transport root (`yogClient.ts`) is the one importer of the `client/`
-  barrel, mirroring how the helpers compose under it.
+  group, imports stay direct: a group composes its own internals.
 - The doors: `app/`, `client/`, `core/`, `util/`, `ui/` (root modules),
-  `ui/components/`, `ui/pipeline/`, `ui/render/` (+ `table/`, `colorize/`),
-  and `src/yogClient.ts` for the transport.
+  `ui/components/`, `ui/pipeline/`, `ui/render/` (+ `table/`, `colorize/`).
 
 These constraints are what let the presentation and the transport change
 independently. Change the renderer without touching the client; swap the

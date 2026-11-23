@@ -11,7 +11,7 @@ import { pushLines, nextMessageSeq } from "./logFeed.ts";
 
 /** What the runner needs from the composition root. */
 export interface TurnEnv {
-  client: import("../yogClient.ts").YogClient;
+  client: import("../client/index.ts").YogClient;
   model: string;
   input: { reset(): void };
   spinner: { start(): void; stop(): void };
