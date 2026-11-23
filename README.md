@@ -49,9 +49,11 @@ patches/            patch-package overlay for @oakoliver/bubbles width
 helpers/            align-columns.mjs, a script used to align markdown tables.
 ```
 
-The domains are separated by enforced dependency rules (`npm run depcruise`).
+The domains are separated by enforced dependency rules (`npm run depcruise`):
 `client/` never touches the terminal and `ui/` never touches the transport,
-so either side can change without the other. The full rules and the module
+so either side can change without the other, and every domain exposes a
+single public door — its `index.ts` barrel — that `domain-entry-only:*`
+rules enforce for `src/` and `test/` alike. The full rules and the module
 inventory are in [docs/architecture](docs/architecture.md).
 
 ## Dependency graph
