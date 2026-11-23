@@ -8,11 +8,11 @@
  * increasing and every window lookup below is a binary search rather than
  * a scan.
  */
-import type { FocusTarget } from "../../core/focus.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import type { FocusTarget } from "../../core/index.ts";
+import type { LogEntry } from "../../core/index.ts";
 import { cachedRows, heightSummaryOf, type HeightSummary } from "../render/index.ts";
 import { resolveTableLayout, splitTableSections } from "../render/table/index.ts";
-import { tableState } from "../../core/entries.ts";
+import { tableState } from "../../core/index.ts";
 
 /** Bounds of entry `i`: first terminal row and full block height (incl.
  *  separator). Heights come from the memoized row cache. */

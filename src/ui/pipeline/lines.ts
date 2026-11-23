@@ -4,7 +4,7 @@
  * ANSI-aware measurement. Every produced row is already hard-wrapped to the
  * terminal width, so truncation here is only a safety net for any straggler.
  */
-import { displayWidth, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../../util/index.ts";
 
 /** The composed frame lines (pre-pad) produced by the paint stage. */
 export type FrameLines = readonly string[];

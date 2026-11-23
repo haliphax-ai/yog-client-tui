@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fuzzyFind, fuzzyMatches } from "../../src/util/fuzzy.ts";
+import { fuzzyFind, fuzzyMatches } from "../../src/util/index.ts";
 
 describe("fuzzyMatches", () => {
   it("matches a contiguous prefix", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { composeMainPane, padFrame, padLine } from "../../../src/ui/pipeline/lines.ts";
+import { composeMainPane, padFrame, padLine } from "../../../src/ui/pipeline/index.ts";
 
 describe("composeMainPane — guaranteed single blank line between log and input", () => {
   it("reuses the viewport's trailing blank (separator/padding) as the gap", () => {

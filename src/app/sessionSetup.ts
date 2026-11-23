@@ -14,12 +14,12 @@ import {
   finalContextTotal,
   perTurnDeltas,
   toTranscriptEntries,
-} from "../core/transcript.ts";
-import { formatTokenTotal } from "../core/toolFormat.ts";
-import { noticeLine } from "../core/notices.ts";
-import type { LogEntry } from "../core/entries.ts";
+} from "../core/index.ts";
+import { formatTokenTotal } from "../core/index.ts";
+import { noticeLine } from "../core/index.ts";
+import type { LogEntry } from "../core/index.ts";
 import { YogError, type TranscriptResult, type YogClient } from "../yogClient.ts";
-import { placeholderLogEntries } from "../core/turnPresenter.ts";
+import { placeholderLogEntries } from "../core/index.ts";
 
 /** What resolveSession produced: the resume facts and the log seed. */
 export interface ResolvedSession {

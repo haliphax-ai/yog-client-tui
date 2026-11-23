@@ -7,20 +7,20 @@ import {
   resultPreview,
   totalRows,
 } from "../src/ui/render/index.ts";
-import { renderMarkdownFlat } from "../src/ui/render/prose.ts";
+import { renderMarkdownFlat } from "../src/ui/render/index.ts";
 import {
   compactArgs,
   formatDuration,
   formatRuntime,
   prettyArgs,
   resultStatus,
-} from "../src/core/toolFormat.ts";
-import { createTurnPresenter } from "../src/core/turnPresenter.ts";
-import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/store.ts";
-import { statusBody } from "../src/ui/components/StatusComponent.ts";
+} from "../src/core/index.ts";
+import { createTurnPresenter } from "../src/core/index.ts";
+import { addLiveCompletionTokens, getState, resetForTests, setState } from "../src/core/index.ts";
+import { statusBody } from "../src/ui/components/index.ts";
 import { parseToolArgs } from "../src/yogClient.ts";
-import type { LogEntry } from "../src/core/entries.ts";
-import { displayWidth, stripAnsi, wrapText } from "../src/util/ansi.ts";
+import type { LogEntry } from "../src/core/index.ts";
+import { displayWidth, stripAnsi, wrapText } from "../src/util/index.ts";
 
 /** Build a plain log entry with sensible defaults. */
 const entry = (over: Partial<LogEntry>): LogEntry => ({

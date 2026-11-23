@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { padFrame } from "../../../src/ui/pipeline/lines.ts";
-import { hooksFor, register, resetRegistryForTests } from "../../../src/ui/pipeline/registry.ts";
-import { runPipeline } from "../../../src/ui/pipeline/runner.ts";
+import { padFrame } from "../../../src/ui/pipeline/index.ts";
+import { hooksFor, register, resetRegistryForTests } from "../../../src/ui/pipeline/index.ts";
+import { runPipeline } from "../../../src/ui/pipeline/index.ts";
 
 /**
  * Existing rendered scenarios used for byte-identity checks: plain rows,

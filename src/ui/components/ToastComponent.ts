@@ -12,8 +12,8 @@
  * expiries `setState({})` redraw without it.
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
-import { setState } from "../../core/store.ts";
-import { wrapText } from "../../util/ansi.ts";
+import { setState } from "../../core/index.ts";
+import { wrapText } from "../../util/index.ts";
 import { ST } from "../theme.ts";
 
 /** How long one toast stays visible. */

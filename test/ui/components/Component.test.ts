@@ -6,7 +6,7 @@ import {
   type Component,
   type RenderContext,
   type RenderResult,
-} from "../../../src/ui/components/Component.ts";
+} from "../../../src/ui/components/index.ts";
 
 /** Minimal concrete component with configurable rows and key handling. */
 class Stub extends BaseComponent {

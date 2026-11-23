@@ -5,13 +5,13 @@ import {
   rehydrateGroupIndices,
   rehydrateGroups,
   transcriptLogEntries,
-} from "../src/core/turnPresenter.ts";
-import { toTranscriptEntries } from "../src/core/transcript.ts";
+} from "../src/core/index.ts";
+import { toTranscriptEntries } from "../src/core/index.ts";
 import type { TranscriptMessage } from "../src/yogClient.ts";
 import { cachedRows, heightSummaryAnchored, totalRows } from "../src/ui/render/index.ts";
-import { stripAnsi, displayWidth } from "../src/util/ansi.ts";
-import { ChatLogComponent } from "../src/ui/components/ChatLogComponent.ts";
-import type { LogEntry } from "../src/core/entries.ts";
+import { stripAnsi, displayWidth } from "../src/util/index.ts";
+import { ChatLogComponent } from "../src/ui/components/index.ts";
+import type { LogEntry } from "../src/core/index.ts";
 
 function row(o: Partial<TranscriptMessage>): TranscriptMessage {
   return { seq: 1, role: "user", content: "hello", ...o } as TranscriptMessage;

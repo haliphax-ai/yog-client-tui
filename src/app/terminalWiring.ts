@@ -7,15 +7,15 @@
  * key handlers on. Nothing here parses input semantics — that lives in
  * the components (`ui/components`) and the router.
  */
-import { setState } from "../core/store.ts";
-import type { Component } from "../ui/components/Component.ts";
-import { ChatViewport } from "../ui/components/ChatViewport.ts";
-import { InputComponent } from "../ui/components/InputComponent.ts";
-import { StatusComponent } from "../ui/components/StatusComponent.ts";
-import { DrawerComponent } from "../ui/components/DrawerComponent.ts";
-import { GeneratingComponent } from "../ui/components/GeneratingComponent.ts";
-import { ToastComponent } from "../ui/components/ToastComponent.ts";
-import { registerDrawerChild } from "../ui/components/drawerRegistry.ts";
+import { setState } from "../core/index.ts";
+import type { Component } from "../ui/components/index.ts";
+import { ChatViewport } from "../ui/components/index.ts";
+import { InputComponent } from "../ui/components/index.ts";
+import { StatusComponent } from "../ui/components/index.ts";
+import { DrawerComponent } from "../ui/components/index.ts";
+import { GeneratingComponent } from "../ui/components/index.ts";
+import { ToastComponent } from "../ui/components/index.ts";
+import { registerDrawerChild } from "../ui/components/index.ts";
 import {
   composeMainPane,
   createScheduler,
@@ -24,10 +24,10 @@ import {
   writeFrame,
   type Scheduler,
 } from "../ui/pipeline/index.ts";
-import { getTopLevel, routeChar, routeKey, type Globals } from "../ui/components/keyRouter.ts";
-import { createInputDecoder } from "../ui/components/inputDecode.ts";
-import { emitDebug, isKeyLogEnabled, keyLogPath, setKeyDumpSink } from "../ui/debugLog.ts";
-import type { CopyRequest } from "../core/copyText.ts";
+import { getTopLevel, routeChar, routeKey, type Globals } from "../ui/components/index.ts";
+import { createInputDecoder } from "../ui/components/index.ts";
+import { emitDebug, isKeyLogEnabled, keyLogPath, setKeyDumpSink } from "../ui/index.ts";
+import type { CopyRequest } from "../core/index.ts";
 import { wireCopySinks } from "./copySinks.ts";
 import { termCols } from "./transcriptRebuild.ts";
 

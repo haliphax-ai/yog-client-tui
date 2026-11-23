@@ -5,7 +5,7 @@
  * The renderer owns presentation only: the widths come from the layout
  * engine, the scroll offset from the caller.
  */
-import { displayWidth, scrollLeft, stripAnsi, wrapText } from "../../../util/ansi.ts";
+import { displayWidth, scrollLeft, stripAnsi, wrapText } from "../../../util/index.ts";
 import { ST } from "../../theme.ts";
 import { hangWrapRows } from "../listRows.ts";
 import { renderInlineMarkdown } from "../markdown.ts";

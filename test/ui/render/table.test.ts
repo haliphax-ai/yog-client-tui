@@ -7,9 +7,9 @@ import {
   renderTable,
   splitTableSections,
 } from "../../../src/ui/render/table/index.ts";
-import { cachedRows } from "../../../src/ui/render/entry.ts";
-import type { LogEntry } from "../../../src/core/entries.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
+import { cachedRows } from "../../../src/ui/render/index.ts";
+import type { LogEntry } from "../../../src/core/index.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
 
 describe("parseTable — GFM pipe tables", () => {
   it("parses a basic table with header and two data rows", () => {

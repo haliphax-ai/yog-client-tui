@@ -9,7 +9,7 @@ import {
   perTurnDeltas,
   toTranscriptEntries,
   transcriptText,
-} from "../../src/core/transcript.ts";
+} from "../../src/core/index.ts";
 import type { TranscriptMessage, TokenUsage } from "../../src/yogClient.ts";
 
 /** A minimal well-formed row with overrides. */

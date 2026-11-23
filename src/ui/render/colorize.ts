@@ -17,9 +17,9 @@
  * not violate the cells-not-characters rule, which governs LAYOUT decisions.
  */
 import { C } from "../theme.ts";
-import type { RowCarry } from "./colorize/rowCarry.ts";
-import { emptyCarry } from "./colorize/rowCarry.ts";
-import { scanRowText } from "./colorize/scanner.ts";
+import type { RowCarry } from "./colorize/index.ts";
+import { emptyCarry } from "./colorize/index.ts";
+import { scanRowText } from "./colorize/index.ts";
 
 /** One row's scan result plus the carry it leaves for the next row. */
 type RowOutcome = { out: string; carry: RowCarry };

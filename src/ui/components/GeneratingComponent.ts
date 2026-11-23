@@ -22,7 +22,7 @@ import { Dot } from "@oakoliver/bubbles";
 import { newSpinner, withSpinner, withSpinnerStyle } from "@oakoliver/bubbles";
 import type { SpinnerModel } from "@oakoliver/bubbles";
 import { BaseComponent, type RenderContext } from "./Component.ts";
-import { getState, setState } from "../../core/store.ts";
+import { getState, setState } from "../../core/index.ts";
 import { ST } from "../theme.ts";
 
 /** Busy label drawn after the spinner frame (the frame supplies its own gap). */

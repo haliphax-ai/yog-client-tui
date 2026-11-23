@@ -21,7 +21,7 @@ import {
 } from "@oakoliver/glamour";
 import { GLAMOUR_THEME } from "../theme.ts";
 import { sliceAnsi } from "@oakoliver/lipgloss";
-import { displayWidth, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../../util/index.ts";
 import { normalizeLines, sharedIndent, trimBlankOuter, trimLeading } from "./normalize.ts";
 import { hangWrapRows } from "./listRows.ts";
 

@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { STAGES, isStage, type Stage } from "../../../src/ui/pipeline/stages.ts";
+import { STAGES, isStage, type Stage } from "../../../src/ui/pipeline/index.ts";
 import {
   hooksFor,
   register,
   registeredHooks,
   resetRegistryForTests,
-} from "../../../src/ui/pipeline/registry.ts";
-import { runPipeline } from "../../../src/ui/pipeline/runner.ts";
+} from "../../../src/ui/pipeline/index.ts";
+import { runPipeline } from "../../../src/ui/pipeline/index.ts";
 
 beforeEach(() => {
   resetRegistryForTests();

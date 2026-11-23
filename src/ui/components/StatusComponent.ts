@@ -3,11 +3,11 @@
  * Pure derivation from the store — no keys, no focus, single row.
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
-import { getState, type UiState } from "../../core/store.ts";
-import { formatTokenTotal } from "../../core/toolFormat.ts";
+import { getState, type UiState } from "../../core/index.ts";
+import { formatTokenTotal } from "../../core/index.ts";
 import { ST, CONTEXT_WINDOW } from "../theme.ts";
-import { displayWidth, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../../util/index.ts";
+import type { LogEntry } from "../../core/index.ts";
 
 /** Emoji labels — all already full-width, so no variation selectors are
  *  needed (ℹ️ would have required one). */

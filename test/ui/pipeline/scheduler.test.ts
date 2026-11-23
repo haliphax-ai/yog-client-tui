@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetForTests, setState } from "../../../src/core/store.ts";
-import { createScheduler, FRAME_MS } from "../../../src/ui/pipeline/scheduler.ts";
+import { resetForTests, setState } from "../../../src/core/index.ts";
+import { createScheduler, FRAME_MS } from "../../../src/ui/pipeline/index.ts";
 
 beforeEach(() => {
   resetForTests();

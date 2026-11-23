@@ -3,8 +3,8 @@
  * into either a slash-command run or a client turn, with the spinner,
  * usage tracking, and the failure paths wired.
  */
-import { getState, setState } from "../core/store.ts";
-import { createTurnPresenter, type TurnPresenter } from "../core/turnPresenter.ts";
+import { getState, setState } from "../core/index.ts";
+import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
 import { turnWithRecovery, applyUsageTotal } from "./turnControl.ts";
 import { executeCommand, isCommand, roundDelta } from "./slashCommands.ts";
 import { pushLines, nextMessageSeq } from "./logFeed.ts";

@@ -1,6 +1,11 @@
 /**
  * Dependency rules for the src/ tree.
  *
+ * Domain encapsulation: every module group exposes one public door (its
+ * index.ts barrel) and consumers — src/ and test/ alike — may only import
+ * that door (the generated domain-entry-only:* rule family, see DOMAINS
+ * below). Intra-group imports stay direct: a group composes its own
+ * internals; the door is for crossing the boundary.
  * Dependency-cruiser has no native "match file contents" rule type (its rule
  * conditions only match module paths, dependency attributes and reachability),
  * so the three content-based rules (6, 9 and 10) are enforced here by scanning the
@@ -15,6 +20,33 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+
+/**
+ * Groups that each expose a single public door (index.ts). A module outside
+ * a group may only import its barrel — never its internals. dependency-
+ * cruiser has no backreferences, so the entry-only rule family is generated
+ * per group from this list; adding a new domain here extends the same
+ * guarantee to it automatically. `ui` covers the root modules of ui/
+ * (theme, focus, clipboard, debugLog); sub-domains (components, pipeline,
+ * render — with table and colorize nested inside render) each carry their
+ * own door and are matched before the broader ui/ prefix.
+ *
+ * yogClient.ts is the root module of the transport group: the client/
+ * helpers are its internals, so it is the one file allowed to import the
+ * client/ barrel.
+ */
+const DOMAINS = [
+  "app",
+  "client",
+  "core",
+  "ui",
+  "ui/components",
+  "ui/pipeline",
+  "ui/render",
+  "ui/render/table",
+  "ui/render/colorize",
+  "util",
+];
 
 /** Content rules: file path -> violation message. */
 function scanContentRules() {
@@ -91,70 +123,25 @@ module.exports = {
       to: { path: "^src/", pathNot: "^src/main\\.ts$", reachable: false },
     },
 
-    // 3. The transport client must stay free of ui, config and node:fs.
+    // 3. The transport client must stay free of config and node:fs. (Its ui
     {
-      name: "client-no-ui-config-fs",
+      name: "client-no-config-fs",
       severity: "error",
       comment: "the yog client deals in plain data only",
       from: { path: ["^src/yogClient\\.ts$", "^src/client/"] },
-      to: {
-        path: ["^src/ui/", "^src/config(\\.ts$|/)", "^(node:)?fs(/|$)"],
-      },
+      to: { path: ["^src/config(\\.ts$|/)", "^(node:)?fs(/|$)"] },
     },
 
-    // 4. util/ is a leaf domain: no imports from any other domain.
+    // 5e. The render layer must not consume the focus ring: focusUnits is
+    // interaction state, not rendering. This direction survives the
+    // domain-entry-only family — the importer is INSIDE ui, so the family
+    // exempts ui-internal importers on the from side and nothing else fires.
     {
-      name: "util-no-domain-imports",
-      severity: "error",
-      comment: "ansi helpers must not depend on ui, client, config or core",
-      from: { path: "^src/util/" },
-      to: {
-        path: ["^src/ui/", "^src/(yogClient\\.ts$|client/)", "^src/config(\\.ts$|/)", "^src/core/"],
-      },
-    },
-
-    // 5. ui/ must not talk to the transport or the filesystem.
-    {
-      name: "ui-no-client-fs",
-      severity: "error",
-      comment: "the presenter talks to the store, not the transport",
-      from: { path: "^src/ui/" },
-      to: { path: ["^src/(yogClient\\.ts$|client/)", "^(node:)?fs(/|$)"] },
-    },
-
-    // 5b. The render layer must not depend on the component layer: a
-    // renderer that knows about components cannot be reused, and the
-    // dependency inverts the natural direction.
-    {
-      name: "render-no-component-imports",
-      severity: "error",
-      comment: "ui/render draws; ui/components own state and keys",
-      from: { path: "^src/ui/render/" },
-      to: { path: "^src/ui/components/" },
-    },
-
-    // 5e. The render layer must not expose focus-ring state: focusUnits is
-    // interaction data (the ring's view of the entries), not rendering. It
-    // lives in ui/focus.ts; a renderer reaching back into it inverts the
-    // draw/state direction the way render-no-component-imports does.
-    {
-      name: "render-no-focus-exports",
+      name: "render-no-focus-imports",
       severity: "error",
       comment: "ui/render draws; the focus ring is state (ui/focus.ts)",
       from: { path: "^src/ui/render/" },
       to: { path: "^src/ui/focus\\.ts$" },
-    },
-
-    // 5c. The domain layer must not depend on the presentation layer:
-    // core owns the domain model (entries, focus, scroll state); ui draws,
-    // routes keys, and renders. The focus-ring work (#52) made this seam
-    // load-bearing — FocusTarget flows core -> ui, never the reverse.
-    {
-      name: "core-no-ui-imports",
-      severity: "error",
-      comment: "core owns the domain; ui presents it",
-      from: { path: "^src/core/" },
-      to: { path: "^src/ui/" },
     },
 
     // 5d. The filesystem is touched only by the composition root: config.ts
@@ -207,6 +194,55 @@ module.exports = {
       comment: "key/terminal plumbing stays inside ui/",
       from: { pathNot: "^src/ui/" },
       to: { path: "@oakoliver/(bubbletea|bubbles)" },
+    },
+
+    // 11. Domain encapsulation (generated): no module reaches into another
+    // group's internals — anything outside a group may only import its
+    // index.ts barrel. The barrel itself is exempt on the `to` side
+    // (importing the door is the point). Nested doors (ui/render's table
+    // and colorize barrels, and the sub-domain barrels under ui/) are
+    // exempt from their umbrella rules too — they are doors of their own.
+    // The former cross-seam type imports (ChatViewport -> app/copySinks
+    // CopySinks, copySinks -> ToastComponent) were dissolved instead of
+    // exempted: the viewport now drives the core CopyActions interface and
+    // copySinks takes a structural `{ show }` Toaster, so neither side
+    // reaches past the other's door.
+    ...DOMAINS.map((domain) => {
+      const esc = domain.replaceAll("/", "\\/");
+      // The door itself is exempt on the to side (importing the barrel is
+      // the point); for ui/ the sub-domain barrels are doors of their own,
+      // so they stay exempt from the ui/ umbrella rule too.
+      const doors = [`^src/${esc}/index\\.ts$`];
+      // Umbrella groups whose sub-groups carry their own doors: those
+      // nested barrels are legal entries too, so exempt them here.
+      const EXTRA_DOORS = {
+        ui: "^src/ui/(components|pipeline|render(|/table|/colorize))/index\\.ts$",
+        "ui/render": "^src/ui/render/(table|colorize)/index\\.ts$",
+      };
+      if (EXTRA_DOORS[domain]) doors.push(EXTRA_DOORS[domain]);
+      const doorAlt = doors.map((r) => `(${r})`).join("|");
+      return {
+        name: `domain-entry-only:${domain}`,
+        severity: "error",
+        comment: `${domain} is only importable through its index.ts barrel`,
+        from: { path: `^(src|test)/`, pathNot: `^src/${esc}/` },
+        to: { path: `^src/${esc}/`, pathNot: doorAlt },
+      };
+    }),
+
+    // 11b. The transport root is the client group's owner: it composes the
+    // client/ helpers and re-exports their public surface, so it (alone)
+    // may import the client/ barrel directly. Tests and every other src
+    // module import the transport itself (src/yogClient.ts), which the
+    // client group's entry-only rule already forces: client/ internals
+    // are unreachable from outside except through that barrel, and the
+    // barrel is only reachable from yogClient.ts by this rule.
+    {
+      name: "client-barrel-only-from-yogclient",
+      severity: "error",
+      comment: "client/ internals compose only inside the transport root",
+      from: { path: "^(src|test)/", pathNot: "^src/yogClient\\\\.ts$" },
+      to: { path: "^src/client/index\\\\.ts$" },
     },
   ],
   options: {

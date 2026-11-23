@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { cachedRows, totalRows } from "../../../src/ui/render/entry.ts";
-import { C, ST } from "../../../src/ui/theme.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
-import type { LogEntry } from "../../../src/core/entries.ts";
+import { cachedRows, totalRows } from "../../../src/ui/render/index.ts";
+import { C, ST } from "../../../src/ui/index.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
+import type { LogEntry } from "../../../src/core/index.ts";
 
 /** The border cell: themed half-block rune + the single separator space. */
 const BORDER = `${ST.assistantBorder.render("▐")} `;

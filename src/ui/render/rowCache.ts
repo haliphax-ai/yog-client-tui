@@ -14,7 +14,7 @@ import { renderPlainEntry } from "./plain.ts";
 import { contentKeyOf } from "./entrySections.ts";
 import { kindStyle } from "./entryStyle.ts";
 import type { EntryRender } from "./entryRender.ts";
-import type { EntryKind, LogEntry } from "../../core/entries.ts";
+import type { EntryKind, LogEntry } from "../../core/index.ts";
 
 /** The cached rendered rows of one entry. */
 export interface RowCache {

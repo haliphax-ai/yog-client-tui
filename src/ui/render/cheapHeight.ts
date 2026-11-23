@@ -1,8 +1,8 @@
 /**
  * Cheap exact heights for entries whose render is a single wrapped line.
  */
-import { wrapText } from "../../util/ansi.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import { wrapText } from "../../util/index.ts";
+import type { LogEntry } from "../../core/index.ts";
 
 /**
  * Cheap exact height for entries whose render is a single wrapped line:

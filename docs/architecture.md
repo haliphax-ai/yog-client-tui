@@ -22,6 +22,16 @@ bounded set of things it may not touch.
 - `core/` never imports `ui/`: the domain owns the shape of the data, the UI
   owns how it looks.
 - Within `ui/`, `render/` never imports `components/`.
+- Each module group exposes one public door: its `index.ts` barrel. Consumers
+  (in `src/` and `test/` alike) may only import that barrel —
+  `domain-entry-only:*` in `.dependency-cruiser.cjs` generates one rule per
+  group, so adding a group to `DOMAINS` extends the guarantee. Inside a
+  group, imports stay direct: a group composes its own internals. The
+  transport root (`yogClient.ts`) is the one importer of the `client/`
+  barrel, mirroring how the helpers compose under it.
+- The doors: `app/`, `client/`, `core/`, `util/`, `ui/` (root modules),
+  `ui/components/`, `ui/pipeline/`, `ui/render/` (+ `table/`, `colorize/`),
+  and `src/yogClient.ts` for the transport.
 
 These constraints are what let the presentation and the transport change
 independently. Change the renderer without touching the client; swap the

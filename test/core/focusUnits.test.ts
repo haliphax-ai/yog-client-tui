@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { focusUnits } from "../../src/ui/focus.ts";
-import type { LogEntry } from "../../src/core/entries.ts";
+import { focusUnits } from "../../src/ui/index.ts";
+import type { LogEntry } from "../../src/core/index.ts";
 
 const T1 = `| A | B |\n| --- | --- |\n| 1 | 2 |`;
 const T2 = `| X | Y |\n| --- | --- |\n| 3 | 4 |`;

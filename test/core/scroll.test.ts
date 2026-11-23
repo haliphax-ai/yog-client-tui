@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clampScroll, jump, scrollBy, type ScrollState } from "../../src/core/scroll.ts";
+import { clampScroll, jump, scrollBy, type ScrollState } from "../../src/core/index.ts";
 
 const view = (scrollOffset = 0, follow = false): ScrollState => ({ scrollOffset, follow });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ViewportComponent } from "../../../src/ui/components/ViewportComponent.ts";
+import { ViewportComponent } from "../../../src/ui/components/index.ts";
 
 /** Minimal concrete subclass with fixed content rows and exposed state. */
 class TestViewport extends ViewportComponent {

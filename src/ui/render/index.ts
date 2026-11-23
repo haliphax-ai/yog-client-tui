@@ -18,9 +18,11 @@ export {
 export { sectionsOf } from "./entrySections.ts";
 export { colorizeToolLine } from "./colorize.ts";
 export { resultPreview } from "./resultPreview.ts";
-export { highlightBlock, renderMarkdown, mdRender } from "./markdown.ts";
+export { cacheOf } from "./entry.ts";
+export { highlightBlock, renderMarkdown, mdRender, renderInlineMarkdown } from "./markdown.ts";
 export { normalizeLines } from "./normalize.ts";
 export { hangWrapRows } from "./listRows.ts";
+export { flattenMarkdownFlat, renderMarkdownFlat } from "./prose.ts";
 export {
   isTableScrollSeq,
   parseTable,

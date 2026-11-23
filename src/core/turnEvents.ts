@@ -15,7 +15,7 @@
  */
 import type { ToolResultEvent, TurnEvents, TokenUsage } from "../yogClient.ts";
 import { formatDuration, formatRuntime, formatTokenTotal, tokenCountNote } from "./toolFormat.ts";
-import { displayWidth, truncateAnsi } from "../util/ansi.ts";
+import { displayWidth, truncateAnsi } from "../util/index.ts";
 import type { LogEntry } from "./entries.ts";
 import { noticeLine } from "./notices.ts";
 import { annotateToolCall, toolCallEntry, toolResultEntries } from "./toolEntries.ts";

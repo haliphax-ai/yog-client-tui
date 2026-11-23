@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cachedRows } from "../src/ui/render/index.ts";
-import type { LogEntry } from "../src/core/entries.ts";
-import { stripAnsi } from "../src/util/ansi.ts";
+import type { LogEntry } from "../src/core/index.ts";
+import { stripAnsi } from "../src/util/index.ts";
 
 /** Fresh chunk entry (8 body rows so it is collapsible). */
 function chunkEntry(): LogEntry {

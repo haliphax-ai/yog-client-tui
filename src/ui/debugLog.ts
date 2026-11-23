@@ -18,8 +18,8 @@
  * The chunk is client-side only: it is never sent to the server and never
  * stored in the session transcript.
  */
-import { getState, setState } from "../core/store.ts";
-import type { LogEntry } from "../core/entries.ts";
+import { getState, setState } from "../core/index.ts";
+import type { LogEntry } from "../core/index.ts";
 import { noteMutation } from "./render/index.ts";
 
 /** Header line of a debug chunk (carries the `→` collapse affordance). */

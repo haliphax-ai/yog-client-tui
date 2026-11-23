@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GeneratingComponent } from "../../../src/ui/components/GeneratingComponent.ts";
-import { resetForTests, setState, subscribe } from "../../../src/core/store.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
+import { GeneratingComponent } from "../../../src/ui/components/index.ts";
+import { resetForTests, setState, subscribe } from "../../../src/core/index.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
 
 describe("GeneratingComponent", () => {
   beforeEach(() => {

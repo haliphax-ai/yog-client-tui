@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { getState, resetForTests, setState } from "../../src/core/store.ts";
+import { getState, resetForTests, setState } from "../../src/core/index.ts";
 import {
   DEBUG_HEADER,
   emitDebug,
@@ -8,7 +8,7 @@ import {
   isKeyLogEnabled,
   keyLogPath,
   setKeyDumpSink,
-} from "../../src/ui/debugLog.ts";
+} from "../../src/ui/index.ts";
 
 const OLD_ENV = {
   YOG_DEBUG: process.env.YOG_DEBUG,

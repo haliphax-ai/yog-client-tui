@@ -11,7 +11,7 @@
  * list items lives in `listRows.ts`; the glamour pipelines that use
  * these helpers live in `markdown.ts`.
  */
-import { matchEscape, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
+import { matchEscape, stripAnsi, truncateAnsi } from "../../util/index.ts";
 
 /** Remove up to `n` leading plain spaces, keeping any embedded escapes. */
 export function trimLeading(line: string, n: number): string {

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { resetFrameCache, writeFrame } from "../../../src/ui/pipeline/emit.ts";
-import { padFrame, padLine } from "../../../src/ui/pipeline/lines.ts";
+import { resetFrameCache, writeFrame } from "../../../src/ui/pipeline/index.ts";
+import { padFrame, padLine } from "../../../src/ui/pipeline/index.ts";
 
 afterEach(() => {
   vi.restoreAllMocks();

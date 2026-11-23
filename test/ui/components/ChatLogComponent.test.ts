@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
-import { type FocusTarget } from "../../../src/core/focus.ts";
+import { ChatLogComponent } from "../../../src/ui/components/index.ts";
+import { type FocusTarget } from "../../../src/core/index.ts";
 import { cachedRows, totalRows } from "../../../src/ui/render/index.ts";
-import { focusUnits } from "../../../src/ui/focus.ts";
-import { cacheOf } from "../../../src/ui/render/entry.ts";
-import type { LogEntry } from "../../../src/core/entries.ts";
-import { stripAnsi } from "../../../src/util/ansi.ts";
+import { focusUnits } from "../../../src/ui/index.ts";
+import { cacheOf } from "../../../src/ui/render/index.ts";
+import type { LogEntry } from "../../../src/core/index.ts";
+import { stripAnsi } from "../../../src/util/index.ts";
 
 /** Concrete log with test accessors for the scroll/follow state. */
 class Log extends ChatLogComponent {

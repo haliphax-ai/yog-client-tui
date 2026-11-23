@@ -1,13 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { getState, resetForTests, setState, subscribe } from "../../../src/core/store.ts";
-import {
-  InputComponent,
-  MAX_INPUT_CHARS,
-  MAX_LINES,
-} from "../../../src/ui/components/InputComponent.ts";
-import { setServerCommands, type CommandDescriptor } from "../../../src/core/commands.ts";
-import { getTopLevel, setTopLevel } from "../../../src/ui/components/keyRouter.ts";
+import { getState, resetForTests, setState, subscribe } from "../../../src/core/index.ts";
+import { InputComponent, MAX_INPUT_CHARS, MAX_LINES } from "../../../src/ui/components/index.ts";
+import { setServerCommands, type CommandDescriptor } from "../../../src/core/index.ts";
+import { getTopLevel, setTopLevel } from "../../../src/ui/components/index.ts";
 
 /** Apply the classic compaction+shake descriptor set to the registry. */
 function seedServerCommands(): void {
@@ -39,7 +35,7 @@ function seedServerCommands(): void {
   ];
   setServerCommands(descriptors);
 }
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
 
 /** Type a string into a component, one code point at a time. */
 function typeText(component: InputComponent, text: string): void {

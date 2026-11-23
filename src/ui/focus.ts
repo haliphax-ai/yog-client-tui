@@ -8,9 +8,9 @@
  * renders is a table that can be focused — but nothing here touches row
  * output, the row cache, or the render layer's public surface.
  */
-import type { EntryKind, LogEntry } from "../core/entries.ts";
-import type { FocusTarget } from "../core/focus.ts";
-import { sectionsOf } from "./render/entrySections.ts";
+import type { EntryKind, LogEntry } from "../core/index.ts";
+import type { FocusTarget } from "../core/index.ts";
+import { sectionsOf } from "./render/index.ts";
 
 /** Entry kinds that contribute a focus target of their own (not counting
  *  the tables inside a prose entry — those walk after the entry unit). */

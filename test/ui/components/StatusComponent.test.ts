@@ -5,10 +5,10 @@ import {
   sessionStats,
   statusBody,
   StatusComponent,
-} from "../../../src/ui/components/StatusComponent.ts";
-import { resetForTests, setState } from "../../../src/core/store.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
-import type { LogEntry } from "../../../src/core/entries.ts";
+} from "../../../src/ui/components/index.ts";
+import { resetForTests, setState } from "../../../src/core/index.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
+import type { LogEntry } from "../../../src/core/index.ts";
 
 /** Collect one status line body, then restore the default store. */
 function body(patch: Parameters<typeof setState>[0]): string {

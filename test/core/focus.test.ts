@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { FOCUS_NONE_TARGET, moveFocus, type FocusTarget } from "../../src/core/focus.ts";
+import { FOCUS_NONE_TARGET, moveFocus, type FocusTarget } from "../../src/core/index.ts";
 
 /** A focus unit: an entry index + a table index within that entry. */
 const U = (entry: number, table = -1): FocusTarget => ({ entry, table });

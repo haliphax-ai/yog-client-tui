@@ -5,14 +5,14 @@ import {
   type KeyResult,
   type RenderContext,
   type RenderResult,
-} from "../../../src/ui/components/Component.ts";
+} from "../../../src/ui/components/index.ts";
 import {
   getTopLevel,
   routeChar,
   routeKey,
   setTopLevel,
   type Globals,
-} from "../../../src/ui/components/keyRouter.ts";
+} from "../../../src/ui/components/index.ts";
 
 /** Ring member stub: logs visits, claims configured seq/chars. */
 class RingStub extends BaseComponent {

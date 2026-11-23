@@ -10,7 +10,7 @@
  * budget and the terminal never soft-wraps a chunk.
  */
 import { highlightBlock } from "./markdown.ts";
-import { wrapText } from "../../util/ansi.ts";
+import { wrapText } from "../../util/index.ts";
 
 /** Loose cap on the number of body rows shown for a tool result. */
 const CAP = 500;

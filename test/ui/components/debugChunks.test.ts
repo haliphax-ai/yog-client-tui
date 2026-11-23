@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { ChatLogComponent } from "../../../src/ui/components/ChatLogComponent.ts";
-import { type FocusTarget } from "../../../src/core/focus.ts";
-import type { LogEntry } from "../../../src/core/entries.ts";
-import { focusUnits } from "../../../src/ui/focus.ts";
-import { stripAnsi } from "../../../src/util/ansi.ts";
+import { ChatLogComponent } from "../../../src/ui/components/index.ts";
+import { type FocusTarget } from "../../../src/core/index.ts";
+import type { LogEntry } from "../../../src/core/index.ts";
+import { focusUnits } from "../../../src/ui/index.ts";
+import { stripAnsi } from "../../../src/util/index.ts";
 
 class Log extends ChatLogComponent {}
 
