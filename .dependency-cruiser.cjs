@@ -123,70 +123,25 @@ module.exports = {
       to: { path: "^src/", pathNot: "^src/main\\.ts$", reachable: false },
     },
 
-    // 3. The transport client must stay free of ui, config and node:fs.
+    // 3. The transport client must stay free of config and node:fs. (Its ui
     {
-      name: "client-no-ui-config-fs",
+      name: "client-no-config-fs",
       severity: "error",
       comment: "the yog client deals in plain data only",
       from: { path: ["^src/yogClient\\.ts$", "^src/client/"] },
-      to: {
-        path: ["^src/ui/", "^src/config(\\.ts$|/)", "^(node:)?fs(/|$)"],
-      },
+      to: { path: ["^src/config(\\.ts$|/)", "^(node:)?fs(/|$)"] },
     },
 
-    // 4. util/ is a leaf domain: no imports from any other domain.
+    // 5e. The render layer must not consume the focus ring: focusUnits is
+    // interaction state, not rendering. This direction survives the
+    // domain-entry-only family — the importer is INSIDE ui, so the family
+    // exempts ui-internal importers on the from side and nothing else fires.
     {
-      name: "util-no-domain-imports",
-      severity: "error",
-      comment: "ansi helpers must not depend on ui, client, config or core",
-      from: { path: "^src/util/" },
-      to: {
-        path: ["^src/ui/", "^src/(yogClient\\.ts$|client/)", "^src/config(\\.ts$|/)", "^src/core/"],
-      },
-    },
-
-    // 5. ui/ must not talk to the transport or the filesystem.
-    {
-      name: "ui-no-client-fs",
-      severity: "error",
-      comment: "the presenter talks to the store, not the transport",
-      from: { path: "^src/ui/" },
-      to: { path: ["^src/(yogClient\\.ts$|client/)", "^(node:)?fs(/|$)"] },
-    },
-
-    // 5b. The render layer must not depend on the component layer: a
-    // renderer that knows about components cannot be reused, and the
-    // dependency inverts the natural direction.
-    {
-      name: "render-no-component-imports",
-      severity: "error",
-      comment: "ui/render draws; ui/components own state and keys",
-      from: { path: "^src/ui/render/" },
-      to: { path: "^src/ui/components/" },
-    },
-
-    // 5e. The render layer must not expose focus-ring state: focusUnits is
-    // interaction data (the ring's view of the entries), not rendering. It
-    // lives in ui/focus.ts; a renderer reaching back into it inverts the
-    // draw/state direction the way render-no-component-imports does.
-    {
-      name: "render-no-focus-exports",
+      name: "render-no-focus-imports",
       severity: "error",
       comment: "ui/render draws; the focus ring is state (ui/focus.ts)",
       from: { path: "^src/ui/render/" },
       to: { path: "^src/ui/focus\\.ts$" },
-    },
-
-    // 5c. The domain layer must not depend on the presentation layer:
-    // core owns the domain model (entries, focus, scroll state); ui draws,
-    // routes keys, and renders. The focus-ring work (#52) made this seam
-    // load-bearing — FocusTarget flows core -> ui, never the reverse.
-    {
-      name: "core-no-ui-imports",
-      severity: "error",
-      comment: "core owns the domain; ui presents it",
-      from: { path: "^src/core/" },
-      to: { path: "^src/ui/" },
     },
 
     // 5d. The filesystem is touched only by the composition root: config.ts
