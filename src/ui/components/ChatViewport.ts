@@ -27,7 +27,6 @@ import {
   tableScrollKey,
 } from "../render/table/index.ts";
 import { type CopyActions, type CopyRequest } from "../../core/index.ts";
-import type { CopySinks } from "../../app/copySinks.ts";
 
 /**
  * The focused table: its entry and its index within that entry. A table is
@@ -76,7 +75,7 @@ function charKeyOf(ch: string): ((viewport: ChatViewport) => "handled" | "unhand
  * (no bubbling, ever).
  */
 function copyRequestFor(
-  actions: CopySinks,
+  actions: CopyActions,
   entry: LogEntry,
   table: number,
   upper: boolean,

@@ -15,7 +15,6 @@ import {
   type CopyRequest,
 } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { ToastComponent } from "../ui/components/ToastComponent.ts";
 
 /** The wired sinks the viewport calls back into. */
 export interface CopySinks {
@@ -25,9 +24,13 @@ export interface CopySinks {
   output(request: CopyRequest): void;
 }
 
+/** What the copy sinks need of a toast: `show`. Structural so app/ does
+ *  not reach into ui/ components for the type. */
+type Toaster = { show(message: string): void };
+
 /** Clipboard sink: write the content with wl-copy; surface failures as an
  *  error notice, successes as the 📋 toast. */
-function copyToClipboard(toast: ToastComponent, request: CopyRequest): void {
+function copyToClipboard(toast: Toaster, request: CopyRequest): void {
   const outcome = runWlCopy(request.content);
   if (outcome.ok) {
     toast.show(`📋 entry \`${request.itemId}\` copied to the system clipboard`);
@@ -72,7 +75,7 @@ export function requestTableCopy(
 /** The copy-only sinks (the `out/` file sink is wired by the composition
  *  root, which owns the filesystem). */
 export function wireCopySinks(
-  toast: ToastComponent,
+  toast: Toaster,
   sessionId: () => string | undefined,
   outputToFile: (request: CopyRequest) => void,
 ): CopySinks {
