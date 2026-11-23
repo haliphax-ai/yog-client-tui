@@ -6,7 +6,7 @@ import {
   PASTE_END,
   PASTE_START,
   type InputHandlers,
-} from "../../../src/ui/components/inputDecode.ts";
+} from "../../../src/ui/components/index.ts";
 
 function harness() {
   const events: string[] = [];

@@ -5,7 +5,7 @@ import {
   type KeyResult,
   type RenderContext,
   type RenderResult,
-} from "../../../src/ui/components/Component.ts";
+} from "../../../src/ui/components/index.ts";
 import {
   cycleFocus,
   getTopLevel,
@@ -13,7 +13,7 @@ import {
   routeKey,
   setTopLevel,
   type Globals,
-} from "../../../src/ui/components/keyRouter.ts";
+} from "../../../src/ui/components/index.ts";
 
 /** Stub component: declares a ring side, claims only keys/chars given. */
 class Stub extends BaseComponent {

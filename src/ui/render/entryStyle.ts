@@ -9,7 +9,7 @@
  */
 import type { Style } from "@oakoliver/lipgloss";
 import { ST } from "../theme.ts";
-import type { EntryKind } from "../../core/entries.ts";
+import type { EntryKind } from "../../core/index.ts";
 
 /** Style for an entry kind. */
 export function kindStyle(kind: EntryKind): Style {

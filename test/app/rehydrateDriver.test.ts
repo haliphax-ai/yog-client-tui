@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getState, resetForTests, setState } from "../../src/core/store.ts";
-import { clearRehydrate, driveRehydrate, stageRehydrate } from "../../src/app/transcriptRebuild.ts";
-import { placeholderLogEntries } from "../../src/core/turnPresenter.ts";
-import { toTranscriptEntries } from "../../src/core/transcript.ts";
-import type { LogEntry } from "../../src/core/entries.ts";
+import { getState, resetForTests, setState } from "../../src/core/index.ts";
+import { clearRehydrate, driveRehydrate, stageRehydrate } from "../../src/app/index.ts";
+import { placeholderLogEntries } from "../../src/core/index.ts";
+import { toTranscriptEntries } from "../../src/core/index.ts";
+import type { LogEntry } from "../../src/core/index.ts";
 import type { TranscriptMessage, TranscriptResult } from "../../src/yogClient.ts";
 
 function row(o: Partial<TranscriptMessage>): TranscriptMessage {

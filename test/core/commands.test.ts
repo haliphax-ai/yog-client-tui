@@ -11,7 +11,7 @@ import {
   setServerCommands,
   slashToken,
   slashTokenEnd,
-} from "../../src/core/commands.ts";
+} from "../../src/core/index.ts";
 
 describe("slashToken", () => {
   it("returns null when the line does not start with a slash", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { rehydrateGroups } from "../../src/core/turnPresenter.ts";
-import type { TranscriptEntry } from "../../src/core/transcript.ts";
+import { rehydrateGroups } from "../../src/core/index.ts";
+import type { TranscriptEntry } from "../../src/core/index.ts";
 
 const row = (seq: number, role: "user" | "assistant", text: string): TranscriptEntry =>
   ({ raw: { seq, role }, role, text }) as unknown as TranscriptEntry;

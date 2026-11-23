@@ -5,16 +5,16 @@
  * composition-root-only (`ui/` builds requests; this module runs them).
  */
 import { splitTableSections } from "../ui/render/table/index.ts";
-import { runWlCopy } from "../ui/clipboard.ts";
+import { runWlCopy } from "../ui/index.ts";
 import { pushLines } from "./logFeed.ts";
-import { noticeLine } from "../core/notices.ts";
+import { noticeLine } from "../core/index.ts";
 import {
   proseCopyRequest,
   tableCopyRequest,
   toolCopyRequest,
   type CopyRequest,
-} from "../core/copyText.ts";
-import type { LogEntry } from "../core/entries.ts";
+} from "../core/index.ts";
+import type { LogEntry } from "../core/index.ts";
 import type { ToastComponent } from "../ui/components/ToastComponent.ts";
 
 /** The wired sinks the viewport calls back into. */

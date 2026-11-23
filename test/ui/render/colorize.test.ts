@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { colorizeToolLine } from "../../../src/ui/render/colorize.ts";
-import { C } from "../../../src/ui/theme.ts";
-import { stripAnsi } from "../../../src/util/ansi.ts";
+import { colorizeToolLine } from "../../../src/ui/render/index.ts";
+import { C } from "../../../src/ui/index.ts";
+import { stripAnsi } from "../../../src/util/index.ts";
 
 describe("colorizeToolLine: escaped quotes", () => {
   it("keeps an escaped quote inside a string (it does not close it)", () => {

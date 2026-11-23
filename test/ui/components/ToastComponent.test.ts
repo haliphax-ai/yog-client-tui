@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ToastComponent } from "../../../src/ui/components/ToastComponent.ts";
+import { ToastComponent } from "../../../src/ui/components/index.ts";
 
 /** The toast rows, ANSI-stripped, for plain-text assertions. */
 function plain(component: ToastComponent, cols = 80): string[] {

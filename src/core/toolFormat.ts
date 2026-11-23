@@ -8,7 +8,7 @@
  * emoji is one character but two cells, and slicing by characters silently
  * corrupts emoji-bearing arguments.
  */
-import { displayWidth, truncateAnsi } from "../util/ansi.ts";
+import { displayWidth, truncateAnsi } from "../util/index.ts";
 
 /** Uncapped compact args (renderer caps at current width). */
 export function compactArgs(value: unknown): string {

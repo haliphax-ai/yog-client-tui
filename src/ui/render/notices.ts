@@ -3,8 +3,8 @@
  * separator, dimmed detail) and the one-line per-turn status summary.
  */
 import { ST } from "../theme.ts";
-import { truncateAnsi, wrapText } from "../../util/ansi.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import { truncateAnsi, wrapText } from "../../util/index.ts";
+import type { LogEntry } from "../../core/index.ts";
 import type { EntryRender } from "./entryRender.ts";
 
 /**

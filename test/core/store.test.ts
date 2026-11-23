@@ -5,7 +5,7 @@ import {
   resetForTests,
   setState,
   subscribe,
-} from "../../src/core/store.ts";
+} from "../../src/core/index.ts";
 
 describe("store", () => {
   beforeEach(() => {

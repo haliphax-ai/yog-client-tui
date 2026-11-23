@@ -11,8 +11,8 @@
 import { mdRender } from "./markdown.ts";
 import { normalizeLines } from "./normalize.ts";
 import { hangWrapRows } from "./listRows.ts";
-import { paragraphGroups, type ParagraphGroup } from "./table/parse.ts";
-import { wrapText } from "../../util/ansi.ts";
+import { paragraphGroups, type ParagraphGroup } from "./table/index.ts";
+import { wrapText } from "../../util/index.ts";
 import { flattenRow } from "./sgr.ts";
 
 /** One paragraph group rendered through glamour and normalized per the

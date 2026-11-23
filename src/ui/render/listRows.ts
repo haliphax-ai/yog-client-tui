@@ -10,7 +10,7 @@
  * italic/bold runs and fg colors vanished the moment an item wrapped).
  */
 import { sliceAnsi } from "@oakoliver/lipgloss";
-import { displayWidth, stripAnsi, truncateAnsi } from "../../util/ansi.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../../util/index.ts";
 import { trimLeading } from "./normalize.ts";
 
 /** A list-marker row start: indent + (dash/asterisk/bullet or a 1-9 digit

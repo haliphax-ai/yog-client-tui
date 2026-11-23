@@ -17,7 +17,7 @@
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { registeredDrawerChildren } from "./drawerRegistry.ts";
-import { truncateAnsi } from "../../util/ansi.ts";
+import { truncateAnsi } from "../../util/index.ts";
 import { ST } from "../theme.ts";
 
 /** Normalize a component render result into rows ("" renders nothing). */

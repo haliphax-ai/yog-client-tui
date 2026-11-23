@@ -8,7 +8,7 @@
  * input no longer matches up (partial/unknown token). The selected
  * candidate is highlighted; Tab cycles through and applies the selection.
  */
-import { displayWidth, truncateAnsi, wrapText } from "../../util/ansi.ts";
+import { displayWidth, truncateAnsi, wrapText } from "../../util/index.ts";
 import { ST } from "../theme.ts";
 import {
   SLASH_COMMANDS,
@@ -16,7 +16,7 @@ import {
   registryVersion,
   resolveSlash,
   type SlashCommand,
-} from "../../core/commands.ts";
+} from "../../core/index.ts";
 
 /** Maximum rows the slash autocomplete menu shows (candidates in ranked order). */
 export const MAX_MENU_ROWS = 5;

@@ -7,10 +7,10 @@
  * the run-them side: gating, argument extraction, dispatch, and the
  * reply rendering.
  */
-import { addLiveCompletionTokens, getState, setState } from "../core/store.ts";
-import { FOCUS_NONE_TARGET } from "../core/focus.ts";
-import { noticeLine } from "../core/notices.ts";
-import { formatTokenTotal } from "../core/toolFormat.ts";
+import { addLiveCompletionTokens, getState, setState } from "../core/index.ts";
+import { FOCUS_NONE_TARGET } from "../core/index.ts";
+import { noticeLine } from "../core/index.ts";
+import { formatTokenTotal } from "../core/index.ts";
 import {
   completeSlash,
   requiresArgs,
@@ -19,11 +19,11 @@ import {
   slashTokenEnd,
   SLASH_COMMANDS,
   type SlashCommand,
-} from "../core/commands.ts";
+} from "../core/index.ts";
 import type { YogClient } from "../yogClient.ts";
 import { pushLines } from "./logFeed.ts";
 import { compactionNote, applyCompaction } from "./transcriptRebuild.ts";
-import { isSlash } from "../core/commands.ts";
+import { isSlash } from "../core/index.ts";
 
 /** Hooks the command runner needs from the composition root. */
 export interface CommandEnv {

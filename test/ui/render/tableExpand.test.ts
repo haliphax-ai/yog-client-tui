@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
-import { getState, resetForTests, setState } from "../../../src/core/store.ts";
-import { cachedRows } from "../../../src/ui/render/entry.ts";
-import { tableState, type LogEntry } from "../../../src/core/entries.ts";
+import { FOCUS_NONE_TARGET } from "../../../src/core/index.ts";
+import { getState, resetForTests, setState } from "../../../src/core/index.ts";
+import { cachedRows } from "../../../src/ui/render/index.ts";
+import { tableState, type LogEntry } from "../../../src/core/index.ts";
 import {
   parseTable,
   renderTable,
@@ -13,8 +13,8 @@ import {
   tableScrollKey,
   TABLE_MAX_COL,
 } from "../../../src/ui/render/table/index.ts";
-import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
+import { ChatViewport } from "../../../src/ui/components/index.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
 
 /**
  * A table that overflows a 40-cell viewport: col A is 45 wide naturally (one

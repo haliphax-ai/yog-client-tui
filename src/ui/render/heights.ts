@@ -8,7 +8,7 @@
  */
 import { cheapHeight } from "./cheapHeight.ts";
 import { cachedRows, rowCacheRevision } from "./rowCache.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import type { LogEntry } from "../../core/index.ts";
 
 /** Cached aggregate height data for one entries array at one width. */
 export interface HeightSummary {

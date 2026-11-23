@@ -8,10 +8,10 @@ import {
   toolResultEntry,
   toolResultEntries,
   transcriptLogEntries,
-} from "../../src/core/turnPresenter.ts";
+} from "../../src/core/index.ts";
 import type { TranscriptMessage, TokenUsage } from "../../src/yogClient.ts";
-import { toTranscriptEntries } from "../../src/core/transcript.ts";
-import type { LogEntry } from "../../src/core/entries.ts";
+import { toTranscriptEntries } from "../../src/core/index.ts";
+import type { LogEntry } from "../../src/core/index.ts";
 import { parseToolArgs } from "../../src/yogClient.ts";
 
 /** Column width used across these tests. */

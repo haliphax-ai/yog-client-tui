@@ -4,11 +4,11 @@
  * transcript dump through the same rebuild path a resume uses, so
  * completed rows appear before the turn settles.
  */
-import { toTranscriptEntries } from "../core/transcript.ts";
-import { transcriptLogEntries } from "../core/turnPresenter.ts";
-import { perTurnDeltas } from "../core/transcript.ts";
-import { setState } from "../core/store.ts";
-import type { LogEntry } from "../core/entries.ts";
+import { toTranscriptEntries } from "../core/index.ts";
+import { transcriptLogEntries } from "../core/index.ts";
+import { perTurnDeltas } from "../core/index.ts";
+import { setState } from "../core/index.ts";
+import type { LogEntry } from "../core/index.ts";
 import type { TranscriptResult, YogClient } from "../yogClient.ts";
 import { statusTotals, termCols, transcriptTokenWeight } from "./transcriptRebuild.ts";
 

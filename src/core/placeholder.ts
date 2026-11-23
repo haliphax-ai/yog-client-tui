@@ -13,7 +13,7 @@
  * call line + result chunk); the swapper maps by transcript index, not
  * by log index.
  */
-import { displayWidth, truncateAnsi } from "../util/ansi.ts";
+import { displayWidth, truncateAnsi } from "../util/index.ts";
 import type { LogEntry } from "./entries.ts";
 import { decodeToolCalls, type TranscriptEntry } from "./transcript.ts";
 

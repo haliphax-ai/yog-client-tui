@@ -15,8 +15,8 @@
  * content producer (e.g. `renderTable` takes `scrollX`).
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
-import { clampScroll, jump as jumpScroll, scrollBy as scrollByState } from "../../core/scroll.ts";
-import { truncateAnsi } from "../../util/ansi.ts";
+import { clampScroll, jump as jumpScroll, scrollBy as scrollByState } from "../../core/index.ts";
+import { truncateAnsi } from "../../util/index.ts";
 
 export abstract class ViewportComponent extends BaseComponent {
   /** First visible row (clamped into range before render). */

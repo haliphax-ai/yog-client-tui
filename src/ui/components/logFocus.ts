@@ -1,18 +1,18 @@
 /**
- * Focus-ring entry geometry for chat-log components: which focusable unit
- * the ring enters at when nothing is focused, picked from what is visible
- * in the viewport window.
+ * Focus-ring entry geometry for chat-log components: the focusable units
+ * (ui/focus.ts) and which one the ring enters at when nothing is focused,
+ * picked from what is visible in the viewport window.
  *
  * All helpers run on the cached height summary (`heightSummaryOf`) — the
  * same tops array the viewport slicing uses — so entry tops are strictly
  * increasing and every window lookup below is a binary search rather than
  * a scan.
  */
-import type { FocusTarget } from "../../core/focus.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import type { FocusTarget } from "../../core/index.ts";
+import type { LogEntry } from "../../core/index.ts";
 import { cachedRows, heightSummaryOf, type HeightSummary } from "../render/index.ts";
 import { resolveTableLayout, splitTableSections } from "../render/table/index.ts";
-import { tableState } from "../../core/entries.ts";
+import { tableState } from "../../core/index.ts";
 
 /** Bounds of entry `i`: first terminal row and full block height (incl.
  *  separator). Heights come from the memoized row cache. */

@@ -46,31 +46,31 @@
  *                   to the input.
  */
 import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from "./config.ts";
-import { FOCUS_NONE_TARGET } from "./core/focus.ts";
-import { getState, setState } from "./core/store.ts";
-import { noticeLine } from "./core/notices.ts";
-import { setServerCommands, type CommandDescriptor } from "./core/commands.ts";
+import { FOCUS_NONE_TARGET } from "./core/index.ts";
+import { getState, setState } from "./core/index.ts";
+import { noticeLine } from "./core/index.ts";
+import { setServerCommands, type CommandDescriptor } from "./core/index.ts";
 import { YogClient, type TranscriptResult } from "./yogClient.ts";
-import { driveRehydrate, stageRehydrate, statusTotals } from "./app/transcriptRebuild.ts";
-import { pushLines } from "./app/logFeed.ts";
-import { resolveSession } from "./app/sessionSetup.ts";
-import { pollRunningTurn } from "./app/pollRunning.ts";
-import { abortActiveTurn } from "./app/turnControl.ts";
-import { submitInput } from "./app/turnRunner.ts";
+import { driveRehydrate, stageRehydrate, statusTotals } from "./app/index.ts";
+import { pushLines } from "./app/index.ts";
+import { resolveSession } from "./app/index.ts";
+import { pollRunningTurn } from "./app/index.ts";
+import { abortActiveTurn } from "./app/index.ts";
+import { submitInput } from "./app/index.ts";
 import {
   setKeyDumpWriter,
   wireTerminal,
   type AppHooks,
   type Terminal,
-} from "./app/terminalWiring.ts";
-import { copyFailureNotice } from "./app/copySinks.ts";
-import type { CopyRequest } from "./core/copyText.ts";
-import { ToastComponent } from "./ui/components/ToastComponent.ts";
-import { registerDrawerChild } from "./ui/components/drawerRegistry.ts";
+} from "./app/index.ts";
+import { copyFailureNotice } from "./app/index.ts";
+import type { CopyRequest } from "./core/index.ts";
+import { ToastComponent } from "./ui/components/index.ts";
+import { registerDrawerChild } from "./ui/components/index.ts";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emitDebug, isDebugEnabled } from "./ui/debugLog.ts";
-import type { LogEntry } from "./core/entries.ts";
+import { emitDebug, isDebugEnabled } from "./ui/index.ts";
+import type { LogEntry } from "./core/index.ts";
 
 /**
  * Last-resort crash handler: an error escaping an async callback (a scheduler

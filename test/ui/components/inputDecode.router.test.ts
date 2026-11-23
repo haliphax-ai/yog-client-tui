@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { getState, resetForTests } from "../../../src/core/store.ts";
-import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
-import { InputComponent } from "../../../src/ui/components/InputComponent.ts";
-import { createInputDecoder } from "../../../src/ui/components/inputDecode.ts";
+import { getState, resetForTests } from "../../../src/core/index.ts";
+import { ChatViewport } from "../../../src/ui/components/index.ts";
+import { InputComponent } from "../../../src/ui/components/index.ts";
+import { createInputDecoder } from "../../../src/ui/components/index.ts";
 import {
   routeChar,
   routeKey,
   setTopLevel,
   type Globals,
-} from "../../../src/ui/components/keyRouter.ts";
+} from "../../../src/ui/components/index.ts";
 
 /**
  * End-to-end input path test: raw bytes as a terminal would send them →

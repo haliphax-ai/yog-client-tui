@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { noticeLine } from "../../src/core/notices.ts";
+import { noticeLine } from "../../src/core/index.ts";
 
 describe("noticeLine", () => {
   it("formats the shared shape: emoji, event, dot separator, detail", () => {

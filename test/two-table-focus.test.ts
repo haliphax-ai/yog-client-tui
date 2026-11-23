@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { cachedRows } from "../src/ui/render/entry.ts";
-import { getState, setState, resetForTests } from "../src/core/store.ts";
-import { stripAnsi } from "../src/util/ansi.ts";
+import { cachedRows } from "../src/ui/render/index.ts";
+import { getState, setState, resetForTests } from "../src/core/index.ts";
+import { stripAnsi } from "../src/util/index.ts";
 
 const TWO_TABLE_ENTRY = `## Mixed Ordered + Unordered Lists
 

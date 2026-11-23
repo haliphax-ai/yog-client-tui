@@ -3,13 +3,13 @@
  * prompt bubble and the bordered assistant block, with per-paragraph
  * glamour rendering and inline tables.
  */
-import { truncateAnsi } from "../../util/ansi.ts";
+import { truncateAnsi } from "../../util/index.ts";
 import { flattenMarkdownFlat, renderMarkdownFlat } from "./prose.ts";
 import { assistantBorderStyle, userBubbleStyle } from "./entryStyle.ts";
 import { resolveTableLayout, renderTable, tableRowWidth } from "./table/index.ts";
 import type { EntryRender } from "./entryRender.ts";
 import { sectionsOf, type TableSection } from "./entrySections.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import type { LogEntry } from "../../core/index.ts";
 
 /** Left-border rune marking assistant prose. */
 const BORDER_RUNE = "▐";

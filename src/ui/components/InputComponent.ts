@@ -39,10 +39,10 @@ import {
 import type { TextareaModel, TextareaStyles } from "@oakoliver/bubbles";
 import { newStyle } from "@oakoliver/lipgloss";
 import { BaseComponent, type KeyResult, type RenderContext } from "./Component.ts";
-import { getState, setState } from "../../core/store.ts";
+import { getState, setState } from "../../core/index.ts";
 import { type SeqKey, LEGACY_SEQ_KEYS, parseSeqKey } from "./seqKeys.ts";
 import { ST, CURSOR_COLOR, CURSOR_COLOR_BLUR } from "../theme.ts";
-import { completeSlash, resolveSlash, slashTokenEnd } from "../../core/commands.ts";
+import { completeSlash, resolveSlash, slashTokenEnd } from "../../core/index.ts";
 import { slashMenu } from "./slashMenu.ts";
 import { getTopLevel, setTopLevel } from "./keyRouter.ts";
 

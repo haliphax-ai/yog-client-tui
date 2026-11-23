@@ -8,8 +8,8 @@ import {
   toolCopyRequest,
   universalJsonCopy,
   wholeMessageCopyText,
-} from "../../src/core/copyText.ts";
-import type { LogEntry } from "../../src/core/entries.ts";
+} from "../../src/core/index.ts";
+import type { LogEntry } from "../../src/core/index.ts";
 
 describe("bash copy providers", () => {
   it("args provider copies the command value only", () => {

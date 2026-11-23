@@ -12,16 +12,11 @@
  * `ui/render/entry.ts` — the single memoization implementation in the codebase.
  */
 import { ViewportComponent } from "./ViewportComponent.ts";
-import { FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "../../core/focus.ts";
-import type { LogEntry } from "../../core/entries.ts";
-import {
-  anchorEntryForRow,
-  cachedRowData,
-  cachedRows,
-  focusUnits,
-  noteMutation,
-} from "../render/index.ts";
+import { FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "../../core/index.ts";
+import type { LogEntry } from "../../core/index.ts";
+import { anchorEntryForRow, cachedRowData, cachedRows, noteMutation } from "../render/index.ts";
 import { heightSummaryAnchored, tableOffsetsOf, totalRows } from "../render/index.ts";
+import { focusUnits } from "../focus.ts";
 import { entryAt, entryBounds, toggleEntry, visibleFocusUnit } from "./logFocus.ts";
 
 export abstract class ChatLogComponent extends ViewportComponent {

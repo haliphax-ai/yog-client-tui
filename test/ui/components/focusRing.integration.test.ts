@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { ChatViewport } from "../../../src/ui/components/ChatViewport.ts";
-import { InputComponent } from "../../../src/ui/components/InputComponent.ts";
-import { FOCUS_NONE_TARGET } from "../../../src/core/focus.ts";
-import { getState, resetForTests, setState } from "../../../src/core/store.ts";
+import { ChatViewport } from "../../../src/ui/components/index.ts";
+import { InputComponent } from "../../../src/ui/components/index.ts";
+import { FOCUS_NONE_TARGET } from "../../../src/core/index.ts";
+import { getState, resetForTests, setState } from "../../../src/core/index.ts";
 import {
   getTopLevel,
   routeChar,
   routeKey,
   setTopLevel,
   type Globals,
-} from "../../../src/ui/components/keyRouter.ts";
-import type { Component } from "../../../src/ui/components/Component.ts";
-import type { LogEntry } from "../../../src/core/entries.ts";
+} from "../../../src/ui/components/index.ts";
+import type { Component } from "../../../src/ui/components/index.ts";
+import type { LogEntry } from "../../../src/core/index.ts";
 
 /** Fixture: system(0), chunk(1), tool(2) — focusable: [1, 2]. */
 function fixture(): LogEntry[] {

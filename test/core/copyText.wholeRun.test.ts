@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resetForTests, setState } from "../../src/core/store.ts";
-import { proseCopyRequest } from "../../src/core/copyText.ts";
-import type { LogEntry } from "../../src/core/entries.ts";
+import { resetForTests, setState } from "../../src/core/index.ts";
+import { proseCopyRequest } from "../../src/core/index.ts";
+import type { LogEntry } from "../../src/core/index.ts";
 
 describe("Shift+C on any prose chunk of a multi-chunk message (#109)", () => {
   beforeEach(() => resetForTests());

@@ -25,7 +25,7 @@
  * styling, or rendering. The UI drives it through the `TurnEvents` callbacks.
  */
 
-import { TurnObservation } from "./client/turnOutcome.ts";
+import { TurnObservation } from "./client/index.ts";
 import {
   MESSAGE_TYPES,
   MESSAGE_VERSION,
@@ -33,7 +33,7 @@ import {
   type MessageEnvelope,
   type MessageResponse,
   type MessageType,
-} from "./client/protocol.ts";
+} from "./client/index.ts";
 import {
   YogError,
   authHeaders,
@@ -41,14 +41,14 @@ import {
   toError,
   toYogError,
   unreachableError,
-} from "./client/errors.ts";
-import { turnEnvelopeHandler } from "./client/envelope.ts";
-import { sessionOf, statusOf, transcriptTurns } from "./client/transcriptRows.ts";
-import { abortResultOf, capabilityQuery, replayStoredTurn } from "./client/replies.ts";
-import { awaitTerminal, settleTurn } from "./client/turnSettle.ts";
-import { Transport } from "./client/transport.ts";
-import { parseToolArgs, parseUsage } from "./client/decode.ts";
-import { consumeStream, parseFrame, readSseStream, toEnvelope } from "./client/sse.ts";
+} from "./client/index.ts";
+import { turnEnvelopeHandler } from "./client/index.ts";
+import { sessionOf, statusOf, transcriptTurns } from "./client/index.ts";
+import { abortResultOf, capabilityQuery, replayStoredTurn } from "./client/index.ts";
+import { awaitTerminal, settleTurn } from "./client/index.ts";
+import { Transport } from "./client/index.ts";
+import { parseToolArgs, parseUsage } from "./client/index.ts";
+import { consumeStream, parseFrame, readSseStream, toEnvelope } from "./client/index.ts";
 export { parseFrame, toEnvelope };
 
 export { parseToolArgs, parseUsage };
@@ -63,7 +63,7 @@ import type {
   TurnEvents,
   TokenUsage,
   TurnOutcome,
-} from "./client/wire.ts";
+} from "./client/index.ts";
 
 // The wire shapes are defined in client/wire.ts (so the client/ helpers
 // can share them without importing this module); they are re-exported

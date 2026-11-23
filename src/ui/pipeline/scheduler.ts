@@ -7,7 +7,7 @@
  * while the timer is pending are collapsed into that single flush; the
  * timer is cleared when it fires, so the next change arms a fresh window.
  */
-import { subscribe } from "../../core/store.ts";
+import { subscribe } from "../../core/index.ts";
 
 /** Render coalescing interval so SSE deltas do not flood stdout. */
 export const FRAME_MS = 16;

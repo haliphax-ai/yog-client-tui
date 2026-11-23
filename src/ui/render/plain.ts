@@ -2,10 +2,10 @@
  * Plain entry rendering: the fallback for kinds without a bespoke renderer
  * (system-kind transcript rows, any future kind).
  */
-import { wrapText } from "../../util/ansi.ts";
+import { wrapText } from "../../util/index.ts";
 import type { Style } from "@oakoliver/lipgloss";
 import type { EntryRender } from "./entryRender.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import type { LogEntry } from "../../core/index.ts";
 
 /**
  * Wrap every logical line to the terminal width, then style each wrapped

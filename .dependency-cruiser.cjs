@@ -133,6 +133,18 @@ module.exports = {
       to: { path: "^src/ui/components/" },
     },
 
+    // 5e. The render layer must not expose focus-ring state: focusUnits is
+    // interaction data (the ring's view of the entries), not rendering. It
+    // lives in ui/focus.ts; a renderer reaching back into it inverts the
+    // draw/state direction the way render-no-component-imports does.
+    {
+      name: "render-no-focus-exports",
+      severity: "error",
+      comment: "ui/render draws; the focus ring is state (ui/focus.ts)",
+      from: { path: "^src/ui/render/" },
+      to: { path: "^src/ui/focus\\.ts$" },
+    },
+
     // 5c. The domain layer must not depend on the presentation layer:
     // core owns the domain model (entries, focus, scroll state); ui draws,
     // routes keys, and renders. The focus-ring work (#52) made this seam

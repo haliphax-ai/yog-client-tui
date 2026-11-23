@@ -7,7 +7,7 @@
  * named function with one concern, and the flat while loop replaces what
  * used to be a five-deep flag-state nest.
  */
-import { matchEscape } from "../../../util/ansi.ts";
+import { matchEscape } from "../../../util/index.ts";
 import { C } from "../../theme.ts";
 import type { Emitter } from "./emit.ts";
 import { freshRow, put, releaseHead } from "./emit.ts";

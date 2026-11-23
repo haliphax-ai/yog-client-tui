@@ -6,8 +6,8 @@
  * wiring; `ui/` stays out of the business of shaping startup notes and
  * the client's `append` callback stays a plain function.
  */
-import { getState, setState } from "../core/store.ts";
-import type { LogEntry } from "../core/entries.ts";
+import { getState, setState } from "../core/index.ts";
+import type { LogEntry } from "../core/index.ts";
 
 /** Push one entry to the log and notify subscribers. */
 export function pushLines(kind: LogEntry["kind"], lines: string[]): void {

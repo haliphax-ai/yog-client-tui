@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { BaseComponent, type RenderResult } from "../../../src/ui/components/Component.ts";
-import { DrawerComponent } from "../../../src/ui/components/DrawerComponent.ts";
+import { BaseComponent, type RenderResult } from "../../../src/ui/components/index.ts";
+import { DrawerComponent } from "../../../src/ui/components/index.ts";
 import {
   registerDrawerChild,
   registeredDrawerChildren,
   resetDrawerRegistryForTests,
-} from "../../../src/ui/components/drawerRegistry.ts";
-import { displayWidth, stripAnsi } from "../../../src/util/ansi.ts";
+} from "../../../src/ui/components/index.ts";
+import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
 
 /** Minimal child with fixed rows (string or array form). */
 class Stub extends BaseComponent {

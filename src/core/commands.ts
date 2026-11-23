@@ -20,7 +20,7 @@
  * client-side sugar and never sent to the server.
  */
 
-import { fuzzyFind } from "../util/fuzzy.ts";
+import { fuzzyFind } from "../util/index.ts";
 
 /** One server-advertised slash command (mirrors the daemon wire shape). */
 export interface CommandDescriptor {

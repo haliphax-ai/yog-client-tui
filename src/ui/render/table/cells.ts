@@ -9,7 +9,7 @@
  * table draws), memoized — the same cell text is measured on every layout
  * pass.
  */
-import { displayWidth, stripAnsi } from "../../../util/ansi.ts";
+import { displayWidth, stripAnsi } from "../../../util/index.ts";
 import { renderInlineMarkdown } from "../markdown.ts";
 
 /** Restore the escaped-pipe placeholder to a literal pipe, trim, and turn

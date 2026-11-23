@@ -15,14 +15,14 @@ import {
   rehydrateGroupIndices,
   rehydrateGroups,
   transcriptLogEntries,
-} from "../core/turnPresenter.ts";
-import { perTurnDeltas, toTranscriptEntries } from "../core/transcript.ts";
-import { estimatedContextTotal, finalContextTotal } from "../core/transcript.ts";
-import { getState, setState } from "../core/store.ts";
-import type { LogEntry } from "../core/entries.ts";
+} from "../core/index.ts";
+import { perTurnDeltas, toTranscriptEntries } from "../core/index.ts";
+import { estimatedContextTotal, finalContextTotal } from "../core/index.ts";
+import { getState, setState } from "../core/index.ts";
+import type { LogEntry } from "../core/index.ts";
 import type { TranscriptResult } from "../yogClient.ts";
 import { pushLines } from "./logFeed.ts";
-import { noticeLine } from "../core/notices.ts";
+import { noticeLine } from "../core/index.ts";
 
 /** Terminal width (columns) for line fitting; 80 when headless. */
 export function termCols(): number {

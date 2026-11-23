@@ -6,9 +6,9 @@
  * The transport stays behind the `client` handle; everything here is
  * plain data + store writes.
  */
-import { addLiveCompletionTokens, getState, setState } from "../core/store.ts";
-import { noticeLine } from "../core/notices.ts";
-import { createTurnPresenter, type TurnPresenter } from "../core/turnPresenter.ts";
+import { addLiveCompletionTokens, getState, setState } from "../core/index.ts";
+import { noticeLine } from "../core/index.ts";
+import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
 import {
   YogError,
   type TokenUsage,

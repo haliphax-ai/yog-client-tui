@@ -14,10 +14,10 @@
  *     finally the global bindings.
  */
 import { ChatLogComponent } from "./ChatLogComponent.ts";
-import { type FocusTarget } from "../../core/focus.ts";
-import { tableState, tableStateOf, type LogEntry } from "../../core/entries.ts";
+import { type FocusTarget } from "../../core/index.ts";
+import { tableState, tableStateOf, type LogEntry } from "../../core/index.ts";
 import { setTopLevel } from "./keyRouter.ts";
-import { getState, setState } from "../../core/store.ts";
+import { getState, setState } from "../../core/index.ts";
 import {
   isTableScrollSeq,
   resolveTableLayout,
@@ -26,7 +26,7 @@ import {
   tableScrollChar,
   tableScrollKey,
 } from "../render/table/index.ts";
-import { type CopyActions, type CopyRequest } from "../../core/copyText.ts";
+import { type CopyActions, type CopyRequest } from "../../core/index.ts";
 import type { CopySinks } from "../../app/copySinks.ts";
 
 /**

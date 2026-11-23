@@ -7,8 +7,8 @@
  * cannot disagree.
  */
 import { splitTableSections } from "./table/index.ts";
-import type { TableSection } from "./table/parse.ts";
-import type { LogEntry } from "../../core/entries.ts";
+import type { TableSection } from "./table/index.ts";
+import type { LogEntry } from "../../core/index.ts";
 
 export type { TableSection };
 
