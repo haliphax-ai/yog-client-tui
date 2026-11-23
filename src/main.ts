@@ -57,12 +57,7 @@ import { resolveSession } from "./app/index.ts";
 import { pollRunningTurn } from "./app/index.ts";
 import { abortActiveTurn } from "./app/index.ts";
 import { submitInput } from "./app/index.ts";
-import {
-  setKeyDumpWriter,
-  wireTerminal,
-  type AppHooks,
-  type Terminal,
-} from "./app/index.ts";
+import { setKeyDumpWriter, wireTerminal, type AppHooks, type Terminal } from "./app/index.ts";
 import { copyFailureNotice } from "./app/index.ts";
 import type { CopyRequest } from "./core/index.ts";
 import { ToastComponent } from "./ui/components/index.ts";

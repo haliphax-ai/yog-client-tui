@@ -1,11 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { getState, resetForTests, setState, subscribe } from "../../../src/core/index.ts";
-import {
-  InputComponent,
-  MAX_INPUT_CHARS,
-  MAX_LINES,
-} from "../../../src/ui/components/index.ts";
+import { InputComponent, MAX_INPUT_CHARS, MAX_LINES } from "../../../src/ui/components/index.ts";
 import { setServerCommands, type CommandDescriptor } from "../../../src/core/index.ts";
 import { getTopLevel, setTopLevel } from "../../../src/ui/components/index.ts";
 

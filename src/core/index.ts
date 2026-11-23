@@ -48,7 +48,14 @@ export {
 export { FOCUS_NONE, FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "./focus.ts";
 export { type NoticeKind, noticeLine } from "./notices.ts";
 export { type ScrollState, clampScroll, jump, scrollBy } from "./scroll.ts";
-export { addLiveCompletionTokens, getState, resetForTests, setState, subscribe, type UiState } from "./store.ts";
+export {
+  addLiveCompletionTokens,
+  getState,
+  resetForTests,
+  setState,
+  subscribe,
+  type UiState,
+} from "./store.ts";
 export { type ParsedColumn, type ParsedTable } from "./tableShape.ts";
 export {
   compactArgs,
