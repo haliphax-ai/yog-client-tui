@@ -16,46 +16,86 @@ export function str(value: unknown): string {
 
 /**
  * What one turn's envelopes have said so far: the terminal-event flags,
- * the failure facts, and the turn id. `runTurn` and the recovery replay
  * both feed this one accumulator, so the outcome is read from a single
- * source of truth instead of a scatter of closure variables.
+ * source of truth instead of a scatter of closure variables. The
+ * observation is SCOPED: the first `turn.started` after `runTurn`'s POST
+ * names the turn it belongs to, and only that turn's terminal events
+ * settle the wait (#133).
  */
 export class TurnObservation {
-  usage: TokenUsage | undefined;
+  /** Whether the scope is armed: a `turn.started` has landed and named
+   *  the submitted turn. While unarmed, every envelope on the stream
+   *  belongs to some EARLIER turn — the server replays a foreign turn
+   *  (a wake turn, another client's) ahead of the live traffic — and
+   *  its terminal events must settle nothing. */
+  scoped = false;
+  /** The id of the turn the scope armed on (the submitted turn). Only
+   *  its terminal events settle the wait; recovery replays this id. */
   turnId: string | undefined;
+  usage: TokenUsage | undefined;
   sawFinished = false;
   sawAborted = false;
   stopReason: string | undefined;
   serverError: string | undefined;
   rateLimitRetries = 0;
 
-  /** Apply one envelope's state effects (the UI callbacks are separate). */
+  /** Apply one envelope's state effects (the UI callbacks are separate).
+   *
+   *  The scope rule (#133): the FIRST `turn.started` arms the scope — that
+   *  turn is the submitted one (its POST preceded everything this
+   *  observation will see). Terminal events land in the observation only
+   *  once the scope is armed; an UNARMED terminal (`turn.finished` /
+   *  `turn.aborted` / `error` of a foreign turn — a wake turn another
+   *  connection replays onto the stream ahead of the submitted turn,
+   *  another client's turn) stays OUT of the outcome, so it can never
+   *  settle the submitted turn's wait. Render-only events (deltas, tool
+   *  rows, later `turn.started` frames) always pass through untouched. */
   observe(type: string, data: Record<string, unknown>): void {
+    // The scope gate: a terminal lands only once a `turn.started` armed
+    // the scope; the arming event itself routes to its own helper.
+    if (type === "turn.started") {
+      this.observeStarted(data);
+      return;
+    }
+    if (!this.scoped) return; // foreign terminal: never settles the wait
     switch (type) {
-      case "turn.started":
-        this.turnId = typeof data["turnId"] === "string" ? data["turnId"] : this.turnId;
-        return;
       case "turn.finished":
-        this.sawFinished = true;
-        // A stopReason (e.g. "max_rounds") means the server stopped the
-        // turn early — surfaced on the outcome and to the UI.
-        if (typeof data["stopReason"] === "string" && data["stopReason"] !== "") {
-          this.stopReason = data["stopReason"];
-        }
-        if (typeof data["rateLimitRetries"] === "number") {
-          this.rateLimitRetries = data["rateLimitRetries"] as number;
-        }
-        this.usage = decodeUsage(data["usage"]) ?? this.usage;
-        return;
+        this.observeFinished(data);
+        break;
       case "turn.aborted":
         this.sawAborted = true;
-        return;
+        break;
       case "error":
         this.serverError = str(data["message"]) || "unknown error";
-        return;
+        break;
       default:
-        return; // unknown events carry no observation state
+        break; // unknown events carry no observation state
     }
+  }
+
+  /** The scope-arming `turn.started`: the FIRST announcement names the
+   *  submitted turn; later announcements (a second foreign replay, the
+   *  submitted turn re-announced on recovery) are ignored — the scope
+   *  holds to the submitted turn's terminal. */
+  private observeStarted(data: Record<string, unknown>): void {
+    if (this.scoped) return; // already scoped — later announcements never re-arm
+    this.scoped = true;
+    this.turnId = typeof data["turnId"] === "string" ? data["turnId"] : this.turnId;
+  }
+
+  /** The scoped `turn.finished`: the outcome facts ride along (stop reason
+   *  for the capped-rounds case, usage, rate-limit retries). */
+  private observeFinished(data: Record<string, unknown>): void {
+    this.sawFinished = true;
+    // A stopReason (e.g. "max_rounds") means the server stopped the turn
+    // early — surfaced on the outcome and to the UI.
+    if (typeof data["stopReason"] === "string" && data["stopReason"] !== "") {
+      this.stopReason = data["stopReason"];
+    }
+    if (typeof data["rateLimitRetries"] === "number") {
+      this.rateLimitRetries = data["rateLimitRetries"] as number;
+    }
+    this.usage = decodeUsage(data["usage"]) ?? this.usage;
   }
 }
 

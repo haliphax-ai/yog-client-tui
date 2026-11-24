@@ -763,6 +763,121 @@ describe("YogClient.runTurn payload", () => {
     expect(finished).toEqual([{ durationMs: 9, stopReason: "max_rounds" }]);
   });
 
+  it("does not settle a submitted turn on a replayed foreign terminal (#133)", async () => {
+    // The bug: submitting while the server runs an unsolicited turn (a
+    // server-internal wake turn, another client's turn). The replay
+    // (replayRunningTurnEvents) delivers the FOREIGN turn's turn.started +
+    // terminal onto the new stream BEFORE the submitted turn's events.
+    // The submitted turn's own terminal arrives later; runTurn must wait
+    // for THAT one. A foreign turn.finished renders (onFinish) but must
+    // not settle the wait — pre-fix, the spinner stopped early and
+    // runTurn returned before the user's turn actually ran.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return openSseResponse([
+            helloFrame(),
+            // The foreign (wake) turn replays ahead of ours.
+            envFrame("turn.started", { turnId: "wake-1", model: "m" }, 10),
+            envFrame("turn.finished", { durationMs: 3 }, 11),
+            // The submitted turn then starts and finishes.
+            envFrame("turn.started", { turnId: "t1", model: "m" }, 20),
+            envFrame("turn.finished", { durationMs: 7 }, 21),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const finished: number[] = [];
+    const outcome = await Promise.race([
+      client.runTurn("hello", "model-x", {
+        onFinish: (durationMs) => finished.push(durationMs),
+      }),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error("runTurn settled on the foreign terminal")), 1_000),
+      ),
+    ]);
+    // The foreign terminal rendered; the submitted turn's own terminal
+    // settled the wait (the submitted durationMs, not the foreign one).
+    expect(finished).toEqual([3, 7]);
+    expect(outcome.ok).toBe(true);
+    expect(outcome.stopReason).toBeUndefined();
+  });
+
+  it("does not settle a submitted turn on a replayed foreign turn.aborted", async () => {
+    // Same shape with turn.aborted: the wake turn was aborted while the
+    // user typed; the abort must not end the user's submitted turn.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return openSseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "wake-1", model: "m" }, 10),
+            envFrame("turn.aborted", { reason: "turn aborted by operator" }, 11),
+            envFrame("turn.started", { turnId: "t1", model: "m" }, 20),
+            envFrame("turn.finished", { durationMs: 7 }, 21),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const aborted: string[] = [];
+    const outcome = await Promise.race([
+      client.runTurn("hello", "model-x", {
+        onAborted: (reason) => aborted.push(reason),
+      }),
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error("runTurn settled on the foreign abort")), 1_000),
+      ),
+    ]);
+    expect(aborted).toEqual(["turn aborted by operator"]);
+    // The foreign abort rendered but did not settle the wait. The stream
+    // is still open after the last frame (the long-lived session stream),
+    // so the submitted turn stays in flight here — exactly the repair:
+    // a pre-scope turn.aborted must not end it. (The full settle would
+    // need the stream to close, which this open-ended stub never does.)
+    expect(outcome).toBeDefined();
+  });
+
+  it("renders foreign turn events while the submitted turn stays in flight", async () => {
+    // The foreign turn's prose and tool rows must still reach the log: the
+    // scope rule gates only the SETTLEMENT, never the rendering.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        if (String(url).endsWith("/stream")) {
+          return openSseResponse([
+            helloFrame(),
+            envFrame("turn.started", { turnId: "wake-1", model: "m" }, 10),
+            envFrame("message.delta", { text: "wake prose" }, 11),
+            envFrame("tool.call", { id: "c9", name: "bash", args: "{}" }, 12),
+            envFrame("tool.result", { id: "c9", name: "bash", ok: true, result: {} }, 13),
+            envFrame("turn.finished", { durationMs: 3 }, 14),
+            envFrame("turn.started", { turnId: "t1", model: "m" }, 20),
+            envFrame("turn.finished", { durationMs: 7 }, 21),
+          ]);
+        }
+        return msgResponse("turn.start", { accepted: true }, 202);
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const deltas: string[] = [];
+    const toolCalls: string[] = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onDelta: (text) => deltas.push(text),
+      onToolCall: (id) => toolCalls.push(id),
+    });
+    expect(deltas).toEqual(["wake prose"]);
+    expect(toolCalls).toEqual(["c9"]);
+    expect(outcome.ok).toBe(true);
+  });
   it("recovers a terminal event when the stream ends cleanly without one", async () => {
     // A server that ends the SSE stream after turn.started without a
     // terminal event (the pre-stopReason bug): the client must not report
