@@ -58,6 +58,7 @@ function globalsSpy(rows = 24): { globals: Globals; calls: string[] } {
     jump: (top) => calls.push(`jump:${top}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    toggleJobs: () => undefined,
     pageRows: () => rows,
   };
   return { globals, calls };

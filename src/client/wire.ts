@@ -163,3 +163,37 @@ export interface AbortTurnResult {
   /** The tool call that was killed, if one was in flight. */
   activeToolCall?: ActiveToolCall;
 }
+
+/** One background job row (`jobs.get` list/detail; verbatim wire fields). */
+export interface BackgroundJob {
+  /** The job id (the pool run key and the transcript's `backgroundJobId`). */
+  readonly id: string;
+  /** Owning session id. */
+  readonly sessionId: string;
+  /** Tool name (e.g. `bash`). */
+  readonly tool: string;
+  /** Raw JSON arguments exactly as the registry received them. */
+  readonly argsJson: string | null;
+  /** The call's start (detach) time, epoch ms. */
+  readonly startedAt: number;
+  /** The settle time, epoch ms (unset while running). */
+  endedAt?: number;
+  /** Lifecycle state. */
+  state: string;
+  /** The retained (capped) result once the call settles. */
+  result?: unknown;
+  /** The worker wrapper child's pid, when known. */
+  pid?: number;
+  /** Termination reason (state `terminated` only). */
+  termReason?: string;
+  /** True once the result has been delivered in a wake prompt. */
+  delivered?: boolean;
+}
+
+/** The `jobs.get` reply: the session's job rows (list) or one row (detail). */
+export interface JobsResult {
+  /** The session's jobs in start order (absent on a single-job reply). */
+  jobs?: BackgroundJob[];
+  /** The named job (detail replies). */
+  job?: BackgroundJob;
+}

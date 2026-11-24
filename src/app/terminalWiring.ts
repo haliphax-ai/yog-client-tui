@@ -13,7 +13,7 @@ import { ChatViewport } from "../ui/components/index.ts";
 import { InputComponent } from "../ui/components/index.ts";
 import { StatusComponent } from "../ui/components/index.ts";
 import { DrawerComponent } from "../ui/components/index.ts";
-import { GeneratingComponent } from "../ui/components/index.ts";
+import { GeneratingComponent, JobsDrawerComponent } from "../ui/components/index.ts";
 import { ToastComponent } from "../ui/components/index.ts";
 import { registerDrawerChild } from "../ui/components/index.ts";
 import {
@@ -70,6 +70,8 @@ function emitKeyDump(path: string, raw: string): void {
 export interface Terminal {
   viewport: ChatViewport;
   input: InputComponent;
+  /** The background-jobs drawer view (the composition root wires its gate + fetch). */
+  jobsDrawer: JobsDrawerComponent;
   chain: readonly Component[];
   scheduler: Scheduler;
   globals: Globals;
@@ -89,8 +91,10 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
   const status = new StatusComponent();
   const drawer = new DrawerComponent();
   const generating = new GeneratingComponent();
+  const jobsDrawer = new JobsDrawerComponent();
   const toast = new ToastComponent();
   registerDrawerChild(generating);
+  registerDrawerChild(jobsDrawer);
   registerDrawerChild(toast);
   const spinner = spinnerHooks();
   // Top-level focus ring: the log and the input are the two ring targets.
@@ -154,12 +158,14 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
     jump: (top) => viewport.jump(top, viewportRows()),
     submit: hooks.submit,
     abortTurn: hooks.abortTurn,
+    toggleJobs: () => jobsDrawer.toggle(),
     pageRows: () => process.stdout.rows ?? 24,
   };
 
   return {
     viewport,
     input,
+    jobsDrawer,
     chain,
     scheduler,
     globals,

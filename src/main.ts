@@ -329,6 +329,15 @@ async function run(argv: readonly string[]): Promise<void> {
 
   // Assemble the terminal: components, draw loop, scheduler, key surface.
   terminal = wireTerminal(client, hooks);
+  // The jobs drawer's gate + fetch: the view stays fully collapsed (zero
+  // rows) until the server advertises `background-jobs` — the drawer's
+  // padded block must never open for a server without the subsystem.
+  if (terminal.jobsDrawer !== undefined) {
+    terminal.jobsDrawer.wire(
+      async () => (await client.getJobs()).jobs ?? [],
+      () => (client.capabilities?.features ?? []).includes("background-jobs"),
+    );
+  }
   // The fatal handler draws its notice through the same flush timer.
   fatalScheduler = terminal.scheduler.request;
 

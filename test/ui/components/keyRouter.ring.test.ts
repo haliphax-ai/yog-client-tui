@@ -49,6 +49,7 @@ function spyGlobals() {
     jump: (t) => calls.push(`jump:${t}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    toggleJobs: () => undefined,
     pageRows: () => 24,
   };
   return { globals, calls };

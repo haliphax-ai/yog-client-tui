@@ -56,6 +56,8 @@ export interface Globals {
   submit(): void;
   /** Esc with no focused entry: abort the in-flight turn (no-op when idle). */
   abortTurn(): void;
+  /** `n`: toggle the background-jobs drawer view (no-op when ungated). */
+  toggleJobs(): void;
   /** Terminal height in rows — the page size for PageUp/PageDown. */
   pageRows(): number;
 }
@@ -135,6 +137,10 @@ const LOG_CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
     binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
     run: (g) => g.focusNext(),
+  },
+  {
+    binding: newBinding(withKeys("n"), withHelp("n", "toggle background jobs")),
+    run: (g) => g.toggleJobs(),
   },
 ];
 

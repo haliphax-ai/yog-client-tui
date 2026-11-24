@@ -19,6 +19,11 @@ import { displayWidth, truncateAnsi } from "../util/index.ts";
 import type { LogEntry } from "./entries.ts";
 import { noticeLine } from "./notices.ts";
 import { annotateToolCall, toolCallEntry, toolResultEntries } from "./toolEntries.ts";
+import {
+  decodeHarnessNotices,
+  harnessNoticeEntries,
+  isHarnessNoticeTool,
+} from "./harnessNotice.ts";
 import type { TurnHost } from "./turnHost.ts";
 
 export type { TurnHost } from "./turnHost.ts";
@@ -158,8 +163,13 @@ function resultEntriesFor(host: TurnHost, ev: ToolResultEvent): LogEntry[] {
 /** An ORPHAN result — a result whose call row is not pending (its call
  *  line predates this presenter, e.g. after recovery). Standalone ✅/❌
  *  line, plus the result components on success; the call id is the item
- *  id for the copy path. */
+ *  id for the copy path. A harness_notice result renders its notices
+ *  instead of the ✅/❌ + blob (same branch as the paired path). */
 function orphanResult(host: TurnHost, ev: ToolResultEvent): void {
+  if (isHarnessNoticeTool(ev.name)) {
+    pushHarnessResult(host, ev);
+    return;
+  }
   host.append("tool", [
     `${ev.ok ? "✅" : "❌"} ${ev.name || "tool"}${ev.ok ? "" : ` ${ev.error ?? "failed"}`}`,
   ]);
@@ -176,6 +186,12 @@ function insertPairedResult(host: TurnHost, call: LogEntry, ev: ToolResultEvent)
   if (results.length === 0) return;
   const at = host.entries.indexOf(call);
   host.entries.splice(at === -1 ? host.entries.length : at + 1, 0, ...results);
+}
+
+/** Push a harness_notice result's notice lines (the paired and orphan
+ *  paths share this branch — the same entries, no result blob). */
+function pushHarnessResult(host: TurnHost, ev: ToolResultEvent): void {
+  host.entries.push(...harnessNoticeEntries(decodeHarnessNotices(ev.result) ?? []));
 }
 
 /**
@@ -200,6 +216,9 @@ export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): Tur
       prose.close();
       const entry = toolCallEntry(id, name, args, host.width());
       entry.copyIds = { itemId: id };
+      // The harness-notice synthetic (never advertised in `tools`) is
+      // marked so its result renders as notice lines, not a result blob.
+      entry.harnessTool = isHarnessNoticeTool(name) ? name : undefined;
       host.entries.push(entry);
       pendingToolCalls.set(id, entry);
       host.requestRender();
@@ -214,6 +233,13 @@ export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): Tur
         return;
       }
       pendingToolCalls.delete(ev.id);
+      // A harness_notice pair renders its notices instead of a result
+      // blob (the ✅ call line stays; the result carries the payload).
+      if (call.harnessTool !== undefined) {
+        pushHarnessResult(host, ev);
+        host.requestRender();
+        return;
+      }
       annotateToolCall(call, ev.ok, ev.error);
       // The last result of a round drains the pending map — the one place
       // the round's REAL promptDelta folds into live session totals, so a

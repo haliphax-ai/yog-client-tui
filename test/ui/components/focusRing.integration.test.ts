@@ -47,6 +47,7 @@ describe("top-level focus ring — integration with real components", () => {
       jump: (top) => calls.push(`jump:${top}`),
       submit: () => calls.push("submit"),
       abortTurn: () => calls.push("abortTurn"),
+      toggleJobs: () => undefined,
       pageRows: () => 24,
     };
     return { viewport, input, chain, globals, calls };
@@ -130,6 +131,7 @@ describe("top-level focus ring — input blur styling", () => {
       jump: () => {},
       submit: () => {},
       abortTurn: () => {},
+      toggleJobs: () => {},
       pageRows: () => 24,
     };
     return { chain, globals, input };

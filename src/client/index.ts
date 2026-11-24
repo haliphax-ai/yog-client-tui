@@ -21,6 +21,8 @@ export { parseFrame, toEnvelope, readSseStream } from "./sse.ts";
 export type {
   AbortTurnResult,
   ActiveToolCall,
+  BackgroundJob,
+  JobsResult,
   ToolResultEvent,
   TranscriptMessage,
   TranscriptResult,

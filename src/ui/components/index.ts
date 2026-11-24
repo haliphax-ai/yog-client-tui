@@ -15,6 +15,15 @@ export {
 } from "./Component.ts";
 export { DrawerComponent } from "./DrawerComponent.ts";
 export { GeneratingComponent } from "./GeneratingComponent.ts";
+export {
+  BACKGROUND_JOBS_FEATURE,
+  JOBS_POLL_MS,
+  type JobRowInput,
+  JOBS_HEADERS,
+  JobsDrawerComponent,
+  jobColumnWidths,
+  jobRowCells,
+} from "./JobsDrawerComponent.ts";
 export { InputComponent, MAX_CONTENT_ROWS, MAX_INPUT_CHARS, MAX_LINES } from "./InputComponent.ts";
 export {
   formatTokenTotal,

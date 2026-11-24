@@ -36,6 +36,8 @@ import { consumeStream, parseFrame, toEnvelope } from "./sse.ts";
 import type {
   AbortTurnResult,
   ActiveToolCall,
+  BackgroundJob,
+  JobsResult,
   ToolResultEvent,
   TranscriptMessage,
   TranscriptResult,
@@ -98,6 +100,18 @@ export interface SessionStream {
   readonly closed: Promise<Error | undefined>;
   /** Detach the stream (aborts its fetch; the server treats it as a hang-up). */
   close(): void;
+}
+
+/** A job row's id/sessionId/tool/state fields (the row is unusable without them). */
+function jobRowOk(row: unknown): boolean {
+  if (row === null || typeof row !== "object" || Array.isArray(row)) return false;
+  const rec = row as Record<string, unknown>;
+  return (
+    typeof rec["id"] === "string" &&
+    typeof rec["sessionId"] === "string" &&
+    typeof rec["tool"] === "string" &&
+    typeof rec["state"] === "string"
+  );
 }
 
 /** The terminal-event signal one `runTurn` waits on: resolved by the
@@ -272,6 +286,31 @@ export class YogClient extends Transport {
       turns?: unknown;
     };
     return transcriptResultOf(body, sessionId);
+  }
+
+  /**
+   * The session's background jobs (`jobs.get`): the full list without
+   * arguments, one job's detail with `{ jobId }`. Reads work while a
+   * turn runs (the server does not gate the type on idleness). Malformed
+   * rows are dropped defensively; absent fields degrade, never throw.
+   */
+  async getJobs(jobId?: string): Promise<JobsResult> {
+    if (!this.sessionId) throw new Error("getJobs called before open() or reopen()");
+    const sessionId = this.sessionId;
+    const body = (await this.send(
+      sessionId,
+      "jobs.get",
+      jobId === undefined ? {} : { jobId },
+      "fetching jobs failed",
+    )) as {
+      jobs?: unknown;
+      job?: unknown;
+    };
+    const rows = Array.isArray(body.jobs) ? body.jobs.filter(jobRowOk) : undefined;
+    return {
+      ...(rows !== undefined ? { jobs: rows as BackgroundJob[] } : {}),
+      ...(jobRowOk(body.job) ? { job: body.job as BackgroundJob } : {}),
+    };
   }
 
   /**
