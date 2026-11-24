@@ -6,6 +6,13 @@
  * turn-status recovery replay, so a replayed turn updates the same
  * observation and fires the same callbacks. Unknown events are tolerated
  * (forward compatibility).
+ *
+ * Terminal settlement is SCOPED (#133): the observation decides which turn
+ * id owns the wait (its first `turn.started`), and the settle signal fires
+ * only once that turn has been announced. A foreign terminal — the
+ * replayed wake turn another stream connection replays, another
+ * client's turn — still renders through the UI callbacks, but never
+ * settles the submitted turn's wait.
  */
 import type { ToolResultEvent, TurnEnvelope, TurnEvents } from "./wire.ts";
 import { parseToolArgs, parseUsage } from "./decode.ts";
@@ -44,7 +51,10 @@ function dispatchRateLimited(
 }
 
 /** The `turn.finished` event: surface duration/stop reason/usage, then
- *  settle the awaiting `runTurn`. */
+ *  settle the awaiting `runTurn` — but only when the observation is
+ *  SCOPED (its turn started). An unscoped terminal is a foreign turn's
+ *  (a replayed wake turn ahead of the submitted one): it renders, and
+ *  the wait stays armed until the submitted turn settles itself. */
 function dispatchFinished(
   events: TurnEvents,
   data: Record<string, unknown>,
@@ -56,20 +66,24 @@ function dispatchFinished(
     observed.stopReason,
     observed.usage,
   );
-  settle();
+  if (observed.scoped) settle();
 }
 
-/** The `turn.aborted` event (terminal): surface the reason, then settle. */
+/** The `turn.aborted` event (terminal): surface the reason, then settle
+ *  under the same scope rule as `turn.finished`. */
 function dispatchAborted(
   events: TurnEvents,
   data: Record<string, unknown>,
+  observed: TurnObservation,
   settle: () => void,
 ): void {
   events.onAborted?.(str(data["reason"]) || "turn aborted", parseUsage(data["usage"]));
-  settle();
+  if (observed.scoped) settle();
 }
 
-/** The `error` event (terminal): surface the failure, then settle. */
+/** The `error` event (terminal): surface the failure, then settle under
+ *  the same scope rule: an unscoped `error` (a foreign turn's failure,
+ *  replayed ahead of the submitted turn) renders; the wait stays armed. */
 function dispatchError(
   events: TurnEvents,
   data: Record<string, unknown>,
@@ -77,7 +91,7 @@ function dispatchError(
   settle: () => void,
 ): void {
   events.onError?.(str(data["code"]) || "error", observed.serverError ?? "unknown error");
-  settle();
+  if (observed.scoped) settle();
 }
 
 /** Decode a `tool.result` payload into the typed event shape: strict on
@@ -109,7 +123,9 @@ function toolResultOf(data: Record<string, unknown>): ToolResultEvent {
 /**
  * The envelope handler `runTurn` drives: observe the state effects first
  * (the outcome is read from the accumulator), then dispatch the UI
- * callback for the event type.
+ * callback for the event type. The observe-first order is what makes the
+ * scope rule work: by the time a terminal event dispatches, the
+ * observation already knows whether its own `turn.started` has landed.
  */
 export function turnEnvelopeHandler(
   observed: TurnObservation,
@@ -140,7 +156,7 @@ export function turnEnvelopeHandler(
         dispatchFinished(events, data, observed, settle);
         return;
       case "turn.aborted":
-        dispatchAborted(events, data, settle);
+        dispatchAborted(events, data, observed, settle);
         return;
       case "error":
         dispatchError(events, data, observed, settle);
