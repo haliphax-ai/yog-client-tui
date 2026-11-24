@@ -57,7 +57,7 @@ describe("completeSlash", () => {
   });
 
   it("lists every command for a bare slash, local first, in registry order", () => {
-    expect(completeSlash("/")).toEqual(["/new", "/quit"]);
+    expect(completeSlash("/")).toEqual(["/new", "/jobs", "/quit"]);
   });
 
   it("merges server descriptors after the local commands", () => {
@@ -65,7 +65,7 @@ describe("completeSlash", () => {
       { name: "compact", summary: "compact the session", message: "compaction.run" },
       { name: "shake", summary: "shake the transcript", message: "transcript.shake" },
     ]);
-    expect(completeSlash("/")).toEqual(["/new", "/quit", "/compact", "/shake"]);
+    expect(completeSlash("/")).toEqual(["/new", "/jobs", "/quit", "/compact", "/shake"]);
   });
 
   it("matches case-insensitive prefixes over the merged registry", () => {
@@ -150,7 +150,7 @@ describe("resolveSlash", () => {
   });
 
   it("registers the local commands", () => {
-    expect(LOCAL_COMMANDS.map((c) => c.name)).toEqual(["new", "quit"]);
+    expect(LOCAL_COMMANDS.map((c) => c.name)).toEqual(["new", "jobs", "quit"]);
   });
 });
 
@@ -161,7 +161,7 @@ describe("setServerCommands", () => {
       { name: "compact", summary: "compact the session", message: "compaction.run" },
     ]);
     expect(rejected).toEqual([]);
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "quit", "shake", "compact"]);
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "jobs", "quit", "shake", "compact"]);
   });
 
   it("rejects descriptors that collide with a local command name (local wins)", () => {
@@ -171,7 +171,7 @@ describe("setServerCommands", () => {
       { name: "shake", summary: "shake the transcript", message: "transcript.shake" },
     ]);
     expect(rejected.map((d) => d.name)).toEqual(["quit", "new"]);
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "quit", "shake"]);
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["new", "jobs", "quit", "shake"]);
     const quit = SLASH_COMMANDS.find((c) => c.name === "quit");
     expect(quit?.summary).toBe("exit the client (session stays on the server)");
     expect(quit?.message).toBeUndefined();
@@ -189,9 +189,9 @@ describe("setServerCommands", () => {
 
   it("rebuilding the merged registry invalidates prior snapshots", () => {
     setServerCommands([{ name: "shake", summary: "s", message: "transcript.shake" }]);
-    expect(completeSlash("/s")).toEqual(["/shake"]);
+    expect(completeSlash("/shake")).toEqual(["/shake"]); // + /jobs shares no prefix
     setServerCommands([{ name: "compact", summary: "c", message: "compaction.run" }]);
-    expect(completeSlash("/s")).toEqual([]);
+    expect(completeSlash("/sha")).toEqual([]); // /shake is gone; /jobs shares no prefix
     expect(completeSlash("/c")).toEqual(["/compact"]);
   });
 });
@@ -257,5 +257,21 @@ describe("invocation envelope construction", () => {
       type: "compaction.run",
       data: { kind: "compact", guidance: "" },
     });
+  });
+});
+describe("the local /jobs command", () => {
+  it("registers client-local alongside new and quit", () => {
+    expect(LOCAL_COMMANDS.map((c) => c.name)).toEqual(["new", "jobs", "quit"]);
+    const jobs = LOCAL_COMMANDS.find((c) => c.name === "jobs");
+    expect(jobs?.message).toBeUndefined(); // local dispatch, never the server path
+  });
+
+  it("wins the name collision against a server descriptor (local wins)", () => {
+    const rejected = setServerCommands([
+      { name: "jobs", summary: "server-side jobs list", message: "jobs.get", argField: "jobId" },
+    ]);
+    expect(rejected).toHaveLength(1);
+    const merged = SLASH_COMMANDS.find((c) => c.name === "jobs");
+    expect(merged?.message).toBeUndefined();
   });
 });

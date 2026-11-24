@@ -7,7 +7,9 @@
  * key handlers on. Nothing here parses input semantics — that lives in
  * the components (`ui/components`) and the router.
  */
-import { setState } from "../core/index.ts";
+import { getState, setState } from "../core/index.ts";
+import { noticeLine } from "../core/index.ts";
+import { pushLines } from "./logFeed.ts";
 import type { Component } from "../ui/components/index.ts";
 import { ChatViewport } from "../ui/components/index.ts";
 import { InputComponent } from "../ui/components/index.ts";
@@ -85,7 +87,14 @@ export interface Terminal {
 }
 
 /** Assemble the component chain, the draw loop, and the key surface. */
-export function wireTerminal(client: { sessionId: string | undefined }, hooks: AppHooks): Terminal {
+export function wireTerminal(
+  client: {
+    sessionId: string | undefined;
+    /** The idle-abort message (the Esc cascade's background-jobs arm). */
+    abortTurn(): Promise<unknown>;
+  },
+  hooks: AppHooks,
+): Terminal {
   const viewport = new ChatViewport();
   const input = new InputComponent();
   const status = new StatusComponent();
@@ -158,6 +167,24 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
     jump: (top) => viewport.jump(top, viewportRows()),
     submit: hooks.submit,
     abortTurn: hooks.abortTurn,
+    // The Esc cascade's drawer arm: the jobs view takes Esc while open.
+    dismissEsc: () => {
+      if (getState().jobsOpen !== true) return false;
+      setState({ jobsOpen: false });
+      return true;
+    },
+    // The cascade's idle arm: the same `turn.abort` message the parent
+    // arm sends — idle, the server kills the session's background jobs
+    // and queues a prelude notice instead. A transport failure is
+    // logged; nothing else is affected.
+    abortBackgroundJobs: () => {
+      void client.abortTurn().catch((err: unknown) => {
+        pushLines(
+          "error",
+          noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
+        );
+      });
+    },
     toggleJobs: () => jobsDrawer.toggle(),
     pageRows: () => process.stdout.rows ?? 24,
   };

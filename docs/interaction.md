@@ -31,18 +31,26 @@ the focused unit; on a focused table, `←`/`→` scroll its columns.
 | `Tab`/`Shift+Tab`                          | In the log: cycle focusable units. In the input: complete a slash command.                                                                                                                                          |
 | `T`/`Shift+T`                              | While a message with tables is focused: cycle its tables.                                                                                                                                                           |
 | `n`                                        | In the log: toggle the background-jobs drawer (the drawer view itself is hidden on servers without the `background-jobs` feature).                                                                                   |
-| `Esc`                                      | In the log with something focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op).                                                   |
+| `Esc`                                      | In the log with something focused: leave focus mode. In the log with nothing focused: return to the input. In the input: the cascade — close an open drawer view that listens for Esc, else abort the in-flight turn, else idle-abort the session's background jobs. |
+| `/jobs`                                    | Toggle the background-jobs drawer (same as `n`; refused with a note on servers without the `background-jobs` feature).                                                                                              |
 | `/quit`                                    | Quit via the slash command. `Ctrl+C` is unbound.                                                                                                                                                                    |
 
 ## The drawer: background jobs
 
-Press `n` while the log holds the ring to open the background-jobs drawer
-above the input. The view polls `jobs.get` about every two seconds while
-open and shows one row per detached job — id, tool, state (a terminated
-job carries its reason), elapsed time, and the result's exit code. Press
-`n` again to close it. The view is capabilities-gated: on a server that
-does not advertise the `background-jobs` feature it stays fully collapsed
-(zero rows — the drawer block never opens), and `n` does nothing visible.
+Press `n` — or run `/jobs` — while the input holds the ring to open the
+background-jobs drawer above the input. The view polls `jobs.get` about
+every two seconds while open and shows one row per detached job — id,
+tool, state (a terminated job carries its reason), elapsed time, and the
+result's exit code. Press `n` (or `/jobs`) again to close it. The view is
+capabilities-gated: on a server that does not advertise the
+`background-jobs` feature it stays fully collapsed (zero rows — the
+drawer block never opens), and both toggles answer with a note instead.
+
+While the drawer is open, `Esc` (from the input) closes it; otherwise
+`Esc` falls through the abort cascade: the in-flight turn aborts, and
+when the session is already idle, `Esc` idle-aborts the session's
+background jobs (the server kills them and a notice reports the
+terminations).
 
 ## Harness notices
 

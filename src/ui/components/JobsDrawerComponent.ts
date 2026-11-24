@@ -121,11 +121,19 @@ export class JobsDrawerComponent extends BaseComponent {
     this.gate = gate;
   }
 
-  /** Toggle the view (the `n` binding): on → open + poll; off → closed. */
-  toggle(): void {
+  /**
+   * Toggle the view (`n`, `/jobs`): on → open + poll; off → closed.
+   * Returns whether the view is AVAILABLE (gated in) — `/jobs` uses the
+   * return to decide between toggling and the unavailable note. A
+   * gated-out toggle flips nothing (the view renders nothing either way)
+   * so the store never carries an open flag the drawer cannot honor.
+   */
+  toggle(): boolean {
+    if (!this.gate()) return false;
     const open = !(getState().jobsOpen === true);
     setState({ jobsOpen: open });
     if (open) void this.poll();
+    return true;
   }
 
   /** One poll tick: fetch, reshape, store; timer re-arms in render(). */

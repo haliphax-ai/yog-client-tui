@@ -60,9 +60,21 @@ export interface SlashCommand {
   readonly requiresIdle?: boolean;
 }
 
-/** Local (client-owned) commands. `new` and `quit` win every name collision. */
+/**
+ * Local (client-owned) commands. `new`, `jobs`, and `quit` win every
+ * name collision.
+ *
+ * `jobs` toggles the background-jobs drawer (the view itself is also
+ * capabilities-gated, so on a server without the subsystem the command
+ * says so and the drawer stays collapsed). A server advertising its own
+ * `/jobs` (the `jobs.get` list/detail printer) loses the name to this
+ * command — local wins; the server's list is one drawer-toggle away
+ * anyway. The entry carries no `message`, so it dispatches through the
+ * local branch in `slashCommands.ts`, never the server path.
+ */
 export const LOCAL_COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "new", summary: "start a fresh session with an empty chat log" },
+  { name: "jobs", summary: "toggle the background-jobs drawer" },
   { name: "quit", summary: "exit the client (session stays on the server)" },
 ]);
 

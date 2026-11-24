@@ -291,6 +291,7 @@ async function run(argv: readonly string[]): Promise<void> {
           scheduler: terminal.scheduler,
           quit: (code) => void quit(code),
           saveState: (id) => saveState(stateFilePath(), { lastSessionId: id }),
+          toggleJobs: () => (terminal?.jobsDrawer?.toggle() ?? false),
         },
         getState().input,
       );

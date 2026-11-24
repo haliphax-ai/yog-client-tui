@@ -5,7 +5,9 @@
  *
  * - While the input is the ring target, the input receives ALL keys:
  *   editing keys are translated to the textarea model, and the few
- *   app-level keys (Enter submit, Esc abort, Shift+Up → log) are carved out.
+ *   app-level keys (Enter submit, the Esc cascade, Shift+Up → log) are
+ *   carved out (the cascade: close a listening drawer view → abort the
+ *   in-flight turn → idle-abort background jobs).
  * - While the log is the ring target, the log receives the keys (Tab /
  *   Shift-Tab cycle its focusable units; Home/End/PageUp/PageDown/arrows
  *   operate the viewport; Shift+Down or Esc-on-empty returns to the input).
@@ -23,6 +25,7 @@
  */
 import type { Component } from "./Component.ts";
 import { Binding, matches, newBinding, withHelp, withKeys } from "@oakoliver/bubbles";
+import { getState } from "../../core/index.ts";
 
 /** Top-level focus ring target. */
 export type TopLevelTarget = "log" | "input";
@@ -54,8 +57,18 @@ export interface Globals {
   jump(top: boolean): void;
   /** Enter with no focused entry: submit the input. */
   submit(): void;
-  /** Esc with no focused entry: abort the in-flight turn (no-op when idle). */
+  /**
+   * Esc cascade, in order (the router stops at the first that fires):
+   *   1. `dismissEsc` — a drawer item that listens for Esc (the jobs
+   *      view) closes; true = handled, the cascade stops.
+   *   2. `abortTurn` — the parent (in-flight) turn aborts; no-op idle.
+   *   3. `abortBackgroundJobs` — idle-abort the session's background
+   *      jobs (the server kills them and queues a notice); a no-op when
+   *      none are running.
+   */
+  dismissEsc(): boolean;
   abortTurn(): void;
+  abortBackgroundJobs(): void;
   /** `n`: toggle the background-jobs drawer view (no-op when ungated). */
   toggleJobs(): void;
   /** Terminal height in rows — the page size for PageUp/PageDown. */
@@ -154,10 +167,28 @@ const INPUT_CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
     run: (g) => g.submit(),
   },
   {
-    binding: newBinding(withKeys("\x1b"), withHelp("Esc", "abort turn")),
-    run: (g) => g.abortTurn(),
+    binding: newBinding(
+      withKeys("\x1b"),
+      withHelp("Esc", "close drawer / abort turn / abort jobs"),
+    ),
+    run: (g) => escCascade(g),
   },
 ];
+
+/**
+ * The Esc cascade (input ring): the first responder that fires wins.
+ * A drawer item that listens for Esc (the jobs view, when open) takes
+ * it; otherwise the parent turn aborts; otherwise (idle) background
+ * jobs are idle-aborted. Nothing fires when all three are no-ops.
+ */
+function escCascade(g: Globals): void {
+  if (g.dismissEsc()) return;
+  if (getState().busy) {
+    g.abortTurn();
+    return;
+  }
+  g.abortBackgroundJobs();
+}
 
 /**
  * The components that may receive keys for the current ring target: only

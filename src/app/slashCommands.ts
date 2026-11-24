@@ -32,6 +32,10 @@ export interface CommandEnv {
   spinner: { start(): void; stop(): void };
   quit(code: number): void;
   saveState(lastSessionId: string | null): Promise<void>;
+  /** The background-jobs drawer toggle (/jobs). The composition root
+   *  supplies the gated closure — undefined (or a not-gated return)
+   *  keeps /jobs inert with an explanatory note. */
+  toggleJobs?: () => boolean;
 }
 
 /** The store patch /new applies: fresh session, cleared log, follow on. */
@@ -168,15 +172,51 @@ export function resolveCommand(input: string): SlashCommand | undefined {
   return command;
 }
 
-/** The local command handlers (`/quit`, `/new`) — undefined means the
- *  command is not local (fall through to server dispatch). */
+/** The /jobs refusal when the drawer is not available: the server does
+ *  not advertise `background-jobs` (or the composition root has not
+ *  wired the toggle). A notice, not an error — the session is fine. */
+function jobsUnavailable(command: SlashCommand): void {
+  pushLines(
+    "notice",
+    noticeLine(
+      "notice",
+      "warning",
+      `background jobs are not available on this server — /${command.name} toggles the drawer`,
+    ),
+  );
+}
+
+/** /quit: exit the client. */
+function runQuit(env: CommandEnv): () => void {
+  return () => env.quit(0);
+}
+
+/** /jobs: toggle the background-jobs drawer (refused when ungated). */
+function runJobs(env: CommandEnv, command: SlashCommand): () => void {
+  return () => {
+    if (env.toggleJobs?.() !== true) jobsUnavailable(command);
+  };
+}
+
+/** /new: a fresh session (the current turn must be idle first — an
+ *  in-flight turn's events would be orphaned by the log reset). */
+function runNewWhenIdle(env: CommandEnv, command: SlashCommand): () => void {
+  return () => {
+    if (getState().busy) {
+      busyWarning(command);
+      return;
+    }
+    runNew(env);
+  };
+}
+
+/** The local command handlers by name — undefined means the command is
+ *  not local (fall through to server dispatch). */
 function localCommand(env: CommandEnv, command: SlashCommand): (() => void) | undefined {
-  if (command.name === "quit") return () => env.quit(0);
-  if (command.name !== "new") return undefined;
-  // Starting a fresh session while a turn is in flight would orphan that
-  // turn's events, so require the current turn to finish first.
-  if (getState().busy) return () => busyWarning(command);
-  return () => runNew(env);
+  if (command.name === "quit") return runQuit(env);
+  if (command.name === "jobs") return runJobs(env, command);
+  if (command.name === "new") return runNewWhenIdle(env, command);
+  return undefined;
 }
 
 /** The server command dispatch (descriptors from capabilities): requires-

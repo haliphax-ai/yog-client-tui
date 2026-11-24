@@ -221,3 +221,34 @@ describe("live path: a harness_notice pair renders as notices", () => {
     expect(host.entries.map((e) => e.kind)).toEqual(["notice"]);
   });
 });
+
+describe("the idle-abort prelude path (end-to-end shapes)", () => {
+  it("a terminated-job notice decodes and renders through the rehydrate branch", () => {
+    setHarnessNoticesVisible(true);
+    // Exactly what the live server produced for an idle turn.abort with a
+    // detached job: the prelude pair rides the NEXT turn's transcript.
+    const rows = [
+      {
+        seq: 6,
+        role: "assistant",
+        content: null as unknown as string,
+        toolCalls: [
+          { id: "call_hn_bg", type: "function", function: { name: HARNESS_NOTICE_TOOL, arguments: "{}" } },
+        ],
+      } as TranscriptMessage,
+      {
+        seq: 7,
+        role: "tool",
+        toolCallId: "call_hn_bg",
+        name: HARNESS_NOTICE_TOOL,
+        content: JSON.stringify({
+          hint: "synthetic harness message — not a real tool call",
+          notices: [{ kind: "background-jobs", body: "background jobs terminated: bg_6lnGeDtW3gy1xlCsqBKKAg" }],
+        }),
+      } as TranscriptMessage,
+    ];
+    const entries = transcriptLogEntries(toTranscriptEntries(rows), 80);
+    expect(entries.map((e) => e.kind)).toEqual(["notice"]);
+    expect(entries[0]!.lines.join(" ")).toContain("background jobs terminated: bg_");
+  });
+});

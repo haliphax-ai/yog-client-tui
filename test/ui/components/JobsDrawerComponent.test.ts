@@ -141,3 +141,30 @@ describe("JobsDrawerComponent", () => {
     expect(JOBS_POLL_MS).toBe(2000);
   });
 });
+
+describe("JobsDrawerComponent — /jobs + the Esc cascade", () => {
+  beforeEach(() => {
+    resetForTests();
+  });
+
+  it("toggle() reports availability: true when gated, false (and no flip) when not", () => {
+    const gated = new JobsDrawerComponent();
+    gated.wire(async () => [], () => true);
+    expect(gated.toggle()).toBe(true);
+    expect(getState().jobsOpen).toBe(true);
+
+    resetForTests();
+    const ungated = new JobsDrawerComponent();
+    ungated.wire(async () => [], () => false);
+    expect(ungated.toggle()).toBe(false);
+    expect(getState().jobsOpen).toBe(false); // never flips ungated
+  });
+
+  it("toggle() closes an open view and reports true (the /jobs toggle-off path)", () => {
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => true);
+    view.toggle();
+    expect(view.toggle()).toBe(true);
+    expect(getState().jobsOpen).toBe(false);
+  });
+});
