@@ -76,8 +76,7 @@ export function drawerCommands(): readonly DrawerCommand[] {
  */
 export function registerDrawerChild(child: Component): () => void {
   const provider = child as Partial<DrawerCommandProvider>;
-  const own =
-    typeof provider.drawerCommands === "function" ? [...provider.drawerCommands()] : [];
+  const own = typeof provider.drawerCommands === "function" ? [...provider.drawerCommands()] : [];
   children.push(child);
   commands.push(...own);
   // Unregister removes the child's DRAW and its commands: a detached
