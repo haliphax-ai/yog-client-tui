@@ -314,6 +314,16 @@ describe("Ctrl+J on the input ring (kitty CSI-u)", () => {
     setTopLevel("input");
   });
 
+  it("Shift+Tab cycles the entry ring in its kitty encoding too", () => {
+    const { globals, calls } = globalsSpy();
+    setTopLevel("log");
+    expect(routeKey([], "\x1b[9;2u", globals)).toBe(true);
+    expect(calls).toEqual(["focusPrev"]);
+    calls.length = 0;
+    expect(routeKey([], "\x1b[27;2u", globals)).toBe(true);
+    expect(calls).toEqual(["focusPrev"]);
+  });
+
   it("routes the CSI-u ctrl+j sequence to toggleJobs while typing", () => {
     const { globals, calls } = globalsSpy();
     expect(routeKey([], "\x1b[106;5u", globals)).toBe(true);

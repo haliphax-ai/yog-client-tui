@@ -97,7 +97,13 @@ const LOG_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
     run: (g) => g.toggleJobs(),
   },
   {
-    binding: newBinding(withKeys("\x1b[Z"), withHelp("Shift+Tab", "previous entry")),
+    // Shift+Tab encodings: the legacy `ESC[Z`, and the kitty CSI-u forms
+    // (flag 1 remaps the shifted Tab — the base key's codepoint 9, and
+    // some senders emit the ASCII-US codepoint 27 instead).
+    binding: newBinding(
+      withKeys("\x1b[Z", "\x1b[9;2u", "\x1b[27;2u"),
+      withHelp("Shift+Tab", "previous entry"),
+    ),
     run: (g) => g.focusPrev(),
   },
   {
