@@ -70,8 +70,6 @@ export const ST = {
   generating: newStyle().foreground("#c084fc").bold(true),
   /** Drawer block: 1-cell padding on every side. */
   drawer: newStyle().padding(1),
-  /** Jobs drawer table header: bold + underlined, same grey as system text. */
-  jobsHeader: newStyle().foreground("#94a3b8").bold(true).underline(true),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Focused table border: blue runes (the focus indicator — not a row bg). */

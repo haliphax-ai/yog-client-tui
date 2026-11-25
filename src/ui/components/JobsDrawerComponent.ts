@@ -19,7 +19,12 @@ import { BaseComponent, type RenderContext } from "./Component.ts";
 import type { DrawerCommand, DrawerCommandProvider, DrawerDismissable } from "./drawerRegistry.ts";
 import { getState, setState } from "../../core/index.ts";
 import { formatDuration } from "../../core/index.ts";
-import { displayWidth } from "../../util/index.ts";
+import {
+  parseTable,
+  renderTable,
+  resolveTableLayout,
+  type ParsedTable,
+} from "../render/table/index.ts";
 import { ST } from "../theme.ts";
 
 /** The poll cadence (ms) while the view is open — the issue's ~2s. */
@@ -94,6 +99,22 @@ export function visibleJobs(jobs: readonly JobRowInput[]): readonly JobRowInput[
   return [...jobs].sort((a, b) => b.startedAt - a.startedAt).slice(0, JOBS_MAX_ROWS);
 }
 
+/** Build the drawer's table: GFM text through the shared parser (the
+ *  engine's GFM normalization rectifies ragged rows), columns fixed to
+ *  the header shape. */
+export function jobsTable(headers: readonly string[], rows: readonly string[][]): ParsedTable {
+  const line = (cells: readonly string[]): string => "| " + cells.join(" | ") + " |";
+  const rule = "| " + headers.map(() => "---").join(" | ") + " |";
+  const text = [line(headers), rule, ...rows.map(line)].join("\n");
+  const parsed = parseTable(text);
+  return (
+    parsed ?? {
+      columns: headers.map((title) => ({ title, width: 3, align: "left" as const })),
+      rows: rows.map((r) => [...r]),
+    }
+  );
+}
+
 /** Shape one wire row into the table cells (widths unfilled). */
 export function jobRowCells(job: JobRowInput, now: number): string[] {
   return [
@@ -103,30 +124,6 @@ export function jobRowCells(job: JobRowInput, now: number): string[] {
     elapsedCell(job.startedAt, job.endedAt, now),
     exitCell(job.result),
   ];
-}
-
-/** Column widths for a set of rows: the widest cell per column (min 3). */
-export function jobColumnWidths(rows: readonly string[][]): number[] {
-  const widths = HEADERS.map((h) => displayWidth(h));
-  for (const cells of rows) {
-    for (let i = 0; i < widths.length; i++) {
-      const cell = cells[i];
-      if (cell === undefined) continue;
-      widths[i] = Math.max(widths[i] ?? 3, displayWidth(cell));
-    }
-  }
-  return widths;
-}
-
-/** One row rendered to a padded line: cells left-justified to the widths. */
-function rowLine(cells: readonly string[], widths: readonly number[]): string {
-  const parts: string[] = [];
-  for (let i = 0; i < widths.length; i++) {
-    const cell = cells[i] ?? "";
-    const pad = Math.max(0, (widths[i] ?? 0) - displayWidth(cell));
-    parts.push(cell + " ".repeat(pad));
-  }
-  return parts.join("  ").trimEnd();
 }
 
 /**
@@ -262,20 +259,26 @@ export class JobsDrawerComponent
    * the open flag here — armed while open, disarmed when closed (the
    * GeneratingComponent's flag-driven ticking pattern).
    */
-  override render(_ctx: RenderContext): string[] {
+  override render(ctx: RenderContext): string[] {
     if (getState().jobsOpen !== true || !this.gate()) {
       this.stopTicking();
       return [];
     }
     this.startTicking();
     const rows: string[][] = (getState().jobRows ?? []).map((cells) => [...cells]);
-    const widths = jobColumnWidths(rows);
-    const header = ST.jobsHeader.render(rowLine([...HEADERS], widths));
-    const body =
-      rows.length === 0
-        ? [ST.system.render("(no background jobs)")]
-        : [header, ...rows.map((cells) => ST.system.render(rowLine(cells, widths)))];
-    return [ST.system.render("⏳ background jobs"), ...body];
+    const head = ST.system.render("⏳ background jobs");
+    if (rows.length === 0) return [head, ST.system.render("(no background jobs)")];
+    // The shared table engine (the chat log's model-table renderer): box
+    // borders, bold header, zebra rows — and its layout solver for
+    // overflow (shrinkwrap → divide → expand), which the hand-rolled
+    // shrinkwrap had none of. The drawer renders unfocused.
+    const table = jobsTable([...HEADERS], rows);
+    const layout = resolveTableLayout(
+      table.columns.map((c) => c.width),
+      Math.max(0, ctx.cols - 2),
+      false,
+    );
+    return [head, ...renderTable(table, ctx.cols - 2, { widths: layout.widths })];
   }
 }
 

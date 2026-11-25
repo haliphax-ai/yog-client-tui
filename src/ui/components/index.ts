@@ -22,8 +22,8 @@ export {
   type JobAnnouncer,
   type JobRowInput,
   JOBS_HEADERS,
+  jobsTable,
   JobsDrawerComponent,
-  jobColumnWidths,
   jobRowCells,
   visibleJobs,
 } from "./JobsDrawerComponent.ts";

@@ -6,7 +6,7 @@ import {
   JOBS_POLL_MS,
   JobsDrawerComponent,
   JOBS_MAX_ROWS,
-  jobColumnWidths,
+  jobsTable,
   jobRowCells,
   visibleJobs,
 } from "../../../src/ui/components/index.ts";
@@ -62,13 +62,19 @@ describe("jobRowCells / jobColumnWidths", () => {
     );
     expect(cells[4]).toBe("exit 0");
   });
+});
 
-  it("measures widths in CELLS (emoji regression: ✅ is 2 cells)", () => {
-    const cells = jobRowCells(job({ id: "✅", startedAt: Date.now() }), Date.now());
-    const widths = jobColumnWidths([cells]);
-    // "✅" is one character but two cells — the id column must fit it.
-    expect(widths[0]).toBeGreaterThanOrEqual(2);
-    expect(widths[0]).toBe(Math.max(2, displayWidth("id")));
+describe("jobsTable (engine-built)", () => {
+  it("parses through the shared table engine: columns match the headers", () => {
+    const table = jobsTable([...JOBS_HEADERS], [["bg_1", "bash", "running", "1m", "-"]]);
+    expect(table.columns.map((c) => c.title)).toEqual([...JOBS_HEADERS]);
+    expect(table.rows).toHaveLength(1);
+    expect(table.rows[0]).toEqual(["bg_1", "bash", "running", "1m", "-"]);
+  });
+
+  it("rectifies ragged rows (engine GFM normalization)", () => {
+    const table = jobsTable([...JOBS_HEADERS], [["bg_1", "bash"]]);
+    expect(table.rows[0]).toHaveLength(JOBS_HEADERS.length);
   });
 });
 
