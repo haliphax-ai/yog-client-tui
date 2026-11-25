@@ -400,7 +400,15 @@ export class InputComponent extends BaseComponent {
       return "handled";
     }
     const key = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
-    if (key === undefined) return "unhandled";
+    // The kitty CSI 27u Esc (flag 1) and up/down on a single-line input
+    // belong to the ring's globals / the log's scroll, not the textarea.
+    if (
+      key === undefined ||
+      key.code === KeyCode.Escape ||
+      ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1)
+    ) {
+      return "unhandled";
+    }
     // Up/Down move the caret only when the input spans multiple lines; a
     // single-line input leaves them to the log-scroll globals.
     if ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1) {

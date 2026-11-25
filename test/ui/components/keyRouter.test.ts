@@ -320,6 +320,14 @@ describe("Ctrl+J on the input ring (kitty CSI-u)", () => {
     expect(calls).toEqual(["toggleJobs"]);
   });
 
+  it("routes the kitty CSI 27u Esc sequence through the cascade while typing", () => {
+    // With the kitty keyboard protocol pushed (flag 1), Esc arrives as the
+    // CSI 27u SEQUENCE — the plain \x1b byte never reaches routeChar.
+    const { globals, calls } = globalsSpy();
+    expect(routeKey([], "\x1b[27u", globals)).toBe(true);
+    expect(calls).toEqual(["abortBackgroundJobs"]);
+  });
+
   it("keeps plain Enter on submit (the legacy encoding must not collide)", () => {
     const { globals, calls } = globalsSpy();
     expect(routeChar([], "\r", globals)).toBe(true);

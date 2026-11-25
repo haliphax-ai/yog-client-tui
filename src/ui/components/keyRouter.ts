@@ -147,6 +147,16 @@ const LOG_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
  */
 const INPUT_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
+    // Esc under the kitty keyboard protocol (flag 1): CSI 27u, the
+    // SEQUENCE — the plain \x1b byte this ring used to route as a char
+    // never arrives. Same cascade, new encoding.
+    binding: newBinding(
+      withKeys("\x1b[27u"),
+      withHelp("Esc", "close drawer / abort turn / abort jobs"),
+    ),
+    run: (g) => escCascade(g),
+  },
+  {
     // Ctrl+J on the input side: with the kitty keyboard protocol pushed
     // (flag 1), a supporting terminal delivers Ctrl+J as the CSI-u
     // sequence while the input holds the ring — without this binding the
