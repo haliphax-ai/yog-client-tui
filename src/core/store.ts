@@ -23,6 +23,11 @@ export interface UiState {
   tokenTotals: { prompt: number; completion: number; total: number };
   /** Context window size for the session model (from server capabilities). */
   contextWindow?: number;
+  /** Background-jobs drawer state: the view is open, and the rows it
+   *  last rendered (cells; kept between polls). Undefined rows = the
+   *  initial state (the view renders its empty note once open). */
+  jobsOpen?: boolean;
+  jobRows?: readonly (readonly string[])[];
 }
 
 let state: UiState = initialState();
@@ -40,6 +45,8 @@ function initialState(): UiState {
     model: "",
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     contextWindow: undefined,
+    jobsOpen: false,
+    jobRows: undefined,
     focusTarget: FOCUS_NONE_TARGET,
   };
 }

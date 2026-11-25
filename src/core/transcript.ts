@@ -88,7 +88,15 @@ export function decodeToolResult(m: TranscriptMessage): {
   value: unknown;
   error?: string;
 } {
-  const text = typeof m.content === "string" ? m.content : "";
+  return decodeToolResultText(contentOf2(m));
+}
+
+/** Parse a result row's content text into the decoded shape. */
+function decodeToolResultText(text: string): {
+  ok: boolean;
+  value: unknown;
+  error?: string;
+} {
   let value: unknown = text;
   try {
     value = JSON.parse(text);
@@ -272,7 +280,7 @@ function toolCallSummary(m: TranscriptMessage): string {
 }
 
 /** The row's string content (other types read as ""). */
-function contentOf(m: TranscriptMessage): string {
+function contentOf2(m: TranscriptMessage): string {
   return typeof m.content === "string" ? m.content : "";
 }
 
@@ -318,4 +326,19 @@ export function toTranscriptEntries(messages: TranscriptMessage[]): TranscriptEn
   return messages
     .filter((m) => isConvertible(m))
     .map((m) => ({ role: displayRoleOf(m.role), text: transcriptText(m), raw: m }));
+}
+/** The row's string content (other types read as ""). */
+function contentOf(m: TranscriptMessage): string {
+  return typeof m.content === "string" ? m.content : "";
+}
+
+/** Decode a tool result row by its content text (the rehydrate path
+ *  needs the PARSE — the ok/error flags it already computes on the way —
+ *  and harness_notice decoding reuses the same tolerant parse). */
+export function decodeResultContent(text: unknown): {
+  ok: boolean;
+  value: unknown;
+  error?: string;
+} {
+  return decodeToolResultText(typeof text === "string" ? text : "");
 }

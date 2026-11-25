@@ -33,6 +33,9 @@ function wire() {
     jump: (top) => calls.push(`jump:${top}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    dismissEsc: () => false,
+    abortBackgroundJobs: () => undefined,
+    toggleJobs: () => undefined,
     pageRows: () => 24,
   };
   const decode = createInputDecoder({

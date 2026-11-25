@@ -60,27 +60,36 @@ export interface SlashCommand {
   readonly requiresIdle?: boolean;
 }
 
-/** Local (client-owned) commands. `new` and `quit` win every name collision. */
+/**
+ * Local (client-owned) commands, frozen at module scope. Drawer children
+ * contribute more through the drawer registry's command hook (`/jobs`
+ * comes from the jobs view itself); everything here is client lifecycle
+ * no server has business naming, and all of it wins every name collision
+ * (see `setServerCommands`).
+ */
 export const LOCAL_COMMANDS: readonly SlashCommand[] = Object.freeze([
   { name: "new", summary: "start a fresh session with an empty chat log" },
   { name: "quit", summary: "exit the client (session stays on the server)" },
 ]);
 
-/** Bumped on every `setServerCommands` so memoized views re-derive. */
+/** Bumped on every command application so memoized views re-derive. */
 export let registryVersion = 0;
 
 /** Server-advertised commands merged under the local set, registry order. */
 let serverCommands: readonly SlashCommand[] = [];
 
-/** The merged registry, cached on the version: rebuilt only when the
- *  server command list actually changes. */
+/** Drawer-child commands (the drawer registry's hook), same merge. */
+let drawerCommands: readonly SlashCommand[] = [];
+
+/** The merged registry, cached on the version: rebuilt only when any
+ *  contributing list actually changes. */
 let registryCache: { version: number; value: readonly SlashCommand[] } | null = null;
 
 function registry(): readonly SlashCommand[] {
   if (registryCache === null || registryCache.version !== registryVersion) {
     registryCache = {
       version: registryVersion,
-      value: Object.freeze([...LOCAL_COMMANDS, ...serverCommands]),
+      value: Object.freeze([...LOCAL_COMMANDS, ...drawerCommands, ...serverCommands]),
     };
   }
   return registryCache.value;
@@ -114,6 +123,24 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = new Proxy(
 ) as readonly SlashCommand[];
 
 /**
+ * Apply the drawer registry's commands to the registry (the drawer
+ * children's own hook, e.g. `/jobs` from the jobs view). Called once at
+ * startup after the drawer children register; re-called (with a fresh
+ * list) if children ever re-register. Bumps `registryVersion`. The
+ * registry dispatches drawer commands through the drawer registry's
+ * runner (never the server path — the type carries no `message`).
+ * Drawer commands are client-local by construction (no `message`), so a
+ * server descriptor under the same name still loses to BOTH the frozen
+ * local set and the drawer's own command — the drawer's refusal note is
+ * the honest answer for a feature its server cannot feed.
+ */
+export function setDrawerCommands(descriptors: readonly SlashCommand[]): readonly SlashCommand[] {
+  drawerCommands = Object.freeze([...descriptors]);
+  registryVersion += 1;
+  return drawerCommands;
+}
+
+/**
  * Apply the capabilities reply's command descriptors to the registry.
  * Bumps `registryVersion` every call so `SLASH_BY_NAME` and menu
  * memoization re-derive. Returns the descriptors rejected on a name
@@ -125,7 +152,10 @@ export function setServerCommands(
   const rejected: CommandDescriptor[] = [];
   const merged: SlashCommand[] = [];
   for (const descriptor of descriptors) {
-    if (LOCAL_COMMANDS.some((local) => local.name === descriptor.name)) {
+    const clientOwned =
+      LOCAL_COMMANDS.some((local) => local.name === descriptor.name) ||
+      drawerCommands.some((drawer) => drawer.name === descriptor.name);
+    if (clientOwned) {
       rejected.push(descriptor);
       continue;
     }

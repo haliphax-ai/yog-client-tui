@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { resetForTests, setState } from "../../../src/core/index.ts";
 
 import {
   BaseComponent,
@@ -58,13 +59,19 @@ function globalsSpy(rows = 24): { globals: Globals; calls: string[] } {
     jump: (top) => calls.push(`jump:${top}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    dismissEsc: () => false,
+    abortBackgroundJobs: () => calls.push("abortBackgroundJobs"),
+    toggleJobs: () => undefined,
     pageRows: () => rows,
   };
   return { globals, calls };
 }
 
 describe("routeKey — ring target only, then globals", () => {
-  beforeEach(() => setTopLevel("input"));
+  beforeEach(() => {
+    resetForTests();
+    setTopLevel("input");
+  });
 
   it("only the ring target's side sees keys", () => {
     const log: string[] = [];
@@ -173,7 +180,10 @@ describe("routeKey — ring target only, then globals", () => {
 });
 
 describe("routeChar — ring target only, then gated globals", () => {
-  beforeEach(() => setTopLevel("input"));
+  beforeEach(() => {
+    resetForTests();
+    setTopLevel("input");
+  });
 
   it("a component claim on the ring side stops the walk", () => {
     const log: string[] = [];
@@ -217,15 +227,32 @@ describe("routeChar — ring target only, then gated globals", () => {
     expect(calls).toEqual([]);
   });
 
-  it("Esc aborts only while the input holds the ring", () => {
+  it("Esc walks the cascade only while the input holds the ring", () => {
     const inputSide = new Stub({ ring: "input" });
     const logSide = new Stub({ ring: "log" });
     const { globals, calls } = globalsSpy();
 
+    // Idle, nothing else to close: the background-jobs arm fires.
     setTopLevel("input");
     expect(routeChar([logSide, inputSide], "\x1b", globals)).toBe(true);
-    expect(calls).toEqual(["abortTurn"]);
+    expect(calls).toEqual(["abortBackgroundJobs"]);
 
+    // A live turn outranks it: abortTurn, and the cascade stops.
+    calls.length = 0;
+    setState({ busy: true });
+    expect(routeChar([logSide, inputSide], "\x1b", globals)).toBe(true);
+    expect(calls).toEqual(["abortTurn"]);
+    setState({ busy: false });
+
+    // A drawer item that listens for Esc outranks everything: the cascade
+    // stops there (no abort of any kind).
+    calls.length = 0;
+    const dismiss = globalsSpy();
+    dismiss.globals.dismissEsc = () => true;
+    expect(routeChar([logSide, inputSide], "\x1b", dismiss.globals)).toBe(true);
+    expect(dismiss.calls).toEqual([]);
+
+    // The log side never sees Esc (dropped, like every unhandled key).
     setTopLevel("log");
     calls.length = 0;
     expect(routeChar([logSide, inputSide], "\x1b", globals)).toBe(false);
