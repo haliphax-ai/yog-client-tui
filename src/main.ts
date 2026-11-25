@@ -49,7 +49,7 @@ import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from 
 import { FOCUS_NONE_TARGET } from "./core/index.ts";
 import { getState, setState } from "./core/index.ts";
 import { noticeLine } from "./core/index.ts";
-import { setServerCommands, type CommandDescriptor } from "./core/index.ts";
+import { setDrawerCommands, setServerCommands, type CommandDescriptor } from "./core/index.ts";
 import { YogClient, type TranscriptResult } from "./client/index.ts";
 import { driveRehydrate, stageRehydrate, statusTotals } from "./app/index.ts";
 import { pushLines } from "./app/index.ts";
@@ -61,7 +61,7 @@ import { setKeyDumpWriter, wireTerminal, type AppHooks, type Terminal } from "./
 import { copyFailureNotice } from "./app/index.ts";
 import type { CopyRequest } from "./core/index.ts";
 import { ToastComponent } from "./ui/components/index.ts";
-import { registerDrawerChild } from "./ui/components/index.ts";
+import { drawerSlashCommands, registerDrawerChild } from "./ui/components/index.ts";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitDebug, isDebugEnabled } from "./ui/index.ts";
@@ -291,7 +291,6 @@ async function run(argv: readonly string[]): Promise<void> {
           scheduler: terminal.scheduler,
           quit: (code) => void quit(code),
           saveState: (id) => saveState(stateFilePath(), { lastSessionId: id }),
-          toggleJobs: () => (terminal?.jobsDrawer?.toggle() ?? false),
         },
         getState().input,
       );
@@ -330,6 +329,12 @@ async function run(argv: readonly string[]): Promise<void> {
 
   // Assemble the terminal: components, draw loop, scheduler, key surface.
   terminal = wireTerminal(client, hooks);
+  // The drawer children's slash commands (`/jobs` from the jobs view)
+  // join the registry through the drawer registry's command hook — one
+  // hook point for any drawer feature that wants a command. A server
+  // descriptor under the same name still loses (drawer commands merge
+  // before server descriptors, and both merge after the frozen locals).
+  setDrawerCommands(drawerSlashCommands());
   // The jobs drawer's gate + fetch: the view stays fully collapsed (zero
   // rows) until the server advertises `background-jobs` — the drawer's
   // padded block must never open for a server without the subsystem.

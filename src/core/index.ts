@@ -16,6 +16,7 @@ export {
   completeSlash,
   isSlash,
   registryVersion,
+  setDrawerCommands,
   requiresArgs,
   resolveSlash,
   setServerCommands,

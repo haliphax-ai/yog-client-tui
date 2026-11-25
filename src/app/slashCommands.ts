@@ -24,6 +24,7 @@ import type { YogClient } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { compactionNote, applyCompaction } from "./transcriptRebuild.ts";
 import { isSlash } from "../core/index.ts";
+import { runDrawerCommand } from "../ui/components/index.ts";
 
 /** Hooks the command runner needs from the composition root. */
 export interface CommandEnv {
@@ -32,10 +33,6 @@ export interface CommandEnv {
   spinner: { start(): void; stop(): void };
   quit(code: number): void;
   saveState(lastSessionId: string | null): Promise<void>;
-  /** The background-jobs drawer toggle (/jobs). The composition root
-   *  supplies the gated closure — undefined (or a not-gated return)
-   *  keeps /jobs inert with an explanatory note. */
-  toggleJobs?: () => boolean;
 }
 
 /** The store patch /new applies: fresh session, cleared log, follow on. */
@@ -172,30 +169,19 @@ export function resolveCommand(input: string): SlashCommand | undefined {
   return command;
 }
 
-/** The /jobs refusal when the drawer is not available: the server does
- *  not advertise `background-jobs` (or the composition root has not
- *  wired the toggle). A notice, not an error — the session is fine. */
-function jobsUnavailable(command: SlashCommand): void {
+/** The drawer-command refusal: the child that owns the command refused
+ *  to run (typically its server subsystem is not wired). A notice, not
+ *  an error — the session is fine. */
+function drawerCommandRefused(command: SlashCommand): void {
   pushLines(
     "notice",
-    noticeLine(
-      "notice",
-      "warning",
-      `background jobs are not available on this server — /${command.name} toggles the drawer`,
-    ),
+    noticeLine("notice", "warning", `/${command.name} is not available on this server`),
   );
 }
 
 /** /quit: exit the client. */
 function runQuit(env: CommandEnv): () => void {
   return () => env.quit(0);
-}
-
-/** /jobs: toggle the background-jobs drawer (refused when ungated). */
-function runJobs(env: CommandEnv, command: SlashCommand): () => void {
-  return () => {
-    if (env.toggleJobs?.() !== true) jobsUnavailable(command);
-  };
 }
 
 /** /new: a fresh session (the current turn must be idle first — an
@@ -210,11 +196,19 @@ function runNewWhenIdle(env: CommandEnv, command: SlashCommand): () => void {
   };
 }
 
-/** The local command handlers by name — undefined means the command is
- *  not local (fall through to server dispatch). */
+/** The local command handlers by name. A drawer-child command (e.g.
+ *  `/jobs` from the jobs view) dispatches through the drawer registry —
+ *  one hook point, any feature. Undefined falls through to the frozen
+ *  locals and then server dispatch. */
 function localCommand(env: CommandEnv, command: SlashCommand): (() => void) | undefined {
+  const drawer = runDrawerCommand(command.name);
+  if (drawer !== undefined) {
+    return () => {
+      if (drawer() === undefined) return;
+      drawerCommandRefused(command);
+    };
+  }
   if (command.name === "quit") return runQuit(env);
-  if (command.name === "jobs") return runJobs(env, command);
   if (command.name === "new") return runNewWhenIdle(env, command);
   return undefined;
 }

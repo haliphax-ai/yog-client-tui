@@ -69,7 +69,7 @@ export interface Globals {
   dismissEsc(): boolean;
   abortTurn(): void;
   abortBackgroundJobs(): void;
-  /** `n`: toggle the background-jobs drawer view (no-op when ungated). */
+  /** Ctrl+J: toggle the background-jobs drawer view (no-op when ungated). */
   toggleJobs(): void;
   /** Terminal height in rows — the page size for PageUp/PageDown. */
   pageRows(): number;
@@ -81,7 +81,21 @@ export interface Globals {
  * the text input is active. Entry-focus cycling and viewport navigation
  * live here.
  */
+/** Ctrl+J encodings — toggle the background-jobs drawer, on EITHER ring
+ *  side. Kitty sends the CSI-u form (lowercase codepoint j = 106), xterm
+ *  modifyOtherKeys the numeric form. A terminal configured not to report
+ *  modified keys sends plain LF (indistinguishable from Enter) — the
+ *  slash command is the always-works path. */
+const CTRL_J_SEQS: ReadonlySet<string> = new Set([
+  "\x1b[106;5u", // Kitty/CSI-u
+  "\x1b[27;5;106~", // xterm modifyOtherKeys (numeric)
+]);
+
 const LOG_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
+  {
+    binding: newBinding(withKeys(...CTRL_J_SEQS), withHelp("Ctrl+J", "toggle background jobs")),
+    run: (g) => g.toggleJobs(),
+  },
   {
     binding: newBinding(withKeys("\x1b[Z"), withHelp("Shift+Tab", "previous entry")),
     run: (g) => g.focusPrev(),
@@ -150,10 +164,6 @@ const LOG_CHAR_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
     binding: newBinding(withKeys("\t"), withHelp("Tab", "next entry")),
     run: (g) => g.focusNext(),
-  },
-  {
-    binding: newBinding(withKeys("n"), withHelp("n", "toggle background jobs")),
-    run: (g) => g.toggleJobs(),
   },
 ];
 

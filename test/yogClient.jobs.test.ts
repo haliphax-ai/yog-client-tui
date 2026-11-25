@@ -25,7 +25,7 @@ describe("YogClient.getJobs", () => {
               id: "bg_1",
               sessionId: "s1",
               tool: "bash",
-              argsJson: "{\"command\":\"sleep 30\"}",
+              argsJson: '{"command":"sleep 30"}',
               startedAt: 1_000,
               state: "running",
             },
@@ -51,7 +51,14 @@ describe("YogClient.getJobs", () => {
       "fetch",
       vi.fn(async () =>
         msgResponse("jobs.get", {
-          job: { id: "bg_7", sessionId: "s1", tool: "bash", startedAt: 1, state: "terminated", termReason: "max runtime" },
+          job: {
+            id: "bg_7",
+            sessionId: "s1",
+            tool: "bash",
+            startedAt: 1,
+            state: "terminated",
+            termReason: "max runtime",
+          },
         }),
       ),
     );
@@ -61,7 +68,10 @@ describe("YogClient.getJobs", () => {
     expect(result.jobs).toBeUndefined();
     expect(result.job?.termReason).toBe("max runtime");
     const call = vi.mocked(fetch).mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(call[1].body))).toMatchObject({ type: "jobs.get", data: { jobId: "bg_7" } });
+    expect(JSON.parse(String(call[1].body))).toMatchObject({
+      type: "jobs.get",
+      data: { jobId: "bg_7" },
+    });
   });
 
   it("drops malformed rows instead of throwing", async () => {
@@ -93,11 +103,15 @@ describe("YogClient.getJobs", () => {
   it("surfaces the server's error envelope as a YogError (unknown_job, internal)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify({ error: { code: "unknown_job", message: "job bg_x not found" } }), {
-          status: 404,
-          headers: { "content-type": "application/json" },
-        }),
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { code: "unknown_job", message: "job bg_x not found" } }),
+            {
+              status: 404,
+              headers: { "content-type": "application/json" },
+            },
+          ),
       ),
     );
     const client = new YogClient("http://test");

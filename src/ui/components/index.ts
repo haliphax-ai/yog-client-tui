@@ -35,9 +35,16 @@ export {
 export { ToastComponent } from "./ToastComponent.ts";
 export { ViewportComponent } from "./ViewportComponent.ts";
 export {
+  type DrawerCommand,
+  type DrawerCommandProvider,
+  type DrawerDismissable,
+  dismissDrawerChildren,
+  drawerCommands,
+  drawerSlashCommands,
   registerDrawerChild,
   registeredDrawerChildren,
   resetDrawerRegistryForTests,
+  runDrawerCommand,
 } from "./drawerRegistry.ts";
 export {
   type InputHandlers,

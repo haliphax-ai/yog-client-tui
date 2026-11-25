@@ -7,7 +7,7 @@
  * key handlers on. Nothing here parses input semantics — that lives in
  * the components (`ui/components`) and the router.
  */
-import { getState, setState } from "../core/index.ts";
+import { setState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
 import { pushLines } from "./logFeed.ts";
 import type { Component } from "../ui/components/index.ts";
@@ -17,7 +17,7 @@ import { StatusComponent } from "../ui/components/index.ts";
 import { DrawerComponent } from "../ui/components/index.ts";
 import { GeneratingComponent, JobsDrawerComponent } from "../ui/components/index.ts";
 import { ToastComponent } from "../ui/components/index.ts";
-import { registerDrawerChild } from "../ui/components/index.ts";
+import { dismissDrawerChildren, registerDrawerChild } from "../ui/components/index.ts";
 import {
   composeMainPane,
   createScheduler,
@@ -167,12 +167,11 @@ export function wireTerminal(
     jump: (top) => viewport.jump(top, viewportRows()),
     submit: hooks.submit,
     abortTurn: hooks.abortTurn,
-    // The Esc cascade's drawer arm: the jobs view takes Esc while open.
-    dismissEsc: () => {
-      if (getState().jobsOpen !== true) return false;
-      setState({ jobsOpen: false });
-      return true;
-    },
+    // The Esc cascade's drawer arm: the drawer registry walks its
+    // children newest-first; the first child that closes something (the
+    // jobs view, when open) claims the key. ANY future drawer feature
+    // that implements `dismiss()` joins the cascade for free.
+    dismissEsc: () => dismissDrawerChildren(),
     // The cascade's idle arm: the same `turn.abort` message the parent
     // arm sends — idle, the server kills the session's background jobs
     // and queues a prelude notice instead. A transport failure is
@@ -185,6 +184,8 @@ export function wireTerminal(
         );
       });
     },
+    // Ctrl+J: the drawer toggle (the /jobs command is the always-works
+    // path; this is the keyboard arm of the same drawer hook).
     toggleJobs: () => jobsDrawer.toggle(),
     pageRows: () => process.stdout.rows ?? 24,
   };

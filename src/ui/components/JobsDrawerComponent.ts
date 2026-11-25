@@ -16,6 +16,7 @@
  * cell-truncated per row — widths in CELLS, never characters (AGENTS.md).
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
+import type { DrawerCommand, DrawerCommandProvider, DrawerDismissable } from "./drawerRegistry.ts";
 import { getState, setState } from "../../core/index.ts";
 import { formatDuration } from "../../core/index.ts";
 import { displayWidth } from "../../util/index.ts";
@@ -103,7 +104,10 @@ function rowLine(cells: readonly string[], widths: readonly number[]): string {
  * component owns drawing, the open flag, and the poll timer (armed while
  * open — the same flag-driven ticking pattern as the busy spinner).
  */
-export class JobsDrawerComponent extends BaseComponent {
+export class JobsDrawerComponent
+  extends BaseComponent
+  implements DrawerDismissable, DrawerCommandProvider
+{
   /** The fetcher: resolves the session's job rows (the client's getJobs). */
   private fetcher: (() => Promise<JobRowInput[]>) | undefined;
   /** The gate: true when the server advertises `background-jobs`. */
@@ -122,9 +126,9 @@ export class JobsDrawerComponent extends BaseComponent {
   }
 
   /**
-   * Toggle the view (`n`, `/jobs`): on → open + poll; off → closed.
-   * Returns whether the view is AVAILABLE (gated in) — `/jobs` uses the
-   * return to decide between toggling and the unavailable note. A
+   * Toggle the view (`/jobs`): on → open + poll; off → closed. Returns
+   * whether the view is AVAILABLE (gated in) — the drawer command uses
+   * the return to decide between toggling and the unavailable note. A
    * gated-out toggle flips nothing (the view renders nothing either way)
    * so the store never carries an open flag the drawer cannot honor.
    */
@@ -134,6 +138,24 @@ export class JobsDrawerComponent extends BaseComponent {
     setState({ jobsOpen: open });
     if (open) void this.poll();
     return true;
+  }
+
+  /** The Esc cascade's drawer arm: close the open view; false when shut. */
+  dismiss(): boolean {
+    if (getState().jobsOpen !== true) return false;
+    setState({ jobsOpen: false });
+    return true;
+  }
+
+  /** The `/jobs` drawer command (client-local). `run` returns false when
+   *  ungated; the slash dispatcher shows the unavailable note. */
+  drawerCommands(): readonly DrawerCommand[] {
+    return [
+      {
+        command: { name: "jobs", summary: "toggle the background-jobs drawer" },
+        run: () => this.toggle(),
+      },
+    ];
   }
 
   /** One poll tick: fetch, reshape, store; timer re-arms in render(). */

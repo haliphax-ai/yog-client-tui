@@ -18,8 +18,6 @@ export interface TurnEnv {
   scheduler: { request(): void };
   quit(code: number): void;
   saveState(lastSessionId: string | null): Promise<void>;
-  /** The background-jobs drawer toggle (/jobs); see CommandEnv. */
-  toggleJobs?: () => boolean;
 }
 
 /** Run the async turn to its outcome, reporting failures through the
@@ -84,7 +82,6 @@ export function submitInput(env: TurnEnv, rawInput: string): void {
         spinner: env.spinner,
         quit: env.quit,
         saveState: env.saveState,
-        ...(env.toggleJobs !== undefined ? { toggleJobs: env.toggleJobs } : {}),
       },
       prompt,
     );

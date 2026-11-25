@@ -9,7 +9,11 @@ import {
   setHarnessNoticesVisible,
   type HarnessNotice,
 } from "../../src/core/index.ts";
-import { toTranscriptEntries, transcriptLogEntries, rehydrateGroups } from "../../src/core/index.ts";
+import {
+  toTranscriptEntries,
+  transcriptLogEntries,
+  rehydrateGroups,
+} from "../../src/core/index.ts";
 import type { TranscriptMessage } from "../../src/client/index.ts";
 import type { LogEntry } from "../../src/core/index.ts";
 import { createTurnPresenter, resetForTests } from "../../src/core/index.ts";
@@ -25,9 +29,7 @@ function harnessCall(id: string, seq: number): TranscriptMessage {
     seq,
     role: "assistant",
     content: null as unknown as string,
-    toolCalls: [
-      { id, type: "function", function: { name: HARNESS_NOTICE_TOOL, arguments: "{}" } },
-    ],
+    toolCalls: [{ id, type: "function", function: { name: HARNESS_NOTICE_TOOL, arguments: "{}" } }],
   };
 }
 
@@ -191,7 +193,10 @@ describe("live path: a harness_notice pair renders as notices", () => {
       id: "call_hn_9",
       name: HARNESS_NOTICE_TOOL,
       ok: true,
-      result: { hint: "synthetic", notices: [{ kind: "background-jobs", body: "aborted 2 jobs ✅" }] },
+      result: {
+        hint: "synthetic",
+        notices: [{ kind: "background-jobs", body: "aborted 2 jobs ✅" }],
+      },
     });
     // The call line stays (the empty-args ⚙️ groups with the result);
     // the notices replace the result blob.
@@ -233,7 +238,11 @@ describe("the idle-abort prelude path (end-to-end shapes)", () => {
         role: "assistant",
         content: null as unknown as string,
         toolCalls: [
-          { id: "call_hn_bg", type: "function", function: { name: HARNESS_NOTICE_TOOL, arguments: "{}" } },
+          {
+            id: "call_hn_bg",
+            type: "function",
+            function: { name: HARNESS_NOTICE_TOOL, arguments: "{}" },
+          },
         ],
       } as TranscriptMessage,
       {
@@ -243,7 +252,12 @@ describe("the idle-abort prelude path (end-to-end shapes)", () => {
         name: HARNESS_NOTICE_TOOL,
         content: JSON.stringify({
           hint: "synthetic harness message — not a real tool call",
-          notices: [{ kind: "background-jobs", body: "background jobs terminated: bg_6lnGeDtW3gy1xlCsqBKKAg" }],
+          notices: [
+            {
+              kind: "background-jobs",
+              body: "background jobs terminated: bg_6lnGeDtW3gy1xlCsqBKKAg",
+            },
+          ],
         }),
       } as TranscriptMessage,
     ];

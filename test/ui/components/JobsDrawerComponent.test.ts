@@ -8,11 +8,22 @@ import {
   jobColumnWidths,
   jobRowCells,
 } from "../../../src/ui/components/index.ts";
+import {
+  dismissDrawerChildren,
+  drawerCommands,
+  drawerSlashCommands,
+  registerDrawerChild,
+  resetDrawerRegistryForTests,
+  runDrawerCommand,
+} from "../../../src/ui/components/index.ts";
 import { getState, resetForTests, setState } from "../../../src/core/index.ts";
+import { BaseComponent, type RenderResult } from "../../../src/ui/components/index.ts";
 import { displayWidth, stripAnsi } from "../../../src/util/index.ts";
 
 /** One detached-job row (shape mirrors the wire, fields pre-flattened). */
-function job(over: Partial<Parameters<typeof jobRowCells>[0]> = {}): Parameters<typeof jobRowCells>[0] {
+function job(
+  over: Partial<Parameters<typeof jobRowCells>[0]> = {},
+): Parameters<typeof jobRowCells>[0] {
   return {
     id: "bg_1",
     tool: "bash",
@@ -43,15 +54,15 @@ describe("jobRowCells / jobColumnWidths", () => {
   });
 
   it("carries the result's exit code when one settled in", () => {
-    const cells = jobRowCells(job({ state: "finished", endedAt: Date.now(), result: { exitCode: 0 } }), Date.now());
+    const cells = jobRowCells(
+      job({ state: "finished", endedAt: Date.now(), result: { exitCode: 0 } }),
+      Date.now(),
+    );
     expect(cells[4]).toBe("exit 0");
   });
 
   it("measures widths in CELLS (emoji regression: ✅ is 2 cells)", () => {
-    const cells = jobRowCells(
-      job({ id: "✅", startedAt: Date.now() }),
-      Date.now(),
-    );
+    const cells = jobRowCells(job({ id: "✅", startedAt: Date.now() }), Date.now());
     const widths = jobColumnWidths([cells]);
     // "✅" is one character but two cells — the id column must fit it.
     expect(widths[0]).toBeGreaterThanOrEqual(2);
@@ -69,13 +80,19 @@ describe("JobsDrawerComponent", () => {
 
   it("renders nothing while closed — even when gated in", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [job()], () => true);
+    view.wire(
+      async () => [job()],
+      () => true,
+    );
     expect(view.render({ cols: 80 })).toEqual([]);
   });
 
   it("renders nothing when open but the server lacks the feature (capabilities gate)", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [job()], () => false);
+    view.wire(
+      async () => [job()],
+      () => false,
+    );
     setState({ jobsOpen: true });
     expect(view.render({ cols: 80 })).toEqual([]);
     expect(view.measure(80)).toBe(0);
@@ -100,7 +117,10 @@ describe("JobsDrawerComponent", () => {
 
   it("renders the empty note when the session has no jobs", async () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     view.toggle();
     await vi.waitFor(() => expect(getState().jobRows).toEqual([]));
     const plain = view.render({ cols: 80 }).map(stripAnsi);
@@ -128,7 +148,10 @@ describe("JobsDrawerComponent", () => {
 
   it("toggling twice closes the view (and stops the poll)", async () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [job()], () => true);
+    view.wire(
+      async () => [job()],
+      () => true,
+    );
     view.toggle();
     await vi.waitFor(() => expect(getState().jobsOpen).toBe(true));
     view.toggle();
@@ -149,22 +172,115 @@ describe("JobsDrawerComponent — /jobs + the Esc cascade", () => {
 
   it("toggle() reports availability: true when gated, false (and no flip) when not", () => {
     const gated = new JobsDrawerComponent();
-    gated.wire(async () => [], () => true);
+    gated.wire(
+      async () => [],
+      () => true,
+    );
     expect(gated.toggle()).toBe(true);
     expect(getState().jobsOpen).toBe(true);
 
     resetForTests();
     const ungated = new JobsDrawerComponent();
-    ungated.wire(async () => [], () => false);
+    ungated.wire(
+      async () => [],
+      () => false,
+    );
     expect(ungated.toggle()).toBe(false);
     expect(getState().jobsOpen).toBe(false); // never flips ungated
   });
 
   it("toggle() closes an open view and reports true (the /jobs toggle-off path)", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     view.toggle();
     expect(view.toggle()).toBe(true);
     expect(getState().jobsOpen).toBe(false);
+  });
+});
+
+describe("the drawer registry hook (dismiss + commands)", () => {
+  beforeEach(() => {
+    resetDrawerRegistryForTests();
+    resetForTests();
+  });
+  afterEach(() => {
+    resetDrawerRegistryForTests();
+  });
+
+  it("dismiss() joins the Esc cascade: claims Esc while open, passes when shut", () => {
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => true);
+    registerDrawerChild(view);
+
+    expect(dismissDrawerChildren()).toBe(false); // shut — the cascade falls through
+    view.toggle();
+    expect(dismissDrawerChildren()).toBe(true); // claimed
+    expect(getState().jobsOpen).toBe(false); // and closed
+  });
+
+  it("the newest registered child wins the Esc cascade (registration order)", () => {
+    let newerDismissed = false;
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => true);
+    const newer: BaseComponent = new (class extends BaseComponent {
+      dismiss(): boolean {
+        newerDismissed = true;
+        return true;
+      }
+      override render(): RenderResult {
+        return [];
+      }
+    })(false);
+    registerDrawerChild(view);
+    registerDrawerChild(newer);
+    view.toggle();
+    expect(getState().jobsOpen).toBe(true);
+    expect(dismissDrawerChildren()).toBe(true);
+    expect(newerDismissed).toBe(true); // newest-first: the newer child claims Esc
+    expect(getState().jobsOpen).toBe(true); // the cascade STOPPED there — the view never saw it
+  });
+
+  it("drawerCommands() declares /jobs and runDrawerCommand dispatches it", () => {
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => true);
+    registerDrawerChild(view);
+    const commands = drawerCommands();
+    expect(commands.map((c) => c.command.name)).toEqual(["jobs"]);
+    const runner = runDrawerCommand("jobs");
+    expect(runner).toBeDefined();
+    runner!();
+    expect(getState().jobsOpen).toBe(true);
+  });
+
+  it("a drawer command from an ungated child refuses (run returns false)", () => {
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => false); // server lacks the feature
+    registerDrawerChild(view);
+    const runner = runDrawerCommand("jobs");
+    expect(runner).toBeDefined();
+    // run() returns false — the dispatcher shows the unavailable note.
+    expect(view.toggle()).toBe(false);
+  });
+
+  it("drawerSlashCommands() strips any message (client-local by construction)", () => {
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => true);
+    registerDrawerChild(view);
+    const slash = drawerSlashCommands();
+    expect(slash.map((c) => c.name)).toEqual(["jobs"]);
+    expect(slash[0]!.message).toBeUndefined();
+  });
+
+  it("unregistering a child removes its commands from the registry hook", () => {
+    const view = new JobsDrawerComponent();
+    view.wire(async () => [], () => true);
+    const remove = registerDrawerChild(view);
+    expect(drawerCommands()).toHaveLength(1);
+    remove();
+    expect(drawerCommands()).toHaveLength(0);
+    expect(runDrawerCommand("jobs")).toBeUndefined();
   });
 });
