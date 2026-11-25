@@ -15,7 +15,7 @@
  */
 import type { ToolResultEvent, TurnEvents, TokenUsage } from "../client/index.ts";
 import { formatDuration, formatRuntime, formatTokenTotal, tokenCountNote } from "./toolFormat.ts";
-import { displayWidth, truncateAnsi } from "../util/index.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../util/index.ts";
 import type { LogEntry } from "./entries.ts";
 import { noticeLine } from "./notices.ts";
 import { annotateToolCall, toolCallEntry, toolResultEntries } from "./toolEntries.ts";
@@ -199,6 +199,18 @@ function pushHarnessResult(host: TurnHost, ev: ToolResultEvent): void {
  * (one `submit()`); the returned callbacks mutate the host's log and
  * request renders through it.
  */
+/** Append a `turn aborted` notice unless the log tail is identical
+ *  (one Esc aborting a FIFO chain emits one turn.aborted per handle). */
+function appendAbortNotice(host: TurnHost, detail: string): void {
+  const fresh = noticeLine("notice", "turn aborted", detail);
+  const last = host.entries.at(-1);
+  const same =
+    last?.kind === "notice" &&
+    last.lines.length === fresh.length &&
+    last.lines.every((line, i) => stripAnsi(line) === stripAnsi(fresh[i] ?? ""));
+  if (!same) host.append("notice", fresh);
+}
+
 export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): TurnEvents {
   // Tool call id → its log entry, so results can annotate the call line.
   const pendingToolCalls = new Map<string, LogEntry>();
@@ -260,7 +272,10 @@ export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): Tur
       const tokenParts = usageTokenParts(usage);
       const detail =
         tokenParts.length > 0 ? `${trimmed} · tokens: ${tokenParts.join(" · ")}` : trimmed;
-      host.append("notice", noticeLine("notice", "turn aborted", detail));
+      // One Esc can abort a FIFO chain (a wake head + the queued turn):
+      // each emits its own turn.aborted. Collapse consecutive identical
+      // abort notices — the second says nothing the first didn't.
+      appendAbortNotice(host, detail);
     },
 
     onRateLimited: (info) => {

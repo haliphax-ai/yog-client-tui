@@ -411,7 +411,7 @@ export class InputComponent extends BaseComponent {
     const feedable =
       key === undefined
         ? undefined
-        : key.code === 32 && (key.mod ?? KeyMod.None) in UNMODIFIED_SPACE
+        : key.code === 32 && UNMODIFIED_SPACE.has(key.mod ?? KeyMod.None)
           ? { ...key, text: " " }
           : key.code === KeyCode.Escape ||
               ((key.code === KeyCode.Up || key.code === KeyCode.Down) &&
