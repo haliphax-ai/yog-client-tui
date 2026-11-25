@@ -64,9 +64,19 @@ describe("DrawerComponent + registry", () => {
       " ".repeat(10),
       " aaa      ",
       " bbb      ",
+      "          ", // the item separator: one blank row between children
       " ccc      ",
       " ".repeat(10),
     ]);
+  });
+
+  it("inserts no separator before the first or after the last child", () => {
+    registerDrawerChild(new Stub([]));
+    registerDrawerChild(new Stub(["only"]));
+    registerDrawerChild(new Stub([]));
+    const drawer = new DrawerComponent();
+    const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
+    expect(plain).toEqual([" ".repeat(10), " only     ", " ".repeat(10)]);
   });
 
   it("skips collapsed children between visible ones", () => {

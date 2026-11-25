@@ -39,10 +39,16 @@ export class DrawerComponent extends BaseComponent {
     const cols = Math.max(0, Math.floor(ctx.cols));
     const inner = Math.max(0, cols - 2);
     const rows: string[] = [];
+    let lastHadRows = false;
     for (const child of registeredDrawerChildren()) {
-      for (const row of toRows(child.render({ cols: inner }))) {
+      const childRows = toRows(child.render({ cols: inner }));
+      // One blank row between drawer items (the spinner and the jobs
+      // table must not butt together); never leading or trailing.
+      if (childRows.length > 0 && lastHadRows) rows.push("");
+      for (const row of childRows) {
         rows.push(truncateAnsi(row, inner));
       }
+      lastHadRows = childRows.length > 0;
     }
     if (rows.length === 0) return [];
     return ST.drawer.width(cols).render(rows.join("\n")).split("\n");

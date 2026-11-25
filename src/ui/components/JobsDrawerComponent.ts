@@ -257,13 +257,11 @@ export class JobsDrawerComponent
     this.startTicking();
     const rows: string[][] = (getState().jobRows ?? []).map((cells) => [...cells]);
     const widths = jobColumnWidths(rows);
+    const header = ST.jobsHeader.render(rowLine([...HEADERS], widths));
     const body =
       rows.length === 0
         ? [ST.system.render("(no background jobs)")]
-        : [
-            ST.system.render(rowLine([...HEADERS], widths)),
-            ...rows.map((cells) => ST.system.render(rowLine(cells, widths))),
-          ];
+        : [header, ...rows.map((cells) => ST.system.render(rowLine(cells, widths)))];
     return [ST.system.render("⏳ background jobs"), ...body];
   }
 }
