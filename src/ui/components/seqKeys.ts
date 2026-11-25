@@ -121,10 +121,27 @@ function parseSeqKey(seq: string): SeqKey | undefined {
   const params = (match[1] as string) === "" ? [] : (match[1] as string).split(";").map(Number);
   const bridge = csiULetter(params);
   if (bridge !== undefined) return bridge; // ctrl+letter under kitty encoding
-  const code = codeForFinal(match[2] as string, params);
+  const code =
+    codeForFinal(match[2] as string, params) ?? printableCodePoint(params, match[2] as string);
   if (code === undefined) return undefined;
-  const mod = params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
-  return { code, mod };
+  return { code, mod: modOf(params) };
+}
+
+/** The modifier bits from a CSI-u parameter list (None when absent). */
+function modOf(params: readonly number[]): KeyMod {
+  return params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
+}
+
+/**
+ * Printable CSI-u code points (letters, space, punctuation): unbound on
+ * the textarea's key table, but the input layer's shift-demotion types
+ * them — surface the raw codepoint instead of dropping the key.
+ */
+function printableCodePoint(params: readonly number[], final: string): number | undefined {
+  if (final !== "u") return undefined;
+  const cp = params[0];
+  if (cp === undefined || cp < 32 || cp > 126 || cp === 127) return undefined;
+  return cp;
 }
 
 /**

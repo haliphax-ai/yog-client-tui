@@ -79,6 +79,20 @@ describe("live input byte path", () => {
     expect(getState().input).toBe("hi ");
   });
 
+  it("Shift+letter types the uppercase (kitty CSI 117;2u → U)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[117;2u");
+    expect(getState().input).toBe("hiU");
+  });
+
+  it("Shift+punctuation types the shifted symbol (kitty CSI 45;2u → _)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[45;2u");
+    expect(getState().input).toBe("hi_");
+  });
+
   it("Shift+Backspace deletes (kitty CSI 127;2u, demoted to the plain key)", () => {
     const { decode } = wire();
     decode("hi");

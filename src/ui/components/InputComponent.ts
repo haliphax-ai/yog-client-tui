@@ -75,8 +75,49 @@ const SHIFT_ENTER_SEQS: ReadonlySet<string> = new Set([
 ]);
 
 /** Modifiers that turn Space into a real binding (everything but shift). */
-/** The character a demoted (Shift-only) key types: printable/space. */
-const KEY_TEXT: ReadonlyMap<number, string> = new Map(Array.from({ length: 95 }, (_, i) => [0x20 + i, String.fromCodePoint(0x20 + i)] as const));
+/**
+ * The character a demoted (Shift-only) key types. Shifted letters are
+ * their uppercase; shifted punctuation comes from the US-layout table
+ * below (kitty's CSI-u carries the BASE codepoint + the shift bit, and
+ * without reportAssociatedText the text field is empty — the shifted
+ * symbol is otherwise unknowable). Non-US layouts typing shift+symbol
+ * get the US symbol: imperfect, but strictly better than the key
+ * doing nothing, and every layout matches on the letters/space.
+ */
+const SHIFTED_PUNCT_PAIRS: [string, string][] = [
+  ["1", "!"],
+  ["2", "@"],
+  ["3", "#"],
+  ["4", "$"],
+  ["5", "%"],
+  ["6", "^"],
+  ["7", "&"],
+  ["8", "*"],
+  ["9", "("],
+  ["0", ")"],
+  ["-", "_"],
+  ["=", "+"],
+  ["[", "{"],
+  ["]", "}"],
+  ["\\", "|"],
+  [";", ":"],
+  ["'", '"'],
+  [",", "<"],
+  [".", ">"],
+  ["/", "?"],
+  ["`", "~"],
+];
+const SHIFTED_PUNCT: ReadonlyMap<number, string> = new Map(
+  SHIFTED_PUNCT_PAIRS.map(([base, shifted]) => [base.charCodeAt(0), shifted] as const),
+);
+const KEY_TEXT: ReadonlyMap<number, string> = new Map(
+  Array.from({ length: 95 }, (_, i) => {
+    const cp = 0x20 + i;
+    const ch = String.fromCodePoint(cp);
+    const shifted = cp >= 97 && cp <= 122 ? ch.toUpperCase() : (SHIFTED_PUNCT.get(cp) ?? ch);
+    return [cp, shifted] as const;
+  }),
+);
 
 /** Shift+Up encodings — move top-level focus from the input to the log. */
 const SHIFT_UP_SEQS: ReadonlySet<string> = new Set([
