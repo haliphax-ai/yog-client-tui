@@ -74,6 +74,9 @@ const SHIFT_ENTER_SEQS: ReadonlySet<string> = new Set([
   "\x1b[13;2~",
 ]);
 
+/** Modifiers that turn Space into a real binding (everything but shift). */
+const UNMODIFIED_SPACE = new Set([KeyMod.None, KeyMod.Shift]);
+
 /** Shift+Up encodings — move top-level focus from the input to the log. */
 const SHIFT_UP_SEQS: ReadonlySet<string> = new Set([
   "\x1b[1;2A", // xterm-style
@@ -400,21 +403,23 @@ export class InputComponent extends BaseComponent {
       return "handled";
     }
     const key = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
-    // The kitty CSI 27u Esc (flag 1) and up/down on a single-line input
-    // belong to the ring's globals / the log's scroll, not the textarea.
-    if (
-      key === undefined ||
-      key.code === KeyCode.Escape ||
-      ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1)
-    ) {
-      return "unhandled";
-    }
-    // Up/Down move the caret only when the input spans multiple lines; a
-    // single-line input leaves them to the log-scroll globals.
-    if ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1) {
-      return "unhandled";
-    }
-    this.feed(key);
+    // Shift+Space (kitty CSI 32;2u) carries an empty text payload the
+    // textarea would drop — space keys type a space unless ctrl/alt/meta
+    // makes it a real binding. The kitty CSI 27u Esc (flag 1) and
+    // up/down on a single-line input belong to the ring's globals / the
+    // log's scroll, not the textarea.
+    const feedable =
+      key === undefined
+        ? undefined
+        : key.code === 32 && (key.mod ?? KeyMod.None) in UNMODIFIED_SPACE
+          ? { ...key, text: " " }
+          : key.code === KeyCode.Escape ||
+              ((key.code === KeyCode.Up || key.code === KeyCode.Down) &&
+                this.textarea.lineCount() <= 1)
+            ? undefined
+            : key;
+    if (feedable === undefined) return "unhandled";
+    this.feed(feedable);
     // Navigation only — keep the completion selection. A pure cursor /
     // scroll / selection move leaves the value unchanged, so `syncInput`
     // writes nothing — but the view *did* change. The render scheduler

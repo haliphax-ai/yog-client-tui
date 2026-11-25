@@ -709,6 +709,35 @@ describe("YogClient.runTurn payload", () => {
     expect(aborted).toEqual(["turn aborted by operator"]);
   });
 
+  it("reports the queued flag from the turn.start 202 (a wake turn is live)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: unknown, init: unknown) => {
+        const body = JSON.parse(String((init as { body?: string }).body ?? "{}"));
+        if (body.type === "turn.start") {
+          // The 202 carries the reply BEFORE the stream frames terminal.
+          return msgResponse("turn.start", { accepted: true, queued: true }, 202);
+        }
+        return new Response(
+          [
+            `event: stream.hello\ndata: ${JSON.stringify({ id: "st1", type: "stream.hello", version: 1, ts: 1, data: {} })}\n\n`,
+            `event: turn.started\ndata: ${JSON.stringify({ id: 1, type: "turn.started", version: 1, ts: 1, data: { turnId: 7, model: "m", ts: 1 } })}\n\n`,
+            `event: turn.finished\ndata: ${JSON.stringify({ id: 2, type: "turn.finished", version: 1, ts: 1, data: {} })}\n\n`,
+          ].join(""),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        );
+      }),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const calls: string[] = [];
+    const outcome = await client.runTurn("hello", "model-x", {
+      onQueued: () => calls.push("queued"),
+    });
+    expect(calls).toEqual(["queued"]);
+    expect(outcome.ok).toBe(true);
+  });
+
   it("settles runTurn on turn.finished even if the session stream never closes (spinner regression)", async () => {
     vi.stubGlobal(
       "fetch",

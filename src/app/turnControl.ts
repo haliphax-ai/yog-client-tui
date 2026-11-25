@@ -72,8 +72,20 @@ export async function turnWithRecovery(
   events: TurnEvents,
   saveState: StateSaver,
 ): Promise<TurnOutcome> {
+  // An honest wait: if the server already has a turn live on this
+  // session (a wake turn mid-flight, a burst of submits), this turn
+  // queues behind it — say so instead of a bare spinner.
+  const baseEvents = events;
+  const eventsWithQueue: TurnEvents = {
+    ...baseEvents,
+    onQueued: () =>
+      pushLines(
+        "notice",
+        noticeLine("notice", "turn queued", "running after the earlier turn on this session"),
+      ),
+  };
   try {
-    return await client.runTurn(prompt, model, events);
+    return await client.runTurn(prompt, model, eventsWithQueue);
   } catch (err) {
     if (!(err instanceof YogError) || err.code !== "unknown_session") throw err;
     const staleId = client.sessionId;
@@ -84,7 +96,7 @@ export async function turnWithRecovery(
     );
     pushLines("notice", noticeLine("notice", "new session", freshId));
     await saveState(freshId);
-    return await client.runTurn(prompt, model, events);
+    return await client.runTurn(prompt, model, eventsWithQueue);
   }
 }
 

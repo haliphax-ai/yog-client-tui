@@ -346,13 +346,18 @@ export class YogClient extends Transport {
     const stream = this.openStream(sessionId, handle);
     const streamDone = stream.closed.then((err) => err);
     // `turn.start` is the only such message this client sends; its 202 is
-    // semantics; its 202 is an acceptance, not the turn's progress.
-    await this.send(
+    // semantics; its 202 is an acceptance, not the turn's progress. The
+    // reply's `queued` flag (server: another turn is live on this session
+    // — a wake turn mid-flight, or a burst of submits) surfaces here so
+    // the caller can show the wait honestly instead of a bare spinner.
+    const reply = await this.send(
       sessionId,
       "turn.start",
       turnStartParams(prompt, model, stream),
       "running turn failed",
     );
+    const queued = (reply as { queued?: unknown } | undefined)?.queued === true;
+    if (queued) events.onQueued?.();
     // Wait for the turn's terminal event on the stream, or for the stream
     // itself to die — whichever comes first. `readSseStream` resolves on a
     // clean end with `undefined`, so a stream that ends after the terminal

@@ -91,6 +91,10 @@ export interface ToolResultEvent {
 
 /** Callbacks the UI registers for one in-flight turn. */
 export interface TurnEvents {
+  /** The `turn.start` reply's `queued` flag: another turn on this session
+   *  is live (a wake turn mid-flight or a burst of submits) — this turn
+   *  runs after it. Emitted once, right after the POST acceptance. */
+  onQueued?(): void;
   /** `turn.started` — the stream is live; `turnId` enables recovery. */
   onStarted?(turnId: string, model: string): void;
   /** `message.delta` — an assistant text chunk. */
