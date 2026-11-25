@@ -31,6 +31,7 @@ const EVENT_EMOJI: Record<string, string> = {
   "session resumed": "🪧",
   "session reset": "🪧",
   recovered: "🪧",
+  "background jobs": "⏳",
 };
 
 /** Pick the emoji for a notice line: event-specific first, kind fallback. */

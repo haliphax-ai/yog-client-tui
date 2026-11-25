@@ -165,6 +165,79 @@ describe("JobsDrawerComponent", () => {
   });
 });
 
+describe("JobsDrawerComponent — poll transition notices", () => {
+  beforeEach(() => {
+    resetForTests();
+  });
+
+  /** Wire an open view against a mutable rows cell + a spy announcer;
+   *  the first (toggle) poll establishes the baseline snapshot. */
+  function openWith(rows: Parameters<typeof jobRowCells>[0][]): {
+    view: JobsDrawerComponent;
+    announced: Array<{ state: string; detail: string }>;
+    setRows(rows: Parameters<typeof jobRowCells>[0][]): void;
+  } {
+    const announced: Array<{ state: string; detail: string }> = [];
+    const view = new JobsDrawerComponent();
+    let current = rows;
+    view.wire(
+      async () => current,
+      () => true,
+      (state, detail) => announced.push({ state, detail }),
+    );
+    view.toggle();
+    return {
+      view,
+      announced,
+      setRows(next: Parameters<typeof jobRowCells>[0][]) {
+        current = next;
+      },
+    };
+  }
+
+  it("announces running → terminated with the reason once the poll sees it", async () => {
+    const { view, announced, setRows } = openWith([job({ id: "bg_1", state: "running" })]);
+    await vi.waitFor(() => expect(getState().jobRows).toHaveLength(1));
+    expect(announced).toEqual([]); // the baseline poll announces nothing
+    setRows([job({ id: "bg_1", state: "terminated", termReason: "operator abort" })]);
+    await view.poll();
+    expect(announced).toEqual([{ state: "terminated", detail: "bg_1 (operator abort)" }]);
+  });
+
+  it("announces running → finished with the tool name as the detail head", async () => {
+    const { view, announced, setRows } = openWith([job({ id: "bg_2", state: "running" })]);
+    await vi.waitFor(() => expect(getState().jobRows).toHaveLength(1));
+    setRows([job({ id: "bg_2", state: "finished", endedAt: Date.now() })]);
+    await view.poll();
+    expect(announced).toEqual([{ state: "finished", detail: "bg_2" }]);
+  });
+
+  it("stays silent when nothing settled between polls", async () => {
+    const { view, announced } = openWith([job({ id: "bg_1" })]);
+    await vi.waitFor(() => expect(getState().jobRows).toHaveLength(1));
+    await view.poll();
+    await view.poll();
+    expect(announced).toEqual([]);
+  });
+
+  it("announces nothing for settled jobs the view never watched run (no baseline)", async () => {
+    // A FRESH view whose first snapshot already holds the settled job:
+    // there is no rendered baseline, so no transition is announced.
+    const { announced } = openWith([job({ id: "bg_1", state: "running" })]);
+    await vi.waitFor(() => expect(getState().jobRows).toHaveLength(1));
+    expect(announced).toEqual([]);
+    const fresh = new JobsDrawerComponent();
+    fresh.wire(
+      async () => [job({ id: "bg_9", state: "terminated", termReason: "max runtime" })],
+      () => true,
+      (state, detail) => announced.push({ state, detail }),
+    );
+    fresh.toggle();
+    await fresh.poll();
+    expect(announced).toEqual([]);
+  });
+});
+
 describe("JobsDrawerComponent — /jobs + the Esc cascade", () => {
   beforeEach(() => {
     resetForTests();
@@ -212,7 +285,10 @@ describe("the drawer registry hook (dismiss + commands)", () => {
 
   it("dismiss() joins the Esc cascade: claims Esc while open, passes when shut", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     registerDrawerChild(view);
 
     expect(dismissDrawerChildren()).toBe(false); // shut — the cascade falls through
@@ -224,7 +300,10 @@ describe("the drawer registry hook (dismiss + commands)", () => {
   it("the newest registered child wins the Esc cascade (registration order)", () => {
     let newerDismissed = false;
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     const newer: BaseComponent = new (class extends BaseComponent {
       dismiss(): boolean {
         newerDismissed = true;
@@ -245,7 +324,10 @@ describe("the drawer registry hook (dismiss + commands)", () => {
 
   it("drawerCommands() declares /jobs and runDrawerCommand dispatches it", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     registerDrawerChild(view);
     const commands = drawerCommands();
     expect(commands.map((c) => c.command.name)).toEqual(["jobs"]);
@@ -257,7 +339,10 @@ describe("the drawer registry hook (dismiss + commands)", () => {
 
   it("a drawer command from an ungated child refuses (run returns false)", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => false); // server lacks the feature
+    view.wire(
+      async () => [],
+      () => false,
+    ); // server lacks the feature
     registerDrawerChild(view);
     const runner = runDrawerCommand("jobs");
     expect(runner).toBeDefined();
@@ -267,7 +352,10 @@ describe("the drawer registry hook (dismiss + commands)", () => {
 
   it("drawerSlashCommands() strips any message (client-local by construction)", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     registerDrawerChild(view);
     const slash = drawerSlashCommands();
     expect(slash.map((c) => c.name)).toEqual(["jobs"]);
@@ -276,7 +364,10 @@ describe("the drawer registry hook (dismiss + commands)", () => {
 
   it("unregistering a child removes its commands from the registry hook", () => {
     const view = new JobsDrawerComponent();
-    view.wire(async () => [], () => true);
+    view.wire(
+      async () => [],
+      () => true,
+    );
     const remove = registerDrawerChild(view);
     expect(drawerCommands()).toHaveLength(1);
     remove();

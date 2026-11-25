@@ -90,8 +90,10 @@ export interface Terminal {
 export function wireTerminal(
   client: {
     sessionId: string | undefined;
-    /** The idle-abort message (the Esc cascade's background-jobs arm). */
-    abortTurn(): Promise<unknown>;
+    /** The idle-abort message (the Esc cascade's background-jobs arm).
+     *  The reply decodes to `AbortTurnResult` (the count of killed jobs
+     *  rides the idle path's reply). */
+    abortTurn(): Promise<{ backgroundJobs?: number }>;
   },
   hooks: AppHooks,
 ): Terminal {
@@ -174,15 +176,27 @@ export function wireTerminal(
     dismissEsc: () => dismissDrawerChildren(),
     // The cascade's idle arm: the same `turn.abort` message the parent
     // arm sends — idle, the server kills the session's background jobs
-    // and queues a prelude notice instead. A transport failure is
+    // (the reply carries the count) and queues the prelude notice for the
+    // next turn. The count echoes HERE, immediately — the prelude only
+    // renders in the log after the next submit rebuilds the transcript,
+    // and a silent keypress reads as a dead one. A transport failure is
     // logged; nothing else is affected.
     abortBackgroundJobs: () => {
-      void client.abortTurn().catch((err: unknown) => {
-        pushLines(
-          "error",
-          noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
-        );
-      });
+      void client
+        .abortTurn()
+        .then((result) => {
+          const abortedJobs = result.backgroundJobs;
+          if (abortedJobs === undefined) return;
+          pushLines("notice", noticeLine("notice", "background jobs", `aborted ${abortedJobs}`));
+          // Surface the state flip without waiting for the next poll tick.
+          void jobsDrawer.poll();
+        })
+        .catch((err: unknown) => {
+          pushLines(
+            "error",
+            noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
+          );
+        });
     },
     // Ctrl+J: the drawer toggle (the /jobs command is the always-works
     // path; this is the keyboard arm of the same drawer hook).

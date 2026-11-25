@@ -347,6 +347,7 @@ async function run(argv: readonly string[]): Promise<void> {
     terminal.jobsDrawer.wire(
       async () => (await client.getJobs()).jobs ?? [],
       () => (client.capabilities?.features ?? []).includes("background-jobs"),
+      (state, detail) => pushLines("notice", noticeLine("notice", `job ${state}`, detail)),
     );
   }
   // The fatal handler draws its notice through the same flush timer.

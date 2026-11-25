@@ -98,12 +98,28 @@ export async function turnWithRecovery(
  */
 export function abortActiveTurn(client: YogClient): void {
   if (!getState().busy || client.sessionId === undefined) return;
-  void client.abortTurn().catch((err: unknown) => {
-    pushLines(
-      "error",
-      noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
-    );
-  });
+  void client
+    .abortTurn()
+    .then((result) => {
+      // The reply names what WAS killed (captured server-side before the
+      // unwind): surface it — the turn-abort path otherwise has no log
+      // footprint until the settled turn carries its `turn.aborted` notice.
+      const call = result.activeToolCall;
+      pushLines(
+        "notice",
+        noticeLine(
+          "notice",
+          "turn aborted",
+          call === undefined ? undefined : `${call.name} ${call.id}`,
+        ),
+      );
+    })
+    .catch((err: unknown) => {
+      pushLines(
+        "error",
+        noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
+      );
+    });
 }
 
 /** Create the presenter for a new prompt, with usage tracking wired. */

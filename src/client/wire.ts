@@ -162,6 +162,9 @@ export interface AbortTurnResult {
   status: "aborted" | "idle";
   /** The tool call that was killed, if one was in flight. */
   activeToolCall?: ActiveToolCall;
+  /** Count of background jobs the idle abort killed (yog#91 semantics;
+   *  the server reports it only when nonzero). */
+  backgroundJobs?: number;
 }
 
 /** One background job row (`jobs.get` list/detail; verbatim wire fields). */

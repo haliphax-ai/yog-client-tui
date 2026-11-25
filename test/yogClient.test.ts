@@ -1441,6 +1441,32 @@ describe("YogClient.abortTurn", () => {
     expect(result.requested).toBe(false);
     expect(result.status).toBe("idle");
     expect(result.activeToolCall).toBeUndefined();
+    expect(result.backgroundJobs).toBeUndefined();
+  });
+
+  it("reports the idle-abort backgroundJobs count when the server killed jobs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        msgResponse("turn.abort", {
+          ok: true,
+          status: "idle",
+          aborted: {
+            requested: false,
+            sessionId: "s1",
+            activeToolCall: null,
+            backgroundJobs: 2,
+          },
+          session: { id: "s1" },
+        }),
+      ),
+    );
+    const client = new YogClient("http://test");
+    client.sessionId = "s1";
+    const result = await client.abortTurn();
+    expect(result.requested).toBe(false);
+    expect(result.status).toBe("idle");
+    expect(result.backgroundJobs).toBe(2);
   });
 
   it("surfaces a YogError for non-2xx responses", async () => {

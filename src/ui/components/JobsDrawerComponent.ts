@@ -28,6 +28,28 @@ export const JOBS_POLL_MS = 2000;
 /** The server feature the view gates on. */
 export const BACKGROUND_JOBS_FEATURE = "background-jobs";
 
+/** The announcement seam: the drawer reports one transition as
+ *  `(state, detail)` — `detail` already carries the id and reason — and
+ *  the composition root shapes the notice lines (it owns the log). */
+export type JobAnnouncer = (state: string, detail: string) => void;
+
+/** One job's id, its last lifecycle state, and why (terminated only) —
+ *  the identity a transition notice keys on. */
+interface JobFingerprint {
+  readonly id: string;
+  readonly state: string;
+  readonly termReason?: string;
+}
+
+/** The fingerprint of one wire row (the transition diff's baseline). */
+function fingerprintOf(job: JobRowInput): JobFingerprint {
+  return {
+    id: job.id,
+    state: job.state,
+    ...(job.termReason !== undefined ? { termReason: job.termReason } : {}),
+  };
+}
+
 /** Column headers (fixed five-column layout). */
 const HEADERS = ["id", "tool", "state", "elapsed", "exit"] as const;
 
@@ -114,15 +136,24 @@ export class JobsDrawerComponent
   private gate: () => boolean = () => false;
   private timer: NodeJS.Timeout | undefined;
   private inFlight = false;
+  /** The fingerprints the last poll rendered (the transition diff reads
+   *  against these). Undefined = the first poll after wiring (nothing
+   *  has been shown yet — arrivals announce only when newly visible). */
+  private fingerprints: readonly JobFingerprint[] | undefined = undefined;
+  /** The log announcer (the composition root pushes the notice lines). */
+  private announce: JobAnnouncer | undefined = undefined;
 
   constructor() {
     super(false);
   }
 
-  /** Wire the fetch + gate (the composition root, once, after probe). */
-  wire(fetcher: () => Promise<JobRowInput[]>, gate: () => boolean): void {
+  /** Wire the fetch + gate + announcer (the composition root, once, after
+   *  probe). `announce` is optional (undefined skips transition notices
+   *  — existing wire calls and tests keep working). */
+  wire(fetcher: () => Promise<JobRowInput[]>, gate: () => boolean, announce?: JobAnnouncer): void {
     this.fetcher = fetcher;
     this.gate = gate;
+    this.announce = announce;
   }
 
   /**
@@ -158,12 +189,18 @@ export class JobsDrawerComponent
     ];
   }
 
-  /** One poll tick: fetch, reshape, store; timer re-arms in render(). */
+  /** One poll tick: fetch, diff against the rendered fingerprints for
+   *  transition notices, reshape, store; timer re-arms in render().
+   *  Announcements are notice lines on the shared log (`pushLines`),
+   *  injected like the fetcher — the component stays drawer-local and
+   *  the composition root keeps the log. */
   async poll(): Promise<void> {
     if (this.inFlight || this.fetcher === undefined) return;
     this.inFlight = true;
     try {
       const jobs = await this.fetcher();
+      this.announceTransitions(jobs);
+      this.fingerprints = jobs.map(fingerprintOf);
       setState({
         jobRows: jobs.map((job) => jobRowCells(job, Date.now())),
       });
@@ -171,6 +208,25 @@ export class JobsDrawerComponent
       // Best effort: keep the previous rows, retry on the next tick.
     } finally {
       this.inFlight = false;
+    }
+  }
+
+  /** The lifecycle transitions the fresh poll reveals against the last
+   *  rendered snapshot: a job settling to `terminated` or `finished`
+   *  between ticks announces once (the state cell already shows it; the
+   *  notice is the log-side signal that survives closing the view).
+   *  Settled jobs that were never rendered announce nothing — there is
+   *  no baseline to have "watched" them run (a fresh view shows the
+   *  settled state directly). A missing announce callback skips
+   *  silently (the wire may not be called in tests). */
+  private announceTransitions(jobs: readonly JobRowInput[]): void {
+    if (this.announce === undefined || this.fingerprints === undefined) return;
+    for (const job of jobs) {
+      if (job.state !== "terminated" && job.state !== "finished") continue;
+      const was = this.fingerprints.find((f) => f.id === job.id);
+      if (was === undefined || was.state === job.state) continue;
+      const reason = job.state === "terminated" ? ` (${job.termReason ?? "terminated"})` : "";
+      this.announce(job.state, `${job.id}${reason}`);
     }
   }
 

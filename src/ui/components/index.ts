@@ -18,6 +18,7 @@ export { GeneratingComponent } from "./GeneratingComponent.ts";
 export {
   BACKGROUND_JOBS_FEATURE,
   JOBS_POLL_MS,
+  type JobAnnouncer,
   type JobRowInput,
   JOBS_HEADERS,
   JobsDrawerComponent,
