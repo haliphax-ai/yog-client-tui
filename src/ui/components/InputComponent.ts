@@ -75,7 +75,8 @@ const SHIFT_ENTER_SEQS: ReadonlySet<string> = new Set([
 ]);
 
 /** Modifiers that turn Space into a real binding (everything but shift). */
-const UNMODIFIED_SPACE = new Set([KeyMod.None, KeyMod.Shift]);
+/** The character a demoted (Shift-only) key types: printable/space. */
+const KEY_TEXT: ReadonlyMap<number, string> = new Map(Array.from({ length: 95 }, (_, i) => [0x20 + i, String.fromCodePoint(0x20 + i)] as const));
 
 /** Shift+Up encodings — move top-level focus from the input to the log. */
 const SHIFT_UP_SEQS: ReadonlySet<string> = new Set([
@@ -402,22 +403,25 @@ export class InputComponent extends BaseComponent {
       setState({}); // notify the scheduler so the blur style repaints
       return "handled";
     }
-    const key = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
-    // Shift+Space (kitty CSI 32;2u) carries an empty text payload the
-    // textarea would drop — space keys type a space unless ctrl/alt/meta
-    // makes it a real binding. The kitty CSI 27u Esc (flag 1) and
-    // up/down on a single-line input belong to the ring's globals / the
-    // log's scroll, not the textarea.
+    const parsed = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
+    // Unbound Shift+<key> demotes to the plain key (the user's rule):
+    // the kitty CSI-u form arrives text-less, so synthesize the key's
+    // own character — Shift+Space types a space, Shift+Backspace
+    // deletes. Only ctrl/alt/meta make a modifier meaningful here;
+    // everything Shift actually binds (Enter, arrows, Tab, ctrl+J) is
+    // matched earlier by literal sequence sets, before this runs.
+    const key =
+      parsed === undefined || (parsed.mod ?? KeyMod.None) !== KeyMod.Shift
+        ? parsed
+        : { mod: KeyMod.None, text: KEY_TEXT.get(parsed.code), code: parsed.code };
+    // The kitty CSI 27u Esc (flag 1) and up/down on a single-line input
+    // belong to the ring's globals / the log's scroll, not the textarea.
     const feedable =
-      key === undefined
+      key === undefined ||
+      key.code === KeyCode.Escape ||
+      ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1)
         ? undefined
-        : key.code === 32 && UNMODIFIED_SPACE.has(key.mod ?? KeyMod.None)
-          ? { ...key, text: " " }
-          : key.code === KeyCode.Escape ||
-              ((key.code === KeyCode.Up || key.code === KeyCode.Down) &&
-                this.textarea.lineCount() <= 1)
-            ? undefined
-            : key;
+        : key;
     if (feedable === undefined) return "unhandled";
     this.feed(feedable);
     // Navigation only — keep the completion selection. A pure cursor /

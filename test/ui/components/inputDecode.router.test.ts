@@ -72,6 +72,20 @@ describe("live input byte path", () => {
     expect(calls).toEqual([]);
   });
 
+  it("Shift+Space types a space (kitty CSI 32;2u, text-less)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[32;2u");
+    expect(getState().input).toBe("hi ");
+  });
+
+  it("Shift+Backspace deletes (kitty CSI 127;2u, demoted to the plain key)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[127;2u");
+    expect(getState().input).toBe("h");
+  });
+
   it("plain Enter submits", () => {
     const { decode, calls } = wire();
     decode("hi");
