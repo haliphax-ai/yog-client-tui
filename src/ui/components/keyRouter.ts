@@ -147,6 +147,17 @@ const LOG_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
  */
 const INPUT_KEY_BINDINGS: { binding: Binding; run: (g: Globals) => void }[] = [
   {
+    // Ctrl+J on the input side: with the kitty keyboard protocol pushed
+    // (flag 1), a supporting terminal delivers Ctrl+J as the CSI-u
+    // sequence while the input holds the ring — without this binding the
+    // textarea would claim it (an unbound-but-ctrl key falls to the
+    // globals after the input declines it; routeKey needs the explicit
+    // entry here because the legacy path never reached the input ring
+    // as a sequence at all).
+    binding: newBinding(withKeys(...CTRL_J_SEQS), withHelp("Ctrl+J", "toggle background jobs")),
+    run: (g) => g.toggleJobs(),
+  },
+  {
     binding: newBinding(withKeys("\x1bOA", "\x1b[A"), withHelp("Up", "scroll up one line")),
     run: (g) => g.scrollBy(-1),
   },

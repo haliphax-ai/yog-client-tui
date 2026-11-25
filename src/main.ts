@@ -109,7 +109,10 @@ let terminalActive = false;
 function restoreTerminal(): void {
   if (!terminalActive) return;
   terminalActive = false;
-  process.stdout.write("\x1b[?1049l\x1b[?25h\x1b[?2004l");
+  // Pop the kitty keyboard stack entry (the flag-1 push at enter) — CSI < u.
+  // The legacy resets ride along so a terminal that never took the push is
+  // still fully restored.
+  process.stdout.write("\x1b[<u\x1b[?1049l\x1b[?25h\x1b[?2004l");
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
 }
@@ -383,7 +386,21 @@ async function run(argv: readonly string[]): Promise<void> {
  *  SIGTERM hooks. The resize repaint IS the swap (no blank flash, #67). */
 function enterTerminal(terminal: Terminal, quit: (code: number) => Promise<void>): void {
   terminalActive = true;
-  process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[2J\x1b[H");
+  process.stdout.write(
+    "\x1b[?1049h\x1b[?25l\x1b[?2004h" +
+      // Kitty keyboard protocol: flag 1 (disambiguate escape codes) so
+      // modifier keys (Ctrl+J for the jobs drawer) arrive as unambiguous
+      // CSI-u sequences in supporting terminals instead of colliding with
+      // legacy C0 (Ghostty sends plain LF for Ctrl+J otherwise — the
+      // input ring treats LF as Enter and submits). Plain keys keep
+      // their legacy encoding under flag 1, and a terminal without the
+      // protocol ignores the push entirely (Ctrl+J stays the documented
+      // /jobs fallback). mode 1 = pop at reset (the restore writes the
+      // pop below); CSI < u pops the stack entry on exit.
+      "\x1b[>1u" +
+      "\x1b[?u" + // query: supporting terminals echo their flags
+      "\x1b[2J\x1b[H",
+  );
   process.stdin.setEncoding("utf8");
   process.stdin.setRawMode(true);
   process.stdin.resume();

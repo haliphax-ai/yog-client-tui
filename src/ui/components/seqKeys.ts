@@ -119,9 +119,26 @@ function parseSeqKey(seq: string): SeqKey | undefined {
   const match = /^([\d;]*)([A-Za-z~])$/.exec(seq.slice(2));
   if (match === null) return undefined;
   const params = (match[1] as string) === "" ? [] : (match[1] as string).split(";").map(Number);
+  const bridge = csiULetter(params);
+  if (bridge !== undefined) return bridge; // ctrl+letter under kitty encoding
   const code = codeForFinal(match[2] as string, params);
   if (code === undefined) return undefined;
   const mod = params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
   return { code, mod };
+}
+
+/**
+ * The kitty CSI-u ctrl+letter form (ESC[<cp>;5u) bridges to the C0 control
+ * code the textarea layer binds ({Ctrl, 1..26}). Only plain ctrl+letter
+ * bridges — ctrl+j stays unclaimed (the key router owns it as the jobs-
+ * drawer toggle) and shifted/alt/ctrl+shift combos fall through. The
+ * legacy C0 path (the input char loop) covers terminals without the
+ * protocol, so this only fires when a terminal reports modified keys.
+ */
+function csiULetter(params: readonly number[]): SeqKey | undefined {
+  const [cp, modByte] = params;
+  if (modByte !== 5) return undefined; // ctrl alone
+  if (cp === undefined || cp < 97 || cp > 122 || cp === 106) return undefined;
+  return { code: cp - 96, mod: KeyMod.Ctrl };
 }
 export { type SeqKey, parseSeqKey, LEGACY_SEQ_KEYS };

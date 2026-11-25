@@ -61,7 +61,7 @@ function globalsSpy(rows = 24): { globals: Globals; calls: string[] } {
     abortTurn: () => calls.push("abortTurn"),
     dismissEsc: () => false,
     abortBackgroundJobs: () => calls.push("abortBackgroundJobs"),
-    toggleJobs: () => undefined,
+    toggleJobs: () => calls.push("toggleJobs"),
     pageRows: () => rows,
   };
   return { globals, calls };
@@ -305,5 +305,26 @@ describe("cycleFocus — loss before gain, with wrap", () => {
     expect([a.isFocused, b.isFocused]).toEqual([true, false]);
     cycleFocus([a, b], -1); // backward wrap: a → b
     expect([a.isFocused, b.isFocused]).toEqual([false, true]);
+  });
+});
+
+describe("Ctrl+J on the input ring (kitty CSI-u)", () => {
+  beforeEach(() => {
+    resetForTests();
+    setTopLevel("input");
+  });
+
+  it("routes the CSI-u ctrl+j sequence to toggleJobs while typing", () => {
+    const { globals, calls } = globalsSpy();
+    expect(routeKey([], "\x1b[106;5u", globals)).toBe(true);
+    expect(calls).toEqual(["toggleJobs"]);
+  });
+
+  it("keeps plain Enter on submit (the legacy encoding must not collide)", () => {
+    const { globals, calls } = globalsSpy();
+    expect(routeChar([], "\r", globals)).toBe(true);
+    expect(calls).toEqual(["submit"]);
+    expect(routeChar([], "\n", globals)).toBe(true);
+    expect(calls).toEqual(["submit", "submit"]);
   });
 });
