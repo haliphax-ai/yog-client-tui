@@ -1,8 +1,8 @@
 /**
- * Transcript-driven log rebuilds — the three moments the whole log is
- * (re)built from a server transcript dump: the initial rehydrate seed
- * (placeholders first, #67), a running-turn poll refresh, and the
- * post-compaction rebuild. Each produces the entries array and the
+ * Transcript-driven log rebuilds — the moments the whole log is (re)built
+ * from a server transcript dump: the initial rehydrate seed (placeholders
+ * first, #67), a running-turn poll refresh, the post-compaction rebuild,
+ * and the submit-time sync (#135). Each produces the entries array and the
  * status-bar token total from one `TranscriptResult`.
  *
  * The pending rehydrate job is tracked here too: `driveRehydrate` swaps
@@ -20,13 +20,28 @@ import { perTurnDeltas, toTranscriptEntries } from "../core/index.ts";
 import { estimatedContextTotal, finalContextTotal } from "../core/index.ts";
 import { getState, setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { TranscriptResult } from "../client/index.ts";
+import type { TranscriptResult, YogClient } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { noticeLine } from "../core/index.ts";
+import { emitDebug } from "../ui/index.ts";
+import { transcriptSignature, transcriptTailSeqOf } from "./transcriptSignature.ts";
 
 /** Terminal width (columns) for line fitting; 80 when headless. */
 export function termCols(): number {
   return process.stdout.columns ?? 80;
+}
+
+/**
+ * The chrome a sync rebuild preserves: the startup notes the seed kept
+ * ahead of the transcript rows (same shape the reconnect-pickup poll
+ * rebuilds under). Captured once at module scope — a replace must never
+ * need the caller to pass the head back through a layer that has none.
+ */
+let notes: readonly LogEntry[] = [];
+
+/** Install the sync's chrome (the startup notes; the composition root). */
+export function setTranscriptSyncNotes(seed: readonly LogEntry[]): void {
+  notes = seed;
 }
 
 /** The session token weight a transcript dump carries: the last known
@@ -60,6 +75,34 @@ export function applyDump(dump: TranscriptResult, priorEntries: LogEntry[]): voi
     tokenTotals: statusTotals(transcriptTokenWeight(dump)),
   });
   void priorEntries;
+}
+
+/**
+ * The submit-time transcript sync (#135): one pre-submit probe of the
+ * server transcript. A no-op (and the caller submits immediately) when
+ * the rows have not advanced since the last rebuild; a chrome-preserving
+ * rebuild (the same one a resume/poll refresh runs) when they have; a
+ * debug note and proceed when the probe itself fails — the sync is best
+ * effort and never blocks a submit.
+ *
+ * The comparison: the store's own tail stamp (`transcriptSignature()`,
+ * the tail-seq the rebuild paths leave on every row) against the fresh
+ * dump's tail (`transcriptTailSeqOf`) — the narrower half of the same
+ * measure `pollRunningTurn` gates its rebuilds on, so the two paths
+ * cannot drift apart.
+ */
+export async function syncTranscriptOnSubmit(client: YogClient): Promise<void> {
+  try {
+    const dump = await client.getTranscript();
+    if (transcriptTailSeqOf(dump) === transcriptSignature()) return;
+    setState({
+      entries: [...notes, ...entriesForDump(dump)],
+      tokenTotals: statusTotals(transcriptTokenWeight(dump)),
+    });
+  } catch (err) {
+    // Best effort: a failed probe proceeds with the submit (#135).
+    emitDebug([`transcript sync skipped: ${err instanceof Error ? err.message : String(err)}`]);
+  }
 }
 
 /** The post-compaction rebuild: fresh log + estimated context weight. */

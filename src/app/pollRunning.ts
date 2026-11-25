@@ -9,8 +9,9 @@ import { transcriptLogEntries } from "../core/index.ts";
 import { perTurnDeltas } from "../core/index.ts";
 import { setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { TranscriptResult, YogClient } from "../client/index.ts";
+import type { YogClient } from "../client/index.ts";
 import { statusTotals, termCols, transcriptTokenWeight } from "./transcriptRebuild.ts";
+import { transcriptSignatureOf } from "./transcriptSignature.ts";
 
 /** The poll cadence (ms) while a resumed turn is in flight. */
 const POLL_MS = 2000;
@@ -44,7 +45,7 @@ export function pollRunningTurn(
           turns: perTurnDeltas(fresh.turns),
         });
         const total = transcriptTokenWeight(fresh);
-        const signature = signatureOf(fresh, row.status, total);
+        const signature = transcriptSignatureOf(fresh, row.status, total);
         if (!settled && signature === lastSignature) return;
         lastSignature = signature;
         setState({
@@ -61,13 +62,4 @@ export function pollRunningTurn(
       }
     })();
   }, POLL_MS);
-}
-
-/** The visible-content signature of a dump (see the module comment). */
-function signatureOf(dump: TranscriptResult, status: string | undefined, total: number): string {
-  const lastMessage = dump.messages[dump.messages.length - 1];
-  const settled = status !== undefined && status !== "running";
-  return [dump.messages.length, lastMessage?.seq ?? 0, settled ? status : "running", total].join(
-    ":",
-  );
 }

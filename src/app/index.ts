@@ -35,8 +35,10 @@ export {
   driveRehydrate,
   entriesForDump,
   placeholderSeed,
+  setTranscriptSyncNotes,
   stageRehydrate,
   statusTotals,
+  syncTranscriptOnSubmit,
   termCols,
   transcriptTokenWeight,
 } from "./transcriptRebuild.ts";
