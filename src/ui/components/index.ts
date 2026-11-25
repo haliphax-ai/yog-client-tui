@@ -17,6 +17,7 @@ export { DrawerComponent } from "./DrawerComponent.ts";
 export { GeneratingComponent } from "./GeneratingComponent.ts";
 export {
   BACKGROUND_JOBS_FEATURE,
+  JOBS_MAX_ROWS,
   JOBS_POLL_MS,
   type JobAnnouncer,
   type JobRowInput,
@@ -24,6 +25,7 @@ export {
   JobsDrawerComponent,
   jobColumnWidths,
   jobRowCells,
+  visibleJobs,
 } from "./JobsDrawerComponent.ts";
 export { InputComponent, MAX_CONTENT_ROWS, MAX_INPUT_CHARS, MAX_LINES } from "./InputComponent.ts";
 export {

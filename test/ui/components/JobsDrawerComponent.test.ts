@@ -5,8 +5,10 @@ import {
   JOBS_HEADERS,
   JOBS_POLL_MS,
   JobsDrawerComponent,
+  JOBS_MAX_ROWS,
   jobColumnWidths,
   jobRowCells,
+  visibleJobs,
 } from "../../../src/ui/components/index.ts";
 import {
   dismissDrawerChildren,
@@ -373,5 +375,19 @@ describe("the drawer registry hook (dismiss + commands)", () => {
     remove();
     expect(drawerCommands()).toHaveLength(0);
     expect(runDrawerCommand("jobs")).toBeUndefined();
+  });
+});
+
+describe("visibleJobs — reverse chronological, capped", () => {
+  it("shows the newest JOBS_MAX_ROWS first, oldest dropped", () => {
+    const rows = Array.from({ length: 8 }, (_, i) => job({ id: `bg_${i}`, startedAt: 1000 + i }));
+    const shown = visibleJobs(rows);
+    expect(shown).toHaveLength(JOBS_MAX_ROWS);
+    expect(shown.map((j) => j.id)).toEqual(["bg_7", "bg_6", "bg_5", "bg_4", "bg_3"]);
+  });
+
+  it("keeps full order for a short list", () => {
+    const rows = [job({ id: "bg_a", startedAt: 5 }), job({ id: "bg_b", startedAt: 9 })];
+    expect(visibleJobs(rows).map((j) => j.id)).toEqual(["bg_b", "bg_a"]);
   });
 });

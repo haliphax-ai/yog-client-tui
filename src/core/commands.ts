@@ -77,6 +77,9 @@ export let registryVersion = 0;
 
 /** Server-advertised commands merged under the local set, registry order. */
 let serverCommands: readonly SlashCommand[] = [];
+/** The raw descriptors the server advertised (re-merged when the drawer
+ *  list changes — see `reapplyServerCommands`). */
+let serverDescriptors: readonly CommandDescriptor[] = [];
 
 /** Drawer-child commands (the drawer registry's hook), same merge. */
 let drawerCommands: readonly SlashCommand[] = [];
@@ -136,7 +139,10 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = new Proxy(
  */
 export function setDrawerCommands(descriptors: readonly SlashCommand[]): readonly SlashCommand[] {
   drawerCommands = Object.freeze([...descriptors]);
-  registryVersion += 1;
+  // A drawer command may collide with an already-merged server descriptor
+  // (the probe lands before wireTerminal): re-run the merge so the drawer
+  // child wins its name and the duplicate disappears.
+  reapplyServerCommands();
   return drawerCommands;
 }
 
@@ -144,14 +150,29 @@ export function setDrawerCommands(descriptors: readonly SlashCommand[]): readonl
  * Apply the capabilities reply's command descriptors to the registry.
  * Bumps `registryVersion` every call so `SLASH_BY_NAME` and menu
  * memoization re-derive. Returns the descriptors rejected on a name
- * collision with a local command (local wins).
+ * collision with a client-owned command (local wins — the frozen locals
+ * OR a drawer command, whichever is registered by then; a drawer child
+ * that registers LATER re-applies the filter in `setDrawerCommands`,
+ * which re-runs this over the stored server list).
  */
 export function setServerCommands(
   descriptors: readonly CommandDescriptor[],
 ): readonly CommandDescriptor[] {
+  serverDescriptors = descriptors;
+  return reapplyServerCommands();
+}
+
+/**
+ * Re-merge the stored server descriptors under the CURRENT local + drawer
+ * sets. `setDrawerCommands` calls this after replacing the drawer list so
+ * a drawer command that registers after the capabilities probe still wins
+ * its collision (the probe runs before `wireTerminal` in the composition
+ * root — registration order is not the merge order).
+ */
+function reapplyServerCommands(): readonly CommandDescriptor[] {
   const rejected: CommandDescriptor[] = [];
   const merged: SlashCommand[] = [];
-  for (const descriptor of descriptors) {
+  for (const descriptor of serverDescriptors) {
     const clientOwned =
       LOCAL_COMMANDS.some((local) => local.name === descriptor.name) ||
       drawerCommands.some((drawer) => drawer.name === descriptor.name);

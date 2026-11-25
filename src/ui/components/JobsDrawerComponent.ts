@@ -85,7 +85,16 @@ export interface JobRowInput {
   readonly termReason?: string;
 }
 
-/** Shape one wire row into the table's cells (widths unfilled). */
+/** The drawer's display slice: most recent first, capped. */
+export const JOBS_MAX_ROWS = 5;
+
+/** The rows the drawer shows: the freshest JOBS_MAX_ROWS jobs in reverse
+ *  start order (newest row on top). Server order is start-ascending. */
+export function visibleJobs(jobs: readonly JobRowInput[]): readonly JobRowInput[] {
+  return [...jobs].sort((a, b) => b.startedAt - a.startedAt).slice(0, JOBS_MAX_ROWS);
+}
+
+/** Shape one wire row into the table cells (widths unfilled). */
 export function jobRowCells(job: JobRowInput, now: number): string[] {
   return [
     job.id,
@@ -200,9 +209,13 @@ export class JobsDrawerComponent
     try {
       const jobs = await this.fetcher();
       this.announceTransitions(jobs);
+      // The drawer shows the freshest few in reverse start order; the
+      // transition diff still reads the FULL list (a settled job outside
+      // the visible slice must still announce once).
+      const shown = visibleJobs(jobs);
       this.fingerprints = jobs.map(fingerprintOf);
       setState({
-        jobRows: jobs.map((job) => jobRowCells(job, Date.now())),
+        jobRows: shown.map((job) => jobRowCells(job, Date.now())),
       });
     } catch {
       // Best effort: keep the previous rows, retry on the next tick.
