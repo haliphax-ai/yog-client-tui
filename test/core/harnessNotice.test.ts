@@ -324,3 +324,24 @@ describe("the idle-abort prelude path (end-to-end shapes)", () => {
     expect(entries[0]!.lines.join(" ")).toContain("background jobs terminated: bg_");
   });
 });
+
+describe("wake-turn prompt rows rehydrate as system, not user", () => {
+  const wakeTurns = new Map([[7, { wake: true }]]);
+
+  it("a wake turn's prompt row renders kind system (the notice block)", () => {
+    const rows = [
+      row({ role: "user", content: "normal prompt", turnId: "3" }, 1),
+      row({ role: "user", content: "[background jobs] 1 finished", turnId: "7" }, 2),
+      row({ role: "assistant", content: "ack", turnId: "7" }, 3),
+    ];
+    const entries = transcriptLogEntries(toTranscriptEntries(rows), 80, { turns: wakeTurns });
+    expect(entries.map((e) => e.kind)).toEqual(["user", "system", "assistant"]);
+    expect(entries[1]!.lines[0]).toContain("[background jobs]");
+  });
+
+  it("without the marker the same row stays a plain user bubble", () => {
+    const rows = [row({ role: "user", content: "[background jobs] 1 finished", turnId: "7" }, 2)];
+    const entries = transcriptLogEntries(toTranscriptEntries(rows), 80);
+    expect(entries.map((e) => e.kind)).toEqual(["user"]);
+  });
+});

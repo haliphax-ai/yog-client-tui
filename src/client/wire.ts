@@ -64,6 +64,9 @@ export interface TranscriptResult {
     status?: string;
     usage?: TokenUsage;
     durationMs?: number;
+    /** A background-jobs wake turn (the jobs manager fired it; no human
+     *  prompt behind it) — the prompt row styles as harness-internal. */
+    wake?: boolean;
   }>;
 }
 

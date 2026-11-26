@@ -185,6 +185,8 @@ interface CapturedTurn {
   turnId: number;
   usage?: TokenUsage;
   durationMs?: number;
+  /** A background-jobs wake turn (the jobs manager fired it). */
+  wake?: boolean;
 }
 
 /** A finite nonnegative turn id, or undefined. */
@@ -206,6 +208,7 @@ function turnMetrics(turn: CapturedTurn, prevTotal: number): TranscriptTurnMetri
   if (duration !== undefined) metrics.durationMs = duration;
   const delta = reportedTotalOf(turn) - prevTotal;
   if (reportedTotalOf(turn) > 0 && delta > 0) metrics.usage = { total_tokens: delta };
+  if (turn.wake === true) metrics.wake = true;
   return metrics;
 }
 
@@ -216,12 +219,12 @@ function byTurnId(a: CapturedTurn, b: CapturedTurn): number {
 
 /** Is the metrics entry worth a map slot: it carries anything at all? */
 function hasMetrics(metrics: TranscriptTurnMetrics): boolean {
-  return metrics.usage !== undefined || metrics.durationMs !== undefined;
+  return metrics.usage !== undefined || metrics.durationMs !== undefined || metrics.wake === true;
 }
 
 /** The captured turns with usable ids, in turn order. */
 function orderedTurns(
-  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }>,
+  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number; wake?: boolean }>,
 ): CapturedTurn[] {
   return turns
     .filter((t): t is CapturedTurn => t !== null && typeof t === "object")
@@ -235,7 +238,9 @@ function reportedTotalOf(turn: CapturedTurn): number {
 }
 
 export function perTurnDeltas(
-  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }> | undefined,
+  turns:
+    | ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number; wake?: boolean }>
+    | undefined,
 ): Map<number, TranscriptTurnMetrics> {
   const out = new Map<number, TranscriptTurnMetrics>();
   if (!Array.isArray(turns)) return out;

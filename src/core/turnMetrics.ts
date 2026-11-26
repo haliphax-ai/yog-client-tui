@@ -6,10 +6,13 @@
  */
 import type { TokenUsage } from "../client/index.ts";
 
-/** Per-turn metrics for a rehydrated turn (usage/duration as captured). */
+/** Per-turn metrics for a rehydrated turn (usage/duration as captured).
+ *  `wake` marks a background-jobs wake turn — the prompt row styles as
+ *  harness-internal (a notice block), never a user bubble. */
 export interface TranscriptTurnMetrics {
   usage?: TokenUsage;
   durationMs?: number;
+  wake?: boolean;
 }
 
 /** Options for transcript rehydration entries. */
