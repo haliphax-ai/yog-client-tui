@@ -35,7 +35,7 @@ function wire() {
     abortTurn: () => calls.push("abortTurn"),
     dismissEsc: () => false,
     abortBackgroundJobs: () => undefined,
-    toggleJobs: () => undefined,
+    toggleJobs: () => calls.push("toggleJobs"),
     pageRows: () => 24,
   };
   const decode = createInputDecoder({
@@ -70,6 +70,14 @@ describe("live input byte path", () => {
     decode("\x1b[27;2;13~");
     expect(getState().input).toBe("hi\n");
     expect(calls).toEqual([]);
+  });
+
+  it("ctrl+j still toggles the jobs drawer (the printable surface must not claim ctrl)", async () => {
+    const { decode, calls } = wire();
+    decode("\x1b[106;5u");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toEqual(["toggleJobs"]);
   });
 
   it("Shift+Space types a space (kitty CSI 32;2u, text-less)", () => {

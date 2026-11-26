@@ -139,7 +139,13 @@ function modOf(params: readonly number[]): KeyMod {
  */
 function printableCodePoint(params: readonly number[], final: string): number | undefined {
   if (final !== "u") return undefined;
-  const cp = params[0];
+  const [cp, modByte] = params;
+  // Shift-only keys surface (the input layer's demotion types them).
+  // Every other modifier stays with its owner: ctrl+letter keeps its C0
+  // bridging (and ctrl+j its router binding), alt/meta combos are
+  // unclaimed — surfacing them here would have the textarea swallow
+  // keys the ring's globals bind.
+  if (modByte !== 2) return undefined;
   if (cp === undefined || cp < 32 || cp > 126 || cp === 127) return undefined;
   return cp;
 }
