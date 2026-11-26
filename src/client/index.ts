@@ -17,6 +17,8 @@ export {
 } from "./client.ts";
 export { YogError, isUnreachable, unreachableError, toYogError } from "./errors.ts";
 export { parseToolArgs } from "./decode.ts";
+export { str, TurnObservation } from "./turnOutcome.ts";
+export { turnEnvelopeHandler } from "./envelope.ts";
 export { parseFrame, toEnvelope, readSseStream } from "./sse.ts";
 export type {
   AbortTurnResult,

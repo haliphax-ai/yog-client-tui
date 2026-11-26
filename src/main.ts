@@ -59,7 +59,7 @@ import {
 } from "./app/index.ts";
 import { pushLines } from "./app/index.ts";
 import { resolveSession } from "./app/index.ts";
-import { pollRunningTurn } from "./app/index.ts";
+import { nextMessageSeq, pollRunningTurn, startIdleWatch } from "./app/index.ts";
 import { abortActiveTurn } from "./app/index.ts";
 import { submitInput } from "./app/index.ts";
 import { setKeyDumpWriter, wireTerminal, type AppHooks, type Terminal } from "./app/index.ts";
@@ -286,10 +286,15 @@ async function run(argv: readonly string[]): Promise<void> {
     restoreTerminal();
     process.exit(code);
   };
+  // The idle watch (yog#85): foreign-turn rendering — wake turns and
+  // their tool calls stream live instead of appearing on the next
+  // submit. Armed after setup; disarmed while a user turn is live.
+  let idleWatch: { arm(): void; disarm(): void } | undefined;
   const hooks: AppHooks = {
     outputToFile,
     submit: () => {
       if (terminal === undefined) return;
+      idleWatch?.disarm();
       submitInput(
         {
           client,
@@ -299,6 +304,7 @@ async function run(argv: readonly string[]): Promise<void> {
           scheduler: terminal.scheduler,
           quit: (code) => void quit(code),
           saveState: (id) => saveState(stateFilePath(), { lastSessionId: id }),
+          idleWatch,
         },
         getState().input,
       );
@@ -318,6 +324,22 @@ async function run(argv: readonly string[]): Promise<void> {
       stop: () => setState({ busy: false }),
     });
   }
+  // Arm the idle watch now that the scheduler exists: wake turns render
+  // live (replay covers a connect-mid-turn startup, so a resume with a
+  // foreign turn in flight streams its content too).
+  idleWatch = startIdleWatch(
+    client,
+    {
+      entries: getState().entries,
+      append: pushLines,
+      width: () => process.stdout.columns ?? 80,
+      requestRender: terminal?.scheduler.request ?? (() => undefined),
+      nextMessageSeq,
+    },
+    { set: (flag: boolean) => setState({ busy: flag }) },
+  );
+  idleWatch?.arm();
+
   // Persist the resolved id so the next launch resumes automatically. A
   // startup failure above never reaches this write, so a stored id survives.
   await saveState(stateFilePath(), { lastSessionId: client.sessionId ?? null });

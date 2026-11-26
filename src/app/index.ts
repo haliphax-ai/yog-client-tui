@@ -12,6 +12,7 @@ export {
 } from "./copySinks.ts";
 export { nextMessageSeq, pushLines, resetEntries } from "./logFeed.ts";
 export { pollRunningTurn } from "./pollRunning.ts";
+export { startIdleWatch, type IdleWatch, type IdleWatchHost } from "./idleWatch.ts";
 export { type ResolvedSession, resolveSession } from "./sessionSetup.ts";
 export {
   type CommandEnv,

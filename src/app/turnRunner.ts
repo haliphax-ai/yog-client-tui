@@ -20,11 +20,15 @@ export interface TurnEnv {
   scheduler: { request(): void };
   quit(code: number): void;
   saveState(lastSessionId: string | null): Promise<void>;
+  /** The idle watch: disarmed while a user turn is live, rearmed at its
+   *  settle — user-turn streams own rendering; the watch covers idle. */
+  idleWatch?: { arm(): void; disarm(): void };
 }
 
 /** Run the async turn to its outcome, reporting failures through the
  *  presenter's fail path; always stop the spinner and finish the turn. */
 async function driveTurn(env: TurnEnv, presenter: TurnPresenter, prompt: string): Promise<void> {
+  env.idleWatch?.disarm();
   try {
     const outcome = await turnWithRecovery(
       env.client,
@@ -42,6 +46,7 @@ async function driveTurn(env: TurnEnv, presenter: TurnPresenter, prompt: string)
   } finally {
     env.spinner.stop();
     presenter.finish();
+    env.idleWatch?.arm();
     // The turn's events may have appended to the shared entries array
     // in place.
     setState({ entries: getState().entries });
