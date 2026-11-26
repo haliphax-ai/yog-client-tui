@@ -64,10 +64,9 @@ export function startIdleWatch(
   const dbg = (line: string): void => {
     if (isDebugEnabled()) emitDebug([`👁 ${line}`]);
   };
-  const onEvent = (ev: { type: string; data?: Record<string, unknown> }): void => {
-    dbg(`frame ${ev.type}`);
-    turnEnvelopeHandler(observed, events as never, "", () => undefined)(ev as never);
-  };
+  // Per-frame debug lines live in git history if ever needed again —
+  // they drown the chunk while a turn streams (one line per delta).
+  const onEvent = turnEnvelopeHandler(observed, events as never, "", () => undefined);
 
   return {
     arm(): void {
