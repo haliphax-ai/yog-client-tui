@@ -330,7 +330,12 @@ async function run(argv: readonly string[]): Promise<void> {
   idleWatch = startIdleWatch(
     client,
     {
-      entries: getState().entries,
+      // LIVE binding: rebuilds replace the store's array — the watch must
+      // always mutate the CURRENT one (a captured reference goes stale on
+      // the first rebuild and its rows vanish).
+      get entries() {
+        return getState().entries;
+      },
       append: pushLines,
       width: () => process.stdout.columns ?? 80,
       requestRender: terminal?.scheduler.request ?? (() => undefined),
