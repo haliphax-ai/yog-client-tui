@@ -123,6 +123,26 @@ describe("rehydration: the harness pair renders as notices", () => {
     expect(notice.lines.join(" ")).toContain("terminated: bg_9");
   });
 
+  it("the attached tool result renders the shared chunk on rehydrate too", () => {
+    const rows = [
+      harnessCall("call_hn_4", 1),
+      harnessResult("call_hn_4", 2, [
+        {
+          kind: "background jobs",
+          body: "job bg_2 finished · exit 0 · 7s",
+          tool: "bash",
+          result: { exitCode: 0, stdout: "rehydrate ok\n", stderr: "" },
+        },
+      ]),
+    ];
+    const entries = transcriptLogEntries(toTranscriptEntries(rows), 80);
+    expect(entries.map((e) => e.kind)).toEqual(["notice", "chunk"]);
+    expect(entries[0]!.harness).toBe(true);
+    expect(entries[1]!.result).toEqual({ exitCode: 0, stdout: "rehydrate ok\n", stderr: "" });
+    // Live-path copy parity: the chunk carries the call id as its item id.
+    expect(entries[1]!.copyIds).toEqual({ itemId: "call_hn_4" });
+  });
+
   it("the grouped walker produces the same shape (bottom-up parity)", () => {
     const rows = [
       harnessCall("call_hn_2", 1),
@@ -198,12 +218,50 @@ describe("live path: a harness_notice pair renders as notices", () => {
         notices: [{ kind: "background-jobs", body: "aborted 2 jobs ✅" }],
       },
     });
-    // The call line stays (the empty-args ⚙️ groups with the result);
-    // the notices replace the result blob.
+    // No call row: all information lives in the result; the notices
+    // replace both the call row and the result blob.
     const kinds = host.entries.map((e) => e.kind);
-    expect(kinds).toEqual(["tool", "notice"]);
-    expect(host.entries[1]!.harness).toBe(true);
-    expect(host.entries[1]!.lines.join(" ")).toContain("aborted 2 jobs");
+    expect(kinds).toEqual(["notice"]);
+    expect(host.entries[0]!.harness).toBe(true);
+    expect(host.entries[0]!.lines.join(" ")).toContain("aborted 2 jobs");
+  });
+
+  it("an attached tool result renders the shared result components", () => {
+    const host = {
+      entries: [] as LogEntry[],
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        host.entries.push({ kind, lines });
+      },
+      width: () => 80,
+      requestRender: () => undefined,
+      nextMessageSeq: () => "1",
+    };
+    const presenter = createTurnPresenter(host);
+    presenter.events.onToolCall?.("call_hn_11", HARNESS_NOTICE_TOOL, {});
+    presenter.events.onToolResult?.({
+      id: "call_hn_11",
+      name: HARNESS_NOTICE_TOOL,
+      ok: true,
+      result: {
+        hint: "synthetic",
+        notices: [
+          {
+            kind: "background jobs",
+            body: "job bg_1 finished · exit 0 · 70s",
+            tool: "bash",
+            result: { exitCode: 0, stdout: "build ok\n", stderr: "" },
+          },
+        ],
+      },
+    });
+    // The notice line first; then the bash-shaped result as the SAME
+    // collapsible chunk a live bash call renders.
+    const kinds = host.entries.map((e) => e.kind);
+    expect(kinds).toEqual(["notice", "chunk"]);
+    expect(host.entries[0]!.harness).toBe(true);
+    expect(host.entries[0]!.lines.join(" ")).toContain("job bg_1 finished");
+    expect(host.entries[1]!.result).toEqual({ exitCode: 0, stdout: "build ok\n", stderr: "" });
+    expect(host.entries[1]!.copyIds).toEqual({ itemId: "call_hn_11" });
   });
 
   it("an orphan harness result renders its notices too", () => {

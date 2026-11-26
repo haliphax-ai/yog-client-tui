@@ -67,14 +67,14 @@ function proseRunOf(
 }
 
 /** Stamp the tool-call id as the copy item id on a result entry group
- *  args and result are one transcript item, so the result block
- *  copies under the same id as its call line. Status lines are not
- *  copyable items and stay unstamped; an undefined id leaves the group
- *  uncopyable rather than inventing one. */
+ *  (args and result are one transcript item, so the result block copies
+ *  under the same id as its call line). Notice entries are NOT copyable
+ *  items and stay unstamped; an undefined id leaves the group uncopyable
+ *  rather than inventing one. */
 function stampResultCopy(entries: LogEntry[], id: string | undefined): LogEntry[] {
   if (id === undefined) return entries;
   for (const entry of entries) {
-    if (entry.kind === "status") continue;
+    if (entry.kind === "status" || entry.kind === "notice") continue;
     entry.copyIds = { itemId: id };
   }
   return entries;
@@ -152,7 +152,10 @@ function harnessStep(entries: TranscriptEntry[], i: number): Step | undefined {
   // through to the generic call step (the ✅/❌ line plus the raw blob),
   // which re-pairs the same rows from scratch.
   if (pair === undefined) return undefined;
-  return { group: harnessNoticeEntries(pair.notices), next: pair.end };
+  const group = harnessNoticeEntries(pair.notices);
+  // Copy identity: the attached result entries are the transcript item —
+  // stamp them with the call id like every other paired result.
+  return { group: stampResultCopy(group, call.id), next: pair.end };
 }
 
 /** True when row `j` is a tool result answering `callId` (the pairing
