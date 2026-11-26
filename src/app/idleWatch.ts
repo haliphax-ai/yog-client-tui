@@ -13,6 +13,7 @@
 import { TurnObservation, turnEnvelopeHandler } from "../client/index.ts";
 import type { YogClient } from "../client/index.ts";
 import { createTurnPresenter } from "../core/index.ts";
+import { emitDebug, isDebugEnabled } from "../ui/index.ts";
 
 /** The presenter host the watch builds its own presenter over (the
  *  shared log; identical shape to the submit path's host). */
@@ -60,10 +61,17 @@ export function startIdleWatch(
       foreignEnd();
     },
   };
-  const onEvent = turnEnvelopeHandler(observed, events, "", () => undefined);
+  const dbg = (line: string): void => {
+    if (isDebugEnabled()) emitDebug([`👁 ${line}`]);
+  };
+  const onEvent = (ev: { type: string; data?: Record<string, unknown> }): void => {
+    dbg(`frame ${ev.type}`);
+    turnEnvelopeHandler(observed, events as never, "", () => undefined)(ev as never);
+  };
 
   return {
     arm(): void {
+      dbg(`arm (sessionId=${client.sessionId ?? "none"}, already=${stream !== undefined})`);
       if (stream !== undefined || client.sessionId === undefined) return;
       stream = client.openStream(client.sessionId, onEvent);
       void stream.closed.then(
@@ -74,6 +82,7 @@ export function startIdleWatch(
       );
     },
     disarm(): void {
+      dbg("disarm");
       stream?.close();
       stream = undefined;
     },
