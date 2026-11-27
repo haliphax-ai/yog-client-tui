@@ -390,7 +390,15 @@ async function run(argv: readonly string[]): Promise<void> {
     // The idle watch (armed before this line) fans job lifecycle events
     // into the drawer — event-fed rows, no polling (jobsDrawerSink is the
     // late-bound indirection created with the watch above).
-    jobsDrawerSink = (type, data) => drawer.onJobEvent(type, data);
+    jobsDrawerSink = (type, data) => {
+      drawer.onJobEvent(type, data);
+      // A cascade termination streams immediately (the server emits it at
+      // abort time): surface it as a notice, not just a drawer row.
+      if (type === "job.terminated" && Array.isArray(data["jobs"])) {
+        const ids = (data["jobs"] as unknown[]).join(", ");
+        pushLines("notice", noticeLine("notice", "background jobs terminated", ids));
+      }
+    };
   }
   // The fatal handler draws its notice through the same flush timer.
   fatalScheduler = terminal.scheduler.request;
