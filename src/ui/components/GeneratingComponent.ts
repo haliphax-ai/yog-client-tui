@@ -25,14 +25,8 @@ import { BaseComponent, type RenderContext } from "./Component.ts";
 import { getState, setState } from "../../core/index.ts";
 import { ST } from "../theme.ts";
 
-/** Busy labels drawn after the spinner frame (the frame supplies its own
- *  gap): the user's own turn vs a foreign wake delivery — a background-
- *  jobs wake turn streaming its results. The distinction matters because
- *  an Esc abort of the user's turn cannot stop THIS generation (it is a
- *  different turn); the label says whose generation it is. */
+/** The busy label (one label: a turn is a turn — wake or user-typed). */
 const LABEL = "generating";
-const LABEL_WAKE = "generating — wake turn (background jobs)";
-
 export class GeneratingComponent extends BaseComponent {
   private spinner: SpinnerModel;
   private timer: NodeJS.Timeout | undefined;
@@ -76,7 +70,6 @@ export class GeneratingComponent extends BaseComponent {
       return [];
     }
     this.startTicking();
-    const label = getState().busyWake === true ? LABEL_WAKE : LABEL;
-    return [this.spinner.view() + ST.generating.render(label)];
+    return [this.spinner.view() + ST.generating.render(LABEL)];
   }
 }
