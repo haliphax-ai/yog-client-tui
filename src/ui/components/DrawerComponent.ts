@@ -51,9 +51,12 @@ export class DrawerComponent extends BaseComponent {
       lastHadRows = childRows.length > 0;
     }
     if (rows.length === 0) return [];
+    // The gap on the INPUT side: one blank row after the block (the log's
+    // trailing separator blank is the gap on the LOG side). This keeps
+    // exactly one blank between log | drawer | input in every state.
+    rows.push("");
     return ST.drawer.width(cols).render(rows.join("\n")).split("\n");
   }
-
   /** Row count of the padded block (0 when fully collapsed). */
   override measure(width: number): number {
     const cols = Math.max(0, Math.floor(width));

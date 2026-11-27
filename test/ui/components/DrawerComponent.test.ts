@@ -47,10 +47,11 @@ describe("DrawerComponent + registry", () => {
     registerDrawerChild(new Stub(["hello"]));
     const drawer = new DrawerComponent();
     const rows = drawer.render({ cols: 20 });
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
     expect(stripAnsi(rows[0] as string)).toBe(" hello" + " ".repeat(14));
+    expect(stripAnsi(rows[1] as string)).toBe(" ".repeat(20)); // the input-side gap
     for (const row of rows) expect(displayWidth(row)).toBe(20);
-    expect(drawer.measure(20)).toBe(1);
+    expect(drawer.measure(20)).toBe(2);
   });
 
   it("stacks children in registration order and normalizes string renders", () => {
@@ -63,6 +64,7 @@ describe("DrawerComponent + registry", () => {
       " bbb      ",
       "          ", // the item separator: one blank row between children
       " ccc      ",
+      "          ", // the input-side gap
     ]);
   });
 
@@ -72,7 +74,7 @@ describe("DrawerComponent + registry", () => {
     registerDrawerChild(new Stub([]));
     const drawer = new DrawerComponent();
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
-    expect(plain).toEqual([" only     "]);
+    expect(plain).toEqual([" only     ", " ".repeat(10)]);
   });
 
   it("skips collapsed children between visible ones", () => {
@@ -81,14 +83,14 @@ describe("DrawerComponent + registry", () => {
     registerDrawerChild(new Stub(["second"]));
     const drawer = new DrawerComponent();
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
-    expect(plain).toEqual([" first    ", " second   "]);
+    expect(plain).toEqual([" first    ", " second   ", " ".repeat(10)]);
   });
 
   it("truncates overlong child rows to the padded interior (no wrap explosion)", () => {
     registerDrawerChild(new Stub(["abcdefghij"]));
     const drawer = new DrawerComponent();
     const rows = drawer.render({ cols: 6 });
-    expect(rows).toHaveLength(1);
+    expect(rows).toHaveLength(2);
     expect(stripAnsi(rows[0] as string)).toBe(" abcd ");
   });
 
@@ -96,11 +98,11 @@ describe("DrawerComponent + registry", () => {
     registerDrawerChild(new Stub(["✅ done"]));
     const drawer = new DrawerComponent();
     const rows = drawer.render({ cols: 10 });
-    expect(rows).toHaveLength(1);
-    expect(displayWidth(rows[0] as string)).toBe(10);
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(displayWidth(row)).toBe(10);
     // "✅" is 1 char but 2 cells: " ✅ done  " is 10 cells, 9 chars.
     expect(stripAnsi(rows[0] as string)).toBe(" ✅ done  ");
-    expect(drawer.measure(10)).toBe(1);
+    expect(drawer.measure(10)).toBe(2);
   });
 
   it("unregistering a child removes it from the draw", () => {
@@ -111,7 +113,7 @@ describe("DrawerComponent + registry", () => {
     expect(registeredDrawerChildren()).toHaveLength(1);
     const drawer = new DrawerComponent();
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
-    expect(plain).toEqual([" kept     "]);
+    expect(plain).toEqual([" kept     ", " ".repeat(10)]);
     remove(); // unregister is idempotent
     expect(registeredDrawerChildren()).toHaveLength(1);
   });
