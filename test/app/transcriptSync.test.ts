@@ -9,7 +9,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetForTests, setState, getState } from "../../src/core/index.ts";
 import type { YogClient } from "../../src/client/index.ts";
-import { setTranscriptSyncNotes, syncTranscriptOnSubmit } from "../../src/app/index.ts";
+import {
+  resetTranscriptTailForTests,
+  setTranscriptSyncNotes,
+  syncTranscriptOnSubmit,
+} from "../../src/app/index.ts";
 import { emitDebug, isDebugEnabled } from "../../src/ui/index.ts";
 import type { TranscriptMessage, TranscriptResult } from "../../src/client/index.ts";
 import { noticeLine } from "../../src/core/index.ts";
@@ -19,9 +23,9 @@ import type { LogEntry } from "../../src/core/index.ts";
  *  parameter is the concrete client, so tests cast the stub to it. */
 type SyncClient = Pick<import("../../src/client/index.ts").YogClient, "getTranscript">;
 
-/** The stub typed as the concrete client (the sync calls one method). */
+/** The stub typed as the concrete client (the sync needs the id + probe). */
 function stubClient(getTranscript: SyncClient["getTranscript"]): YogClient {
-  return { getTranscript } as unknown as YogClient;
+  return { sessionId: "s1", getTranscript } as unknown as YogClient;
 }
 
 function dump(rows: TranscriptMessage[]): TranscriptResult {
@@ -48,11 +52,12 @@ function seededLog(rows: TranscriptMessage[]): void {
 
 beforeEach(() => {
   resetForTests();
+  resetTranscriptTailForTests();
   setTranscriptSyncNotes([{ kind: "notice", lines: noticeLine("notice", "connected", "test") }]);
 });
 
 describe("syncTranscriptOnSubmit", () => {
-  it("is a no-op when the transcript has not advanced", async () => {
+  it("is a no-op when the transcript has not advanced (the floor closes the live-row gap)", async () => {
     const rows = [row({ seq: 1 }), row({ seq: 2, role: "assistant", content: "hi" })];
     seededLog(rows);
     const before = getState().entries;
@@ -65,22 +70,22 @@ describe("syncTranscriptOnSubmit", () => {
     );
   });
 
-  it("rebuilds the log under the startup notes when rows advanced", async () => {
+  it("appends only the new tail when rows advanced (the watched log stays put)", async () => {
     seededLog([row({ seq: 1 })]);
-    const note: LogEntry = { kind: "notice", lines: noticeLine("notice", "new session", "s1") };
-    setTranscriptSyncNotes([note]);
+    const before = getState().entries;
     const advanced = dump([
       row({ seq: 1 }),
       row({ seq: 2, role: "assistant", content: "wake reply" }),
     ]);
     await syncTranscriptOnSubmit(stubClient(async () => advanced));
     const log = getState().entries;
-    // Chrome first, then the full conversion (one entry per row).
-    expect(log[0]).toEqual(note);
-    expect(log.slice(1).map((e) => e.lines.join(""))).toEqual(["hello", "wake reply"]);
+    // The watched entries keep their objects and positions; the fresh
+    // tail appends after them (the wholesale replace was the flood).
+    expect(log.slice(0, before.length)).toEqual(before);
+    expect(log.slice(before.length).map((e) => e.lines.join(""))).toEqual(["wake reply"]);
   });
 
-  it("replaces the status-bar total with the dump's weight", async () => {
+  it("replaces the status-bar total with the dump's weight on the tail path", async () => {
     seededLog([row({ seq: 1 })]);
     setState({ tokenTotals: { prompt: 0, completion: 0, total: 0 } });
     const advanced = dump([

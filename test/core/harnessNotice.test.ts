@@ -325,18 +325,25 @@ describe("the idle-abort prelude path (end-to-end shapes)", () => {
   });
 });
 
-describe("wake-turn prompt rows rehydrate as system, not user", () => {
+describe("wake-turn prompt rows render as the one quiet harness line (#144)", () => {
   const wakeTurns = new Map([[7, { wake: true }]]);
 
-  it("a wake turn's prompt row renders kind system (the notice block)", () => {
+  it("a wake turn's prompt row collapses to the ⏳ notice — never the verbatim block", () => {
     const rows = [
       row({ role: "user", content: "normal prompt", turnId: "3" }, 1),
-      row({ role: "user", content: "[background jobs] 1 finished", turnId: "7" }, 2),
+      row(
+        { role: "user", content: "[background jobs] 3 finished: results below\nmore", turnId: "7" },
+        2,
+      ),
       row({ role: "assistant", content: "ack", turnId: "7" }, 3),
     ];
     const entries = transcriptLogEntries(toTranscriptEntries(rows), 80, { turns: wakeTurns });
-    expect(entries.map((e) => e.kind)).toEqual(["user", "system", "assistant"]);
-    expect(entries[1]!.lines[0]).toContain("[background jobs]");
+    expect(entries.map((e) => e.kind)).toEqual(["user", "notice", "assistant"]);
+    // The quiet label + parsed count (one rendered line — the renderer
+    // composes label · detail). The block is model-food whose results
+    // sit on the call_bg_ pairs before it.
+    expect(entries[1]!.lines).toEqual(["⏳ background jobs", "3 delivered"]);
+    expect(entries[1]!.harness).toBe(true);
   });
 
   it("without the marker the same row stays a plain user bubble", () => {

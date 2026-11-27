@@ -20,11 +20,15 @@ import { perTurnDeltas, toTranscriptEntries, wakeSubstitute } from "../core/inde
 import { estimatedContextTotal, finalContextTotal } from "../core/index.ts";
 import { getState, setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { TranscriptResult, YogClient } from "../client/index.ts";
+import type { TranscriptMessage, TranscriptResult, YogClient } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { noticeLine } from "../core/index.ts";
 import { emitDebug } from "../ui/index.ts";
-import { transcriptSignature, transcriptTailSeqOf } from "./transcriptSignature.ts";
+import {
+  noteTranscriptTail,
+  transcriptSignature,
+  transcriptTailSeqOf,
+} from "./transcriptSignature.ts";
 
 /** Terminal width (columns) for line fitting; 80 when headless. */
 export function termCols(): number {
@@ -80,29 +84,52 @@ export function applyDump(dump: TranscriptResult, priorEntries: LogEntry[]): voi
 /**
  * The submit-time transcript sync (#135): one pre-submit probe of the
  * server transcript. A no-op (and the caller submits immediately) when
- * the rows have not advanced since the last rebuild; a chrome-preserving
- * rebuild (the same one a resume/poll refresh runs) when they have; a
- * debug note and proceed when the probe itself fails — the sync is best
- * effort and never blocks a submit.
+ * the rows have not advanced since the last rebuild; INCREMENTAL when
+ * they have — only the new tail is appended, so rows the user already
+ * watched stream by stay put (the wholesale rebuild was the flood #144);
+ * a chrome-preserving full rebuild only when the log holds nothing to
+ * grow from (its first probe); a debug note and proceed when the probe
+ * itself fails — the sync is best effort and never blocks a submit.
  *
- * The comparison: the store's own tail stamp (`transcriptSignature()`,
- * the tail-seq the rebuild paths leave on every row) against the fresh
- * dump's tail (`transcriptTailSeqOf`) — the narrower half of the same
- * measure `pollRunningTurn` gates its rebuilds on, so the two paths
- * cannot drift apart.
+ * The comparison: the store's tail stamp (`transcriptSignature()` — the
+ * numeric item stamps the rebuild paths leave, raised by the probe
+ * floor the settle paths keep for live-rendered rows) against the fresh
+ * dump's tail (`transcriptTailSeqOf`).
  */
 export async function syncTranscriptOnSubmit(client: YogClient): Promise<void> {
   try {
     const dump = await client.getTranscript();
-    if (transcriptTailSeqOf(dump) === transcriptSignature()) return;
+    const sessionId = client.sessionId;
+    if (sessionId === undefined) return;
+    const tail = transcriptTailSeqOf(dump);
+    const carried = transcriptSignature(sessionId);
+    if (tail === carried) return;
     setState({
-      entries: [...notes, ...entriesForDump(dump)],
+      entries: [...getState().entries, ...entriesForDumpAfter(dump, carried)],
       tokenTotals: statusTotals(transcriptTokenWeight(dump)),
     });
+    // The floor rises only after the tail actually landed: the sync's rows
+    // are now accounted for even though (some of) them carry no numeric
+    // item stamp in the log.
+    noteTranscriptTail(sessionId, tail);
   } catch (err) {
     // Best effort: a failed probe proceeds with the submit (#135).
     emitDebug([`transcript sync skipped: ${err instanceof Error ? err.message : String(err)}`]);
   }
+}
+
+/**
+ * The new tail of a dump, as flat log entries: the rows after `after`
+ * (the tail the log already carries), converted through the same step
+ * walk a full rebuild uses (`transcriptLogEntries` — pairing, orphan
+ * results, and the turn summaries of the turns the rows belong to). An
+ * empty array when the dump holds nothing past that tail (defensive:
+ * the caller only calls this after the tail moved).
+ */
+export function entriesForDumpAfter(dump: TranscriptResult, after: number): LogEntry[] {
+  const fresh = dump.messages.filter((m) => m.seq > after);
+  if (fresh.length === 0) return [];
+  return entriesForDump({ ...dump, messages: fresh });
 }
 
 /** The post-compaction rebuild: fresh log + estimated context weight. */

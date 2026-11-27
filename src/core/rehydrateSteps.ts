@@ -15,6 +15,10 @@
  *                 the whole-message copy stamp on the run's last row
  *   orphanStep  — a tool row no call claimed (its call row predates the
  *                 transcript): standalone ✅/❌ line, chunk on success
+ *   wakePromptStep — a wake turn's prompt row (the server's verbatim
+ *                 model-food block: the results it names are already on
+ *                 the synthetic call_bg_ pairs right before it): one
+ *                 quiet harness line, never the 100+ row cyan wall
  *   systemStep  — anything else: the verbatim server text
  *
  * Pure data shaping — no store, no rendering. `rehydrate.ts` drives the
@@ -36,6 +40,7 @@ import {
   decodeToolResult,
   type TranscriptEntry,
 } from "./transcript.ts";
+import { wakePromptStep } from "./placeholder.ts";
 import type { HarnessNotice } from "./harnessNotice.ts";
 
 /**
@@ -142,20 +147,28 @@ export interface Step {
  * plus the raw result block).
  */
 function harnessStep(entries: TranscriptEntry[], i: number): Step | undefined {
-  const e = entries[i]!;
-  if (e.role !== "assistant") return undefined;
-  const calls = decodeToolCalls(e.raw.toolCalls);
-  const call = calls.length === 1 ? calls[0] : undefined;
-  if (call === undefined || !isHarnessNoticeTool(call.name)) return undefined;
-  const pair = consumeHarnessPair(entries, i, call.id);
+  const call = soleHarnessCall(entries[i]!);
   // A pair whose result does not decode is not ours to consume: fall
   // through to the generic call step (the ✅/❌ line plus the raw blob),
   // which re-pairs the same rows from scratch.
+  if (call === undefined) return undefined;
+  const pair = consumeHarnessPair(entries, i, call.id);
   if (pair === undefined) return undefined;
   const group = harnessNoticeEntries(pair.notices);
   // Copy identity: the attached result entries are the transcript item —
   // stamp them with the call id like every other paired result.
   return { group: stampResultCopy(group, call.id), next: pair.end };
+}
+
+/** The one `harness_notice` call of an assistant row (undefined when the
+ *  row is anything else — another role, zero or several calls, or a
+ *  call whose name is not the reserved synthetic). */
+function soleHarnessCall(
+  e: TranscriptEntry | undefined,
+): ReturnType<typeof decodeToolCalls>[0] | undefined {
+  if (e === undefined || e.role !== "assistant") return undefined;
+  const calls = decodeToolCalls(e.raw.toolCalls);
+  return calls.length === 1 && isHarnessNoticeTool(calls[0]!.name) ? calls[0] : undefined;
 }
 
 /** True when row `j` is a tool result answering `callId` (the pairing
@@ -293,13 +306,15 @@ function systemStep(entries: TranscriptEntry[], i: number): Step {
   return { group: [{ kind: "system", lines: [entries[i]!.text] }], next: i + 1 };
 }
 
-/** The step for row `i`: call+results, prose, orphan result, or system. */
+/** The step for row `i`: call+results, prose, orphan result, wake prompt,
+ *  or system. */
 export function stepFor(entries: TranscriptEntry[], i: number, cols: number): Step {
   return (
     harnessStep(entries, i) ??
     callStep(entries, i, cols) ??
     proseStep(entries, i) ??
     orphanStep(entries, i, cols) ??
+    wakePromptStep(entries, i) ??
     systemStep(entries, i)
   );
 }

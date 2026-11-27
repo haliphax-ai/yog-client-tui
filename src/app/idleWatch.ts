@@ -9,11 +9,22 @@
  * Disconnect safety: wake turns are `revive` turns with no bound stream,
  * so closing the watch cannot abort one (#31 keeps user turns
  * disconnect-coupled; foreign turns are not).
+ *
+ * Stream death used to strand the watch for the session's remaining life:
+ * `closed` just cleared the handle and nothing ever re-armed it except
+ * the next submit's finally block — every later wake delivery sat
+ * invisible until the user typed (#144). `arm` now re-arms itself with a
+ * backoff (the daemon restart case: an idle retry keeps the probe
+ * harmless), stops retrying only on the errors retrying cannot fix (a
+ * session the server has dropped — a restart can be picked up by
+ * relaunching the client), and `disarm` cancels any pending retry so a
+ * user turn starting mid-backoff does not double-arm.
  */
-import { TurnObservation, turnEnvelopeHandler } from "../client/index.ts";
-import type { YogClient } from "../client/index.ts";
-import { createTurnPresenter, setState, type LogEntry } from "../core/index.ts";
+import { TurnObservation, YogError, turnEnvelopeHandler } from "../client/index.ts";
+import type { TurnEvents, YogClient } from "../client/index.ts";
+import { createTurnPresenter, type LogEntry } from "../core/index.ts";
 import { getState } from "../core/index.ts";
+import { noticeLine } from "../core/index.ts";
 import { emitDebug, isDebugEnabled } from "../ui/index.ts";
 
 /** The presenter host the watch builds its own presenter over (the
@@ -32,6 +43,11 @@ export interface IdleWatch {
    */
   flushSeam(): void;
 }
+
+/** Re-arm backoff: first retry immediately-ish, then 1 s, doubling. */
+const REARM_BASE_MS = 1000;
+/** Backoff ceiling — a dead daemon is retried about every 30 s, forever. */
+const REARM_MAX_MS = 30_000;
 
 /**
  * A seam-aware host wrapper: while the user's own turn is busy, foreign
@@ -66,6 +82,50 @@ export function deferWhileBusy(
   };
 }
 
+/** Whether `err` is a stream-open failure re-arming cannot fix: a
+ *  `YogError` (`code` field) the server answered with — `unknown_session`
+ *  means the server dropped the session; everything else (transports,
+ *  restarts, timeouts) is retryable. */
+function unrecoverableStreamError(err: unknown): boolean {
+  return err instanceof YogError && err.code === "unknown_session";
+}
+
+/** The watch's event surface over one presenter: the wake-turn
+ *  `turn.started` announcement (holes 1–2, #144) plus the job-event fan
+ *  through to the drawer. Split out of `startIdleWatch` for complexity. */
+function watchEvents(
+  seam: { host: IdleWatchHost },
+  base: TurnEvents,
+  onJobEvent: ((type: string, data: Record<string, unknown>) => void) | undefined,
+): TurnEvents {
+  return {
+    ...base,
+    /**
+     * `turn.started` on the watch stream: a foreign turn is live. The
+     * announcement used to wait for the turn's first delta — for a wake
+     * turn that renders its settle pairs only after the model's first
+     * round trip, an 80+ second silent gap (#144). One quiet line now
+     * lands at t=0; the deliveries follow through the normal paths.
+     */
+    onStarted: (_turnId: string, _model: string, wake?: boolean): void => {
+      if (wake !== true) return;
+      seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
+    },
+    onJobEvent: (type: string, data: Record<string, unknown>) => {
+      base.onJobEvent?.(type, data);
+      onJobEvent?.(type, data);
+    },
+  };
+}
+
+/** Cancel a pending re-arm and reset the backoff (both lifecycle edges:
+ *  a fresh `arm` retries at full speed; a `disarm` must not let a
+ *  queued timer double-arm underneath the user's turn). */
+function cancelRearm(timer: ReturnType<typeof setTimeout> | undefined): undefined {
+  if (timer !== undefined) clearTimeout(timer);
+  return undefined;
+}
+
 export function startIdleWatch(
   client: YogClient,
   hostInput: IdleWatchHost,
@@ -79,36 +139,54 @@ export function startIdleWatch(
   const seam = deferWhileBusy(hostInput, () => getState().busy);
   const presenter = createTurnPresenter(seam.host);
   let stream: ReturnType<YogClient["openStream"]> | undefined;
+  let rearmTimer: ReturnType<typeof setTimeout> | undefined;
+  let rearmDelay = 0;
   const observed = new TurnObservation();
-  const base = presenter.events;
-  const events = {
-    ...base,
-    onJobEvent: (type: string, data: Record<string, unknown>) => {
-      base.onJobEvent?.(type, data);
-      onJobEvent?.(type, data);
-    },
-  };
+  // Per-frame debug lines live in git history if ever needed again —
+  // they drown the chunk while a turn streams (one line per delta).
   const dbg = (line: string): void => {
     if (isDebugEnabled()) emitDebug([`👁 ${line}`]);
   };
-  // Per-frame debug lines live in git history if ever needed again —
-  // they drown the chunk while a turn streams (one line per delta).
-  const onEvent = turnEnvelopeHandler(observed, events as never, "", () => undefined);
+  const onEvent = turnEnvelopeHandler(
+    observed,
+    watchEvents(seam, presenter.events, onJobEvent) as never,
+    "",
+    () => undefined,
+  );
+
+  const arm = (): void => {
+    if (stream !== undefined || client.sessionId === undefined) return;
+    stream = client.openStream(client.sessionId, onEvent);
+    dbg("armed");
+    void stream.closed.then((err) => {
+      if (stream !== undefined) stream = undefined;
+      // Re-arm with backoff — the one self-heal path: SSE streams die
+      // (server restart, idle timeout, network blip) and every later
+      // wake delivery stayed invisible until the next submit (#144).
+      if (err !== undefined && unrecoverableStreamError(err)) {
+        dbg(`stream closed permanent (${err.message}) — not re-arming`);
+        return;
+      }
+      rearmDelay = rearmDelay === 0 ? REARM_BASE_MS : Math.min(rearmDelay * 2, REARM_MAX_MS);
+      dbg(`stream closed — re-arming in ${rearmDelay}ms`);
+      rearmTimer = setTimeout(() => {
+        rearmTimer = undefined;
+        arm();
+      }, rearmDelay);
+    });
+  };
 
   return {
     arm(): void {
       dbg(`arm (sessionId=${client.sessionId ?? "none"}, already=${stream !== undefined})`);
-      if (stream !== undefined || client.sessionId === undefined) return;
-      stream = client.openStream(client.sessionId, onEvent);
-      void stream.closed.then(
-        () => {
-          if (stream !== undefined) stream = undefined;
-        },
-        () => undefined,
-      );
+      rearmTimer = cancelRearm(rearmTimer);
+      rearmDelay = 0;
+      arm();
     },
     disarm(): void {
       dbg("disarm");
+      rearmTimer = cancelRearm(rearmTimer);
+      rearmDelay = 0;
       stream?.close();
       stream = undefined;
     },

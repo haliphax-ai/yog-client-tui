@@ -35,6 +35,7 @@ export {
   compactionNote,
   driveRehydrate,
   entriesForDump,
+  entriesForDumpAfter,
   placeholderSeed,
   setTranscriptSyncNotes,
   stageRehydrate,
@@ -54,3 +55,9 @@ export {
   withUsageTracking,
 } from "./turnControl.ts";
 export { type TurnEnv, submitInput } from "./turnRunner.ts";
+export {
+  noteTranscriptTail,
+  resetTranscriptTailForTests,
+  transcriptFloorOf,
+  transcriptSignature,
+} from "./transcriptSignature.ts";
