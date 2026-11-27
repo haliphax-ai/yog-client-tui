@@ -117,7 +117,7 @@ export function wireTerminal(
    *  drawer's top padding is that gap when the drawer is visible (one row),
    *  and the composition's own blank row is the gap when it is collapsed
    *  (zero — the blank reuses or replaces a viewport row in place). */
-  const drawerGap = (cols: number): number => (drawer.measure(cols) > 0 ? 1 : 0);
+  const drawerGap = (_cols: number): number => 0; // exact accounting: the drawer pad IS the gap
 
   /** Rows available to the log viewport in the current terminal layout. */
   const viewportRows = (): number =>

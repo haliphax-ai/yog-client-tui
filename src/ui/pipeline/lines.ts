@@ -32,16 +32,11 @@ export function padFrame(frame: string, width: number): string {
  * drawer is visible, that blank is the drawer's own top padding: the
  * viewport's trailing blank (the log's entry separator, or padding for
  * short content) is consumed so it does not stack with the padding into
- * two blank lines. When the viewport ends in content (scrolled away from
- * the bottom), its last row is consumed as the margin instead — the
- * viewport renders one row of content less and the drawer's padding takes
- * its place, so the frame still fits the terminal exactly. The layout
- * accounts for the consumed row (see `drawerGap` in main.ts).
- *
- * When the drawer is fully collapsed (no rows), the composition guarantees
- * the same single blank line between the log and the input: the viewport's
- * trailing blank is reused as the gap, or its last content row is consumed
- * as the margin, so the frame still fits the terminal exactly.
+ * exact row accounting: the viewport's row budget (see `viewportRows` in
+ * main.ts) already subtracts the drawer's rows, and the drawer's padding
+ * row is the visual gap between log and input. The pane is the plain
+ * concatenation — no slicing, no blanking, no row donation anywhere;
+ * any of those shifted the pane by a line and jittered the bubbles.
  */
 export function composeMainPane(
   viewportRows: readonly string[],
@@ -49,20 +44,10 @@ export function composeMainPane(
   inputRow: string,
   statusRow: string,
 ): string[] {
-  if (drawerRows.length > 0) {
-    // Same gap rule as the collapsed case below: the viewport's last row
-    // becomes the composition gap — blanked only when it carries content
-    // (a trailing blank is reused in place). Never drop a content row to
-    // make room: the spinner must not overwrite the log's last line.
-    const last = viewportRows[viewportRows.length - 1];
-    if (stripAnsi(last ?? "").trim() !== "") {
-      return [...viewportRows.slice(0, -1), "", ...drawerRows, inputRow, statusRow];
-    }
-    return [...viewportRows, ...drawerRows, inputRow, statusRow];
-  }
-  const last = viewportRows[viewportRows.length - 1];
-  if (stripAnsi(last ?? "").trim() !== "") {
-    return [...viewportRows.slice(0, -1), "", inputRow, statusRow];
-  }
-  return [...viewportRows, inputRow, statusRow];
+  // The pane is exact accounting: viewportRows() already reserves the
+  // drawer's rows (and its pad row IS the visual gap between log and
+  // input), so the pane is the plain concatenation — no slicing, no
+  // blanking. Any row-donation here shifted the whole pane by a line
+  // (bubbles lost their top pad; two pads stacked at the bottom).
+  return [...viewportRows, ...drawerRows, inputRow, statusRow];
 }
