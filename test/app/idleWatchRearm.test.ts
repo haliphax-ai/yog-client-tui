@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { startIdleWatch } from "../../src/app/index.ts";
 import type { YogClient } from "../../src/client/index.ts";
 import { YogError } from "../../src/client/index.ts";
-import { resetForTests, setState } from "../../src/core/index.ts";
+import { resetForTests } from "../../src/core/index.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -44,7 +44,7 @@ function stubClient(closes: number, err: Error | undefined, openLog: number[]): 
 function host() {
   return {
     entries: [] as Array<{ kind: string; lines: string[] }>,
-    append: (kind: never, lines: never) => void (host as never),
+    append: (_kind: never, _lines: never) => undefined,
     width: () => 80,
     requestRender: () => undefined,
     nextMessageSeq: () => "1",

@@ -20,7 +20,7 @@ import { perTurnDeltas, toTranscriptEntries, wakeSubstitute } from "../core/inde
 import { estimatedContextTotal, finalContextTotal } from "../core/index.ts";
 import { getState, setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
-import type { TranscriptMessage, TranscriptResult, YogClient } from "../client/index.ts";
+import type { TranscriptResult, YogClient } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { noticeLine } from "../core/index.ts";
 import { emitDebug } from "../ui/index.ts";
@@ -33,19 +33,6 @@ import {
 /** Terminal width (columns) for line fitting; 80 when headless. */
 export function termCols(): number {
   return process.stdout.columns ?? 80;
-}
-
-/**
- * The chrome a sync rebuild preserves: the startup notes the seed kept
- * ahead of the transcript rows (same shape the reconnect-pickup poll
- * rebuilds under). Captured once at module scope — a replace must never
- * need the caller to pass the head back through a layer that has none.
- */
-let notes: readonly LogEntry[] = [];
-
-/** Install the sync's chrome (the startup notes; the composition root). */
-export function setTranscriptSyncNotes(seed: readonly LogEntry[]): void {
-  notes = seed;
 }
 
 /** The session token weight a transcript dump carries: the last known

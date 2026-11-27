@@ -37,7 +37,6 @@ export {
   entriesForDump,
   entriesForDumpAfter,
   placeholderSeed,
-  setTranscriptSyncNotes,
   stageRehydrate,
   statusTotals,
   syncTranscriptOnSubmit,

@@ -51,12 +51,7 @@ import { getState, setState } from "./core/index.ts";
 import { noticeLine } from "./core/index.ts";
 import { setDrawerCommands, setServerCommands, type CommandDescriptor } from "./core/index.ts";
 import { YogClient, type TranscriptResult } from "./client/index.ts";
-import {
-  driveRehydrate,
-  setTranscriptSyncNotes,
-  stageRehydrate,
-  statusTotals,
-} from "./app/index.ts";
+import { driveRehydrate, stageRehydrate, statusTotals } from "./app/index.ts";
 import { pushLines } from "./app/index.ts";
 import { resolveSession } from "./app/index.ts";
 import { nextMessageSeq, pollRunningTurn, startIdleWatch } from "./app/index.ts";
@@ -427,8 +422,6 @@ async function run(argv: readonly string[]): Promise<void> {
   terminal.draw();
   // 5. Placeholder-first rehydrate (#67): the first frame above painted
   //    placeholders instantly; now swap real entries in bottom-up.
-  //    The submit-time sync (#135) keeps the same notes as its chrome.
-  setTranscriptSyncNotes([...startup.notes]);
   if (startup.dump !== undefined) stageRehydrate(startup.dump);
   driveRehydrate();
 }

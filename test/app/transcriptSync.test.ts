@@ -9,15 +9,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetForTests, setState, getState } from "../../src/core/index.ts";
 import type { YogClient } from "../../src/client/index.ts";
-import {
-  resetTranscriptTailForTests,
-  setTranscriptSyncNotes,
-  syncTranscriptOnSubmit,
-} from "../../src/app/index.ts";
+import { resetTranscriptTailForTests, syncTranscriptOnSubmit } from "../../src/app/index.ts";
 import { emitDebug, isDebugEnabled } from "../../src/ui/index.ts";
 import type { TranscriptMessage, TranscriptResult } from "../../src/client/index.ts";
-import { noticeLine } from "../../src/core/index.ts";
-import type { LogEntry } from "../../src/core/index.ts";
 
 /** The client surface the sync needs (only `getTranscript`); the sync's
  *  parameter is the concrete client, so tests cast the stub to it. */
@@ -36,24 +30,21 @@ function row(o: Partial<TranscriptMessage>): TranscriptMessage {
   return { seq: 1, role: "user", content: "hello", ...o } as TranscriptMessage;
 }
 
-/** A log holding the chrome + the stamp shapes the rebuild paths leave:
- *  startup notes first, then one `String(seq)`-stamped entry per row. */
+/** A log holding the stamp shapes the rebuild paths leave: one
+ *  `String(seq)`-stamped entry per row (the chrome drops with the sync's
+ *  incremental tail — nothing rebuilds wholesale anymore). */
 function seededLog(rows: TranscriptMessage[]): void {
-  const head: LogEntry[] = [{ kind: "notice", lines: noticeLine("notice", "connected", "test") }];
-  const entries = head.concat(
-    rows.map((m) => ({
-      kind: m.role === "user" ? ("user" as const) : ("assistant" as const),
-      lines: [(m.content ?? "") as string],
-      copyIds: { itemId: String(m.seq) },
-    })),
-  );
+  const entries = rows.map((m) => ({
+    kind: m.role === "user" ? ("user" as const) : ("assistant" as const),
+    lines: [(m.content ?? "") as string],
+    copyIds: { itemId: String(m.seq) },
+  }));
   setState({ entries });
 }
 
 beforeEach(() => {
   resetForTests();
   resetTranscriptTailForTests();
-  setTranscriptSyncNotes([{ kind: "notice", lines: noticeLine("notice", "connected", "test") }]);
 });
 
 describe("syncTranscriptOnSubmit", () => {
