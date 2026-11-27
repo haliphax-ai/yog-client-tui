@@ -47,6 +47,7 @@ export {
   type StateSaver,
   abortActiveTurn,
   applyUsageTotal,
+  noteOwnTurnTail,
   recordRoundDelta,
   startTurnPresenter,
   turnWithRecovery,

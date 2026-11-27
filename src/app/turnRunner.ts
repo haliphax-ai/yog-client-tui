@@ -6,7 +6,7 @@
  */
 import { getState, setState } from "../core/index.ts";
 import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
-import { turnWithRecovery, applyUsageTotal } from "./turnControl.ts";
+import { turnWithRecovery, applyUsageTotal, noteOwnTurnTail } from "./turnControl.ts";
 import { executeCommand, isCommand, roundDelta } from "./slashCommands.ts";
 import { pushLines, nextMessageSeq } from "./logFeed.ts";
 import { syncTranscriptOnSubmit } from "./transcriptRebuild.ts";
@@ -41,6 +41,9 @@ async function driveTurn(env: TurnEnv, presenter: TurnPresenter, prompt: string)
       const detail = outcome.failure ?? outcome.error;
       if (detail) presenter.fail(detail);
     }
+    // The turn's rows streamed live; raise the transcript-tail floor so
+    // the next submit's sync treats them as seen (best effort, #144).
+    await noteOwnTurnTail(env.client);
   } catch (err) {
     presenter.fail(err instanceof Error ? err.message : String(err));
   } finally {

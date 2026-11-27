@@ -8,6 +8,8 @@
  */
 import { addLiveCompletionTokens, getState, setState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
+import { noteTranscriptTail } from "./transcriptSignature.ts";
+import { transcriptTailSeqOf } from "./transcriptSignature.ts";
 import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
 import {
   type TokenUsage,
@@ -42,6 +44,24 @@ export function applyUsageTotal(usage: TokenUsage): void {
       total: typeof usage.total_tokens === "number" ? usage.total_tokens : prev.total,
     },
   });
+}
+
+/**
+ * One of this client's OWN turns just streamed live: every row it
+ * produced carries tool-call ids or the raw prompt (no numeric seq
+ * stamps), so `transcriptSignature` under-measures the tail until the
+ * next rebuild. The terminal usage report is the turn's settle edge —
+ * probe the transcript tail there (best effort; a failed probe leaves
+ * the floor alone and the next submit's sync re-measures it, #144).
+ */
+export async function noteOwnTurnTail(client: YogClient): Promise<void> {
+  const sessionId = client.sessionId;
+  if (sessionId === undefined) return;
+  try {
+    noteTranscriptTail(sessionId, transcriptTailSeqOf(await client.getTranscript()));
+  } catch {
+    // Best effort: the floor stays where it was.
+  }
 }
 
 /** Wrap the presenter's events so terminal usage reports update the bar. */
