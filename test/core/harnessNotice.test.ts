@@ -339,9 +339,49 @@ describe("wake-turn prompt rows rehydrate as system, not user", () => {
     expect(entries[1]!.lines[0]).toContain("[background jobs]");
   });
 
-  it("without the marker the same row stays a plain user bubble", () => {
-    const rows = [row({ role: "user", content: "[background jobs] 1 finished", turnId: "7" }, 2)];
+  it("an OLD wake turn (no marker) is caught by the generated-header shape", () => {
+    // The marker only exists on turns fired by a server that stamps
+    // `wake`; resume rehydration of older rows must still style the
+    // generated prompt as harness-internal, not a user bubble.
+    const rows = [
+      row(
+        {
+          role: "user",
+          content:
+            "[background jobs] 1 finished: results are attached below. Use them to continue your work; do not re-run the tools.",
+          turnId: "7",
+        },
+        2,
+      ),
+    ];
     const entries = transcriptLogEntries(toTranscriptEntries(rows), 80);
+    expect(entries.map((e) => e.kind)).toEqual(["system"]);
+  });
+
+  it("a user row that merely MENTIONS the header stays a user bubble", () => {
+    const rows = [
+      row({ role: "user", content: "normal prompt", turnId: "3" }, 1),
+      row({ role: "user", content: "why does my prompt say [background jobs] 1 finished?" }, 2),
+    ];
+    const entries = transcriptLogEntries(toTranscriptEntries(rows), 80);
+    expect(entries.map((e) => e.kind)).toEqual(["user", "user"]);
+  });
+
+  it("the marker wins when present; the shape check never runs then", () => {
+    // With ANY marker present, unmapped user rows keep their bubble even
+    // when their text starts with the wake header (a quoted pasted wake
+    // prompt must not vanish into a notice block).
+    const rows = [
+      row(
+        {
+          role: "user",
+          content: "[background jobs] 1 finished: results are attached below.",
+          turnId: "3",
+        },
+        1,
+      ),
+    ];
+    const entries = transcriptLogEntries(toTranscriptEntries(rows), 80, { turns: wakeTurns });
     expect(entries.map((e) => e.kind)).toEqual(["user"]);
   });
 });
