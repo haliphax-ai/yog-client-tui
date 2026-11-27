@@ -21,14 +21,18 @@ export interface TurnEnv {
   quit(code: number): void;
   saveState(lastSessionId: string | null): Promise<void>;
   /** The idle watch: disarmed while a user turn is live, rearmed at its
-   *  settle — user-turn streams own rendering; the watch covers idle. */
-  idleWatch?: { arm(): void; disarm(): void };
+   *  settle — user-turn streams own rendering; the watch covers idle.
+   *  `dropSeam` discards foreign rows buffered while the user's turn was
+   *  live (the disarm mid-busy case; the next transcript sync recovers
+   *  anything the user never saw). */
+  idleWatch?: { arm(): void; disarm(): void; dropSeam(): void };
 }
 
 /** Run the async turn to its outcome, reporting failures through the
  *  presenter's fail path; always stop the spinner and finish the turn. */
 async function driveTurn(env: TurnEnv, presenter: TurnPresenter, prompt: string): Promise<void> {
   env.idleWatch?.disarm();
+  env.idleWatch?.dropSeam();
   try {
     const outcome = await turnWithRecovery(
       env.client,

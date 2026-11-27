@@ -284,7 +284,7 @@ async function run(argv: readonly string[]): Promise<void> {
   // The idle watch (yog#85): foreign-turn rendering — wake turns and
   // their tool calls stream live instead of appearing on the next
   // submit. Armed after setup; disarmed while a user turn is live.
-  let idleWatch: { arm(): void; disarm(): void; flushSeam(): void } | undefined;
+  let idleWatch: { arm(): void; disarm(): void; flushSeam(): void; dropSeam(): void } | undefined;
   /** The jobs drawer's event sink (late-bound: the drawer wires after
    *  the idle watch arms; the watch fans events through this). */
   let jobsDrawerSink: ((type: string, data: Record<string, unknown>) => void) | undefined;

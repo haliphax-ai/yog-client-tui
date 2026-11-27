@@ -42,6 +42,10 @@ export interface IdleWatch {
    * user's content, without waiting for the next append.
    */
   flushSeam(): void;
+  /** Discard buffered foreign rows without rendering them (the submit
+   *  path dropped the stream mid-busy; the next transcript sync recovers
+   *  anything the user never saw from the server tail). */
+  dropSeam(): void;
 }
 
 /** Re-arm backoff: first retry immediately-ish, then 1 s, doubling. */
@@ -52,34 +56,57 @@ const REARM_MAX_MS = 30_000;
 /**
  * A seam-aware host wrapper: while the user's own turn is busy, foreign
  * deliveries (a wake turn streaming its results) do not interleave with
- * the user's prose — their entries queue in a side buffer and flush at
+ * the user's prose — their entries collect in a side buffer and flush at
  * the seam (busy → false), landing after the user's turn content.
+ *
+ * The WHOLE host surface is covered, not just `append`: the presenter's
+ * prose stream and tool handlers mutate `host.entries` directly (they
+ * must — a delta extends the tail block in place, a result splices after
+ * its call line), so while busy `entries` reads as a scratch array that
+ * flush replays into the shared log in arrival order. The live binding
+ * to the shared log is kept explicitly (a `...host` spread would capture
+ * the array once and go stale on the first rebuild — the composition
+ * root's getter exists precisely to prevent that).
  */
 export function deferWhileBusy(
   host: IdleWatchHost,
   isBusy: () => boolean,
-): { host: IdleWatchHost; flush: () => void } {
-  let buffer: LogEntry[] | undefined;
+): { host: IdleWatchHost; flush: () => void; drop: () => void } {
+  /** The scratch array the presenter writes into while busy. */
+  let scratch: LogEntry[] | undefined;
   const flush = (): void => {
-    if (buffer === undefined) return;
-    const queued = buffer;
-    buffer = undefined;
-    for (const entry of queued) host.append(entry.kind, entry.lines);
+    const queued = scratch;
+    scratch = undefined;
+    if (queued === undefined || queued.length === 0) return;
+    host.entries.push(...queued);
+    // One notification for the whole batch (the buffered appends skipped
+    // theirs while busy; the caller's busy→false edge re-notifies too).
+    host.requestRender();
   };
-  return {
-    host: {
-      ...host,
-      append: (kind: LogEntry["kind"], lines: string[]) => {
-        if (isBusy()) {
-          (buffer ??= []).push({ kind, lines } as LogEntry);
-          return;
-        }
-        host.append(kind, lines);
-        flush();
-      },
+  const drop = (): void => {
+    scratch = undefined;
+  };
+  const seamHost: IdleWatchHost = {
+    get entries() {
+      return isBusy() ? (scratch ??= []) : host.entries;
     },
-    flush,
+    append: (kind, lines) => {
+      if (isBusy()) {
+        // The entry object itself (the same shape pushLines builds), so
+        // scratch replays it byte-identically at flush time.
+        (scratch ??= []).push({ kind, lines });
+        return;
+      }
+      host.append(kind, lines);
+      flush();
+    },
+    width: host.width,
+    requestRender: host.requestRender,
+    nextMessageSeq: host.nextMessageSeq,
   };
+  if (host.prevTokenTotal !== undefined) seamHost.prevTokenTotal = host.prevTokenTotal;
+  if (host.onRoundDelta !== undefined) seamHost.onRoundDelta = host.onRoundDelta;
+  return { host: seamHost, flush, drop };
 }
 
 /** Whether `err` is a stream-open failure re-arming cannot fix: a
@@ -192,6 +219,9 @@ export function startIdleWatch(
     },
     flushSeam(): void {
       seam.flush();
+    },
+    dropSeam(): void {
+      seam.drop();
     },
   };
 }
