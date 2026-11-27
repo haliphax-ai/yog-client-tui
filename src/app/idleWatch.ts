@@ -127,12 +127,15 @@ function watchEvents(
   onJobEvent: ((type: string, data: Record<string, unknown>) => void) | undefined,
   onUsage: ((usage: TokenUsage) => void) | undefined,
 ): TurnEvents {
-  // The delivery notice's pending flag: raised on a wake turn.started,
-  // flushed by the delivery's FIRST prelude frame (the server publishes
-  // the pair frames BEFORE turn.started — keying the notice on
-  // turn.started alone placed it after the delivered results). Cleared on
-  // every terminal so the next wake re-announces.
-  let announced = true;
+  // The delivery notice's pending flag. The trigger is a PRELUDE FRAME
+  // (call_bg_/call_hn_): the server publishes the pair frames inside
+  // assembleTurn — both ahead of and behind turn.started on the wire, and
+  // the ids are server-synthetic (no user turn produces one), so a
+  // prelude call frame alone proves a wake delivery is starting. The flag
+  // starts FALSE (no notice yet): the first prelude frame flushes the
+  // notice; turn.started(wake) arms the no-prelude fallback (flush on the
+  // first delta). Cleared on every terminal so the next wake re-announces.
+  let announced = false;
   return {
     ...base,
     /**
@@ -148,14 +151,17 @@ function watchEvents(
       // owned HERE). A wake turn shows the same honest "generating" row.
       setState({ busyForeign: true });
       // A wake delivery's notice is pending: it flushes on the FIRST
-      // prelude tool frame (onToolCall below) — the server publishes the
-      // pair frames BEFORE turn.started, so keying the notice on
-      // turn.started would place it AFTER the delivered results.
+      // prelude frame (onToolCall below). The pair frames can ride BOTH
+      // ahead of and behind turn.started on the wire (publishPrelude runs
+      // inside assembleTurn, before the engine emits anything), so the
+      // prelude id is the only reliable trigger. A wake with NO prelude
+      // (nothing to deliver) flushes on the first delta.
       if (wake === true) announced = false;
     },
     onDelta: (text: string) => {
-      // No prelude pairs arrived: flush the pending notice before the
-      // turn's prose (the delivery already happened or never will).
+      // The no-prelude fallback: a wake with nothing to deliver still
+      // announces (armed by its turn.started). A prelude wake already
+      // flushed in onToolCall, so the delta is silent there.
       if (!announced) {
         announced = true;
         seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
@@ -163,13 +169,15 @@ function watchEvents(
       base.onDelta?.(text);
     },
     onToolCall: (id: string, name: string, args: string) => {
-      // The wake delivery's FIRST prelude frame announces the delivery —
-      // ahead of its own results by construction (this IS one).
-      if (id.startsWith("call_bg_") || id.startsWith("call_hn_")) {
-        if (!announced) {
-          announced = true;
-          seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
-        }
+      // A prelude frame (call_bg_/call_hn_) IS the delivery's head in
+      // every wire ordering — and wake EVIDENCE by itself: the ids are
+      // server-synthetic, published only for prelude pairs (no user turn
+      // produces one). Flush the pending notice BEFORE this call row
+      // renders: the flush must not depend on turn.started having been
+      // seen (the real 772 wire carries the pairs BEFORE turn.started).
+      if ((id.startsWith("call_bg_") || id.startsWith("call_hn_")) && !announced) {
+        announced = true;
+        seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
       }
       base.onToolCall?.(id, name, args);
     },
