@@ -33,7 +33,10 @@ export interface IdleWatch {
  * the user's prose — their entries queue in a side buffer and flush at
  * the seam (busy → false), landing after the user's turn content.
  */
-export function deferWhileBusy(host: IdleWatchHost, isBusy: () => boolean): IdleWatchHost {
+export function deferWhileBusy(
+  host: IdleWatchHost,
+  isBusy: () => boolean,
+): { host: IdleWatchHost; flush: () => void } {
   let buffer: LogEntry[] | undefined;
   const flush = (): void => {
     if (buffer === undefined) return;
@@ -42,15 +45,18 @@ export function deferWhileBusy(host: IdleWatchHost, isBusy: () => boolean): Idle
     for (const entry of queued) host.append(entry.kind, entry.lines);
   };
   return {
-    ...host,
-    append: (kind: LogEntry["kind"], lines: string[]) => {
-      if (isBusy()) {
-        (buffer ??= []).push({ kind, lines } as LogEntry);
-        return;
-      }
-      host.append(kind, lines);
-      flush();
+    host: {
+      ...host,
+      append: (kind: LogEntry["kind"], lines: string[]) => {
+        if (isBusy()) {
+          (buffer ??= []).push({ kind, lines } as LogEntry);
+          return;
+        }
+        host.append(kind, lines);
+        flush();
+      },
     },
+    flush,
   };
 }
 
@@ -61,8 +67,18 @@ export function startIdleWatch(
   onJobEvent?: (type: string, data: Record<string, unknown>) => void,
 ): IdleWatch {
   // Foreign deliveries never interleave with the user's own turn: entries
-  // queue while busy and flush at the seam (busy → false).
-  const host = deferWhileBusy(hostInput, () => getState().busy);
+  // queue while busy and flush at the seam (busy → false). The flush is
+  // driven BY the busy edge — buffering alone would hold rows until the
+  // next append (a wake turn that finished mid-turn stayed hidden until
+  // the user typed something).
+  const seam = deferWhileBusy(hostInput, () => getState().busy);
+  const host = seam.host;
+  const busyGate: { set(flag: boolean): void } = {
+    set: (flag: boolean) => {
+      busy.set(flag);
+      if (!flag) queueMicrotask(() => seam.flush());
+    },
+  };
   const presenter = createTurnPresenter(host);
   let stream: ReturnType<YogClient["openStream"]> | undefined;
   let foreign = false;
@@ -72,7 +88,7 @@ export function startIdleWatch(
   const foreignEnd = (): void => {
     if (foreign) {
       foreign = false;
-      busy.set(false);
+      busyGate.set(false);
       setState({ busyWake: false });
     }
   };
@@ -86,7 +102,7 @@ export function startIdleWatch(
       base.onStarted?.(observed.turnId ?? "", "");
       if (!foreign) {
         foreign = true;
-        busy.set(true);
+        busyGate.set(true);
         setState({ busyWake: wake === true });
       }
     },
