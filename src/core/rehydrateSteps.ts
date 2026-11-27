@@ -1,8 +1,12 @@
 /**
  * The per-row rehydration steps: what ONE transcript row (and its
- * consumed neighbors) contributes to the log. Four mutually exclusive
- * shapes, tried in the order the walk asks for them:
+ * shapes, tried in the order the walk asks for them (the harness step
+ * precedes the others because its call row is a synthetic whose result
+ * carries the whole payload — the generic call step would render it as
+ * an opaque result blob):
  *
+ *   harnessStep — the synthetic `harness_notice` call/result pair:
+ *                 plain notice lines (kind + body), never a blob
  *   callStep    — an assistant row with tool calls: the ⚙️ lines plus
  *                 the result rows that answer them (paired by
  *                 `toolCallId`, consumed so nothing double-emits)
@@ -11,6 +15,10 @@
  *                 the whole-message copy stamp on the run's last row
  *   orphanStep  — a tool row no call claimed (its call row predates the
  *                 transcript): standalone ✅/❌ line, chunk on success
+ *   wakePromptStep — a wake turn's prompt row (the server's verbatim
+ *                 model-food block: the results it names are already on
+ *                 the synthetic call_bg_ pairs right before it): one
+ *                 quiet harness line, never the 100+ row cyan wall
  *   systemStep  — anything else: the verbatim server text
  *
  * Pure data shaping — no store, no rendering. `rehydrate.ts` drives the
@@ -20,8 +28,20 @@
 import { parseToolArgs } from "../client/index.ts";
 import { tokenCountNote } from "./toolFormat.ts";
 import { annotateToolCall, toolCallEntry, toolResultEntries } from "./toolEntries.ts";
+import {
+  decodeHarnessNotices,
+  harnessNoticeEntries,
+  isHarnessNoticeTool,
+} from "./harnessNotice.ts";
 import type { LogEntry } from "./entries.ts";
-import { decodeToolCalls, decodeToolResult, type TranscriptEntry } from "./transcript.ts";
+import {
+  decodeResultContent,
+  decodeToolCalls,
+  decodeToolResult,
+  type TranscriptEntry,
+} from "./transcript.ts";
+import { wakePromptStep } from "./placeholder.ts";
+import type { HarnessNotice } from "./harnessNotice.ts";
 
 /**
  * The consecutive run of pure-prose rows starting at `start` (user rows
@@ -52,14 +72,14 @@ function proseRunOf(
 }
 
 /** Stamp the tool-call id as the copy item id on a result entry group
- *  args and result are one transcript item, so the result block
- *  copies under the same id as its call line. Status lines are not
- *  copyable items and stay unstamped; an undefined id leaves the group
- *  uncopyable rather than inventing one. */
+ *  (args and result are one transcript item, so the result block copies
+ *  under the same id as its call line). Notice entries are NOT copyable
+ *  items and stay unstamped; an undefined id leaves the group uncopyable
+ *  rather than inventing one. */
 function stampResultCopy(entries: LogEntry[], id: string | undefined): LogEntry[] {
   if (id === undefined) return entries;
   for (const entry of entries) {
-    if (entry.kind === "status") continue;
+    if (entry.kind === "status" || entry.kind === "notice") continue;
     entry.copyIds = { itemId: id };
   }
   return entries;
@@ -114,6 +134,70 @@ export interface Step {
   next: number;
 }
 
+/**
+ * The harness-notice step (server prelude pairs): the call row is the
+ * synthetic `harness_notice` call (empty args); its result rows —
+ * consumed through the same pairing — decode to plain notice lines
+ * (kind label + dimmed body). Consuming the result here keeps the
+ * call/result group one walk step, exactly like a tool call and its
+ * result; the call line itself contributes nothing (all information
+ * lives in the result). Returns undefined when the row is anything
+ * else — including a harness call whose payload is missing or
+ * malformed, which falls through to the generic call step (the ✅ line
+ * plus the raw result block).
+ */
+function harnessStep(entries: TranscriptEntry[], i: number): Step | undefined {
+  const call = soleHarnessCall(entries[i]!);
+  // A pair whose result does not decode is not ours to consume: fall
+  // through to the generic call step (the ✅/❌ line plus the raw blob),
+  // which re-pairs the same rows from scratch.
+  if (call === undefined) return undefined;
+  const pair = consumeHarnessPair(entries, i, call.id);
+  if (pair === undefined) return undefined;
+  const group = harnessNoticeEntries(pair.notices);
+  // Copy identity: the attached result entries are the transcript item —
+  // stamp them with the call id like every other paired result.
+  return { group: stampResultCopy(group, call.id), next: pair.end };
+}
+
+/** The one `harness_notice` call of an assistant row (undefined when the
+ *  row is anything else — another role, zero or several calls, or a
+ *  call whose name is not the reserved synthetic). */
+function soleHarnessCall(
+  e: TranscriptEntry | undefined,
+): ReturnType<typeof decodeToolCalls>[0] | undefined {
+  if (e === undefined || e.role !== "assistant") return undefined;
+  const calls = decodeToolCalls(e.raw.toolCalls);
+  return calls.length === 1 && isHarnessNoticeTool(calls[0]!.name) ? calls[0] : undefined;
+}
+
+/** True when row `j` is a tool result answering `callId` (the pairing
+ *  boundary both consumers share). */
+function isPairableToolRow(entries: TranscriptEntry[], j: number, callId: string): boolean {
+  const next = entries[j];
+  if (next === undefined) return false;
+  return next.role === "tool" && next.raw.toolCallId === callId;
+}
+
+/** The paired result rows' notices and the walk's resume index. `undefined`
+ *  when any result row fails to decode (the caller falls through to the
+ *  generic call step, which re-pairs the same rows from scratch). */
+function consumeHarnessPair(
+  entries: TranscriptEntry[],
+  i: number,
+  callId: string,
+): { notices: HarnessNotice[]; end: number } | undefined {
+  const notices: HarnessNotice[] = [];
+  let j = i + 1;
+  while (isPairableToolRow(entries, j, callId)) {
+    const decoded = decodeHarnessNotices(decodeResultContent(entries[j]!.raw.content).value);
+    if (decoded === undefined) return undefined;
+    notices.push(...decoded);
+    j += 1;
+  }
+  return { notices, end: j };
+}
+
 /** The call+results step for an assistant row carrying tool calls: emits
  *  the ⚙️ lines, then consumes the matching tool result rows that follow
  *  (pairing via `toolCallId`, so a result without its call row stays for
@@ -131,21 +215,33 @@ function callStep(entries: TranscriptEntry[], i: number, cols: number): Step | u
     group.push(entry);
     open.set(c.id, { entry, name: c.name });
   }
-  let j = i + 1;
-  while (j < entries.length) {
-    const next = entries[j]!;
-    if (next.role !== "tool") break;
-    const id = next.raw.toolCallId;
-    if (id === undefined) break;
-    const call = open.get(id);
-    if (call === undefined) break;
-    open.delete(id);
-    const consumed = consumeResult(call, next.raw, cols);
-    if (consumed !== undefined) insertAfterCall(group, call.entry, consumed.results);
-    j += 1;
-  }
+  const j = consumeToolResults(entries, i + 1, open, group, cols);
   // Calls left without a result row keep their bare call line.
   return { group, next: j };
+}
+
+/** Consume the result rows that answer the open calls: each pairing
+ *  annotates the call line and splices its result entries after it.
+ *  Returns one past the last consumed row (the walk resumes there). */
+function consumeToolResults(
+  entries: TranscriptEntry[],
+  start: number,
+  open: Map<string, { entry: LogEntry; name: string }>,
+  group: LogEntry[],
+  cols: number,
+): number {
+  let j = start;
+  while (j < entries.length) {
+    const next = entries[j]!;
+    const id = next.role === "tool" ? next.raw.toolCallId : undefined;
+    if (id === undefined || !open.has(id)) break;
+    const call = open.get(id);
+    open.delete(id);
+    const consumed = consumeResult(call!, next.raw, cols);
+    if (consumed !== undefined) insertAfterCall(group, call!.entry, consumed.results);
+    j += 1;
+  }
+  return j;
 }
 
 /** The prose step for a user or pure-prose assistant row: one entry per
@@ -210,12 +306,15 @@ function systemStep(entries: TranscriptEntry[], i: number): Step {
   return { group: [{ kind: "system", lines: [entries[i]!.text] }], next: i + 1 };
 }
 
-/** The step for row `i`: call+results, prose, orphan result, or system. */
+/** The step for row `i`: call+results, prose, orphan result, wake prompt,
+ *  or system. */
 export function stepFor(entries: TranscriptEntry[], i: number, cols: number): Step {
   return (
+    harnessStep(entries, i) ??
     callStep(entries, i, cols) ??
     proseStep(entries, i) ??
     orphanStep(entries, i, cols) ??
+    wakePromptStep(entries, i) ??
     systemStep(entries, i)
   );
 }

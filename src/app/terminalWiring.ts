@@ -7,15 +7,17 @@
  * key handlers on. Nothing here parses input semantics — that lives in
  * the components (`ui/components`) and the router.
  */
-import { setState } from "../core/index.ts";
+import { getState, setState } from "../core/index.ts";
+import { noticeLine } from "../core/index.ts";
+import { pushLines } from "./logFeed.ts";
 import type { Component } from "../ui/components/index.ts";
 import { ChatViewport } from "../ui/components/index.ts";
 import { InputComponent } from "../ui/components/index.ts";
 import { StatusComponent } from "../ui/components/index.ts";
 import { DrawerComponent } from "../ui/components/index.ts";
-import { GeneratingComponent } from "../ui/components/index.ts";
+import { GeneratingComponent, JobsDrawerComponent } from "../ui/components/index.ts";
 import { ToastComponent } from "../ui/components/index.ts";
-import { registerDrawerChild } from "../ui/components/index.ts";
+import { dismissDrawerChildren, registerDrawerChild } from "../ui/components/index.ts";
 import {
   composeMainPane,
   createScheduler,
@@ -70,6 +72,8 @@ function emitKeyDump(path: string, raw: string): void {
 export interface Terminal {
   viewport: ChatViewport;
   input: InputComponent;
+  /** The background-jobs drawer view (the composition root wires its gate + fetch). */
+  jobsDrawer: JobsDrawerComponent;
   chain: readonly Component[];
   scheduler: Scheduler;
   globals: Globals;
@@ -83,14 +87,25 @@ export interface Terminal {
 }
 
 /** Assemble the component chain, the draw loop, and the key surface. */
-export function wireTerminal(client: { sessionId: string | undefined }, hooks: AppHooks): Terminal {
+export function wireTerminal(
+  client: {
+    sessionId: string | undefined;
+    /** The idle-abort message (the Esc cascade's background-jobs arm).
+     *  The reply decodes to `AbortTurnResult`: `requested` names the live
+     *  turn that was unwound, the count of killed jobs rides the reply. */
+    abortTurn(): Promise<{ requested?: boolean; backgroundJobs?: number }>;
+  },
+  hooks: AppHooks,
+): Terminal {
   const viewport = new ChatViewport();
   const input = new InputComponent();
   const status = new StatusComponent();
   const drawer = new DrawerComponent();
   const generating = new GeneratingComponent();
+  const jobsDrawer = new JobsDrawerComponent();
   const toast = new ToastComponent();
   registerDrawerChild(generating);
+  registerDrawerChild(jobsDrawer);
   registerDrawerChild(toast);
   const spinner = spinnerHooks();
   // Top-level focus ring: the log and the input are the two ring targets.
@@ -102,7 +117,7 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
    *  drawer's top padding is that gap when the drawer is visible (one row),
    *  and the composition's own blank row is the gap when it is collapsed
    *  (zero — the blank reuses or replaces a viewport row in place). */
-  const drawerGap = (cols: number): number => (drawer.measure(cols) > 0 ? 1 : 0);
+  const drawerGap = (_cols: number): number => 0; // exact accounting: the drawer pad IS the gap
 
   /** Rows available to the log viewport in the current terminal layout. */
   const viewportRows = (): number =>
@@ -154,12 +169,55 @@ export function wireTerminal(client: { sessionId: string | undefined }, hooks: A
     jump: (top) => viewport.jump(top, viewportRows()),
     submit: hooks.submit,
     abortTurn: hooks.abortTurn,
+    // The Esc cascade's drawer arm: the drawer registry walks its
+    // children newest-first; the first child that closes something (the
+    // jobs view, when open) claims the key. ANY future drawer feature
+    // that implements `dismiss()` joins the cascade for free.
+    dismissEsc: () => dismissDrawerChildren(),
+    // The cascade's idle arm: the same `turn.abort` message the parent
+    // arm sends — idle, the server kills the session's background jobs
+    // (the reply carries the count) and queues the prelude notice for the
+    // next turn. The count echoes HERE, immediately — the prelude only
+    // renders in the log after the next submit rebuilds the transcript,
+    // and a silent keypress reads as a dead one. A transport failure is
+    // logged; nothing else is affected.
+    abortBackgroundJobs: () => {
+      void client
+        .abortTurn()
+        .then((result) => {
+          // The cascade kills the wake turn AND its jobs (server-side).
+          // The turn.aborted frame lands on the WATCH stream; render the
+          // outcome immediately from the reply too — the stream path can
+          // lag (the watch re-arms after a close) and the user pressed
+          // Esc expecting feedback NOW.
+          if (result.requested) {
+            pushLines("notice", noticeLine("notice", "turn aborted"));
+          }
+          const abortedJobs = result.backgroundJobs;
+          if (abortedJobs !== undefined) {
+            pushLines("notice", noticeLine("notice", "background jobs", `aborted ${abortedJobs}`));
+            // Surface the state flip without waiting for the next poll tick.
+            void jobsDrawer.poll();
+          }
+          setState({ busyForeign: false });
+        })
+        .catch((err: unknown) => {
+          pushLines(
+            "error",
+            noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
+          );
+        });
+    },
+    // Ctrl+J: the drawer toggle (the /jobs command is the always-works
+    // path; this is the keyboard arm of the same drawer hook).
+    toggleJobs: () => jobsDrawer.toggle(),
     pageRows: () => process.stdout.rows ?? 24,
   };
 
   return {
     viewport,
     input,
+    jobsDrawer,
     chain,
     scheduler,
     globals,

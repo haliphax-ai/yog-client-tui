@@ -15,10 +15,15 @@
  */
 import type { ToolResultEvent, TurnEvents, TokenUsage } from "../client/index.ts";
 import { formatDuration, formatRuntime, formatTokenTotal, tokenCountNote } from "./toolFormat.ts";
-import { displayWidth, truncateAnsi } from "../util/index.ts";
+import { displayWidth, stripAnsi, truncateAnsi } from "../util/index.ts";
 import type { LogEntry } from "./entries.ts";
 import { noticeLine } from "./notices.ts";
 import { annotateToolCall, toolCallEntry, toolResultEntries } from "./toolEntries.ts";
+import {
+  decodeHarnessNotices,
+  harnessNoticeEntries,
+  isHarnessNoticeTool,
+} from "./harnessNotice.ts";
 import type { TurnHost } from "./turnHost.ts";
 
 export type { TurnHost } from "./turnHost.ts";
@@ -158,8 +163,13 @@ function resultEntriesFor(host: TurnHost, ev: ToolResultEvent): LogEntry[] {
 /** An ORPHAN result — a result whose call row is not pending (its call
  *  line predates this presenter, e.g. after recovery). Standalone ✅/❌
  *  line, plus the result components on success; the call id is the item
- *  id for the copy path. */
+ *  id for the copy path. A harness_notice result renders its notices
+ *  instead of the ✅/❌ + blob (same branch as the paired path). */
 function orphanResult(host: TurnHost, ev: ToolResultEvent): void {
+  if (isHarnessNoticeTool(ev.name)) {
+    pushHarnessResult(host, ev);
+    return;
+  }
   host.append("tool", [
     `${ev.ok ? "✅" : "❌"} ${ev.name || "tool"}${ev.ok ? "" : ` ${ev.error ?? "failed"}`}`,
   ]);
@@ -178,11 +188,35 @@ function insertPairedResult(host: TurnHost, call: LogEntry, ev: ToolResultEvent)
   host.entries.splice(at === -1 ? host.entries.length : at + 1, 0, ...results);
 }
 
+/** Push a harness_notice result's entries (the paired and orphan paths
+ *  share this branch — notice lines plus any attached tool result, no
+ *  result blob). The result entries carry the call id as their copy item
+ *  id, like every other paired result. */
+function pushHarnessResult(host: TurnHost, ev: ToolResultEvent): void {
+  // The result entries are the transcript item: stamp the call id as the
+  // copy item id, the same rule every other paired result follows.
+  host.entries.push(
+    ...stampCopy(harnessNoticeEntries(decodeHarnessNotices(ev.result) ?? []), ev.id),
+  );
+}
+
 /**
  * Build the live-turn `TurnEvents` handler set. One instance per turn
  * (one `submit()`); the returned callbacks mutate the host's log and
  * request renders through it.
  */
+/** Append a `turn aborted` notice unless the log tail is identical
+ *  (one Esc aborting a FIFO chain emits one turn.aborted per handle). */
+function appendAbortNotice(host: TurnHost, detail: string): void {
+  const fresh = noticeLine("notice", "turn aborted", detail);
+  const last = host.entries.at(-1);
+  const same =
+    last?.kind === "notice" &&
+    last.lines.length === fresh.length &&
+    last.lines.every((line, i) => stripAnsi(line) === stripAnsi(fresh[i] ?? ""));
+  if (!same) host.append("notice", fresh);
+}
+
 export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): TurnEvents {
   // Tool call id → its log entry, so results can annotate the call line.
   const pendingToolCalls = new Map<string, LogEntry>();
@@ -193,11 +227,20 @@ export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): Tur
     onDelta: (text) => prose.append(text),
 
     onToolCall: (id, name, args) => {
-      toolCallsThisTurn += 1;
       // A tool call ends the open prose segment: close it on the spot so
       // any later prose streams into a fresh block of its own (the onDelta
       // tail guard below is the generic backstop).
       prose.close();
+      if (isHarnessNoticeTool(name)) {
+        // The harness-notice synthetic renders nothing on the call side —
+        // all information lives in the result — but it still registers so
+        // its result pairs (as notices, not a blob). The pending map only
+        // needs AN entry to pair against; a bare marker never renders.
+        pendingToolCalls.set(id, { kind: "tool", lines: [], harnessTool: name });
+        host.requestRender();
+        return;
+      }
+      toolCallsThisTurn += 1;
       const entry = toolCallEntry(id, name, args, host.width());
       entry.copyIds = { itemId: id };
       host.entries.push(entry);
@@ -214,6 +257,14 @@ export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): Tur
         return;
       }
       pendingToolCalls.delete(ev.id);
+      // A harness_notice pair renders its notices (plus any attached tool
+      // result) instead of a result blob; there is no call row to annotate
+      // — all information lives in the result.
+      if (call.harnessTool !== undefined) {
+        pushHarnessResult(host, ev);
+        host.requestRender();
+        return;
+      }
       annotateToolCall(call, ev.ok, ev.error);
       // The last result of a round drains the pending map — the one place
       // the round's REAL promptDelta folds into live session totals, so a
@@ -234,7 +285,10 @@ export function createTurnEventHandlers(host: TurnHost, prose: ProseStream): Tur
       const tokenParts = usageTokenParts(usage);
       const detail =
         tokenParts.length > 0 ? `${trimmed} · tokens: ${tokenParts.join(" · ")}` : trimmed;
-      host.append("notice", noticeLine("notice", "turn aborted", detail));
+      // One Esc can abort a FIFO chain (a wake head + the queued turn):
+      // each emits its own turn.aborted. Collapse consecutive identical
+      // abort notices — the second says nothing the first didn't.
+      appendAbortNotice(host, detail);
     },
 
     onRateLimited: (info) => {

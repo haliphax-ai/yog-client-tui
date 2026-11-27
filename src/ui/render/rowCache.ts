@@ -90,6 +90,7 @@ const RENDERER_BY_KIND: Partial<Record<EntryKind, EntryRenderer>> = {
   notice: renderNotice,
   error: renderNotice,
   status: renderStatus,
+  system: renderNotice,
 };
 
 /**

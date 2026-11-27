@@ -255,6 +255,18 @@ describe("createTurnPresenter", () => {
     expect(entries.at(-1)).toEqual({ kind: "notice", lines: ["⏹️ turn aborted", "by operator"] });
   });
 
+  it("collapses a consecutive duplicate abort notice (one Esc, a FIFO chain of turns)", () => {
+    const { host, entries } = makeHost();
+    const turn = createTurnPresenter(host);
+    turn.events.onAborted?.("turn aborted by operator");
+    turn.events.onAborted?.("turn aborted by operator");
+    const notices = entries.filter((e) => e.kind === "notice");
+    expect(notices).toHaveLength(1);
+    // A different reason still renders.
+    turn.events.onAborted?.("worker pool exploded");
+    expect(entries.filter((e) => e.kind === "notice")).toHaveLength(2);
+  });
+
   it("keeps an unrecognized abort reason as the notice detail", () => {
     const { host, entries } = makeHost();
     const turn = createTurnPresenter(host);

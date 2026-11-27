@@ -119,9 +119,49 @@ function parseSeqKey(seq: string): SeqKey | undefined {
   const match = /^([\d;]*)([A-Za-z~])$/.exec(seq.slice(2));
   if (match === null) return undefined;
   const params = (match[1] as string) === "" ? [] : (match[1] as string).split(";").map(Number);
-  const code = codeForFinal(match[2] as string, params);
+  const bridge = csiULetter(params);
+  if (bridge !== undefined) return bridge; // ctrl+letter under kitty encoding
+  const code =
+    codeForFinal(match[2] as string, params) ?? printableCodePoint(params, match[2] as string);
   if (code === undefined) return undefined;
-  const mod = params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
-  return { code, mod };
+  return { code, mod: modOf(params) };
+}
+
+/** The modifier bits from a CSI-u parameter list (None when absent). */
+function modOf(params: readonly number[]): KeyMod {
+  return params.length >= 2 ? modFor(params[1] ?? 0) : KeyMod.None;
+}
+
+/**
+ * Printable CSI-u code points (letters, space, punctuation): unbound on
+ * the textarea's key table, but the input layer's shift-demotion types
+ * them — surface the raw codepoint instead of dropping the key.
+ */
+function printableCodePoint(params: readonly number[], final: string): number | undefined {
+  if (final !== "u") return undefined;
+  const [cp, modByte] = params;
+  // Shift-only keys surface (the input layer's demotion types them).
+  // Every other modifier stays with its owner: ctrl+letter keeps its C0
+  // bridging (and ctrl+j its router binding), alt/meta combos are
+  // unclaimed — surfacing them here would have the textarea swallow
+  // keys the ring's globals bind.
+  if (modByte !== 2) return undefined;
+  if (cp === undefined || cp < 32 || cp > 126 || cp === 127) return undefined;
+  return cp;
+}
+
+/**
+ * The kitty CSI-u ctrl+letter form (ESC[<cp>;5u) bridges to the C0 control
+ * code the textarea layer binds ({Ctrl, 1..26}). Only plain ctrl+letter
+ * bridges — ctrl+j stays unclaimed (the key router owns it as the jobs-
+ * drawer toggle) and shifted/alt/ctrl+shift combos fall through. The
+ * legacy C0 path (the input char loop) covers terminals without the
+ * protocol, so this only fires when a terminal reports modified keys.
+ */
+function csiULetter(params: readonly number[]): SeqKey | undefined {
+  const [cp, modByte] = params;
+  if (modByte !== 5) return undefined; // ctrl alone
+  if (cp === undefined || cp < 97 || cp > 122 || cp === 106) return undefined;
+  return { code: cp - 96, mod: KeyMod.Ctrl };
 }
 export { type SeqKey, parseSeqKey, LEGACY_SEQ_KEYS };

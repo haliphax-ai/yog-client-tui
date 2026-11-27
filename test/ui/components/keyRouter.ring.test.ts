@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { resetForTests } from "../../../src/core/index.ts";
 
 import {
   BaseComponent,
@@ -49,6 +50,9 @@ function spyGlobals() {
     jump: (t) => calls.push(`jump:${t}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    dismissEsc: () => false,
+    abortBackgroundJobs: () => undefined,
+    toggleJobs: () => undefined,
     pageRows: () => 24,
   };
   return { globals, calls };
@@ -56,6 +60,7 @@ function spyGlobals() {
 
 describe("top-level focus ring", () => {
   beforeEach(() => {
+    resetForTests();
     setTopLevel("input");
   });
 

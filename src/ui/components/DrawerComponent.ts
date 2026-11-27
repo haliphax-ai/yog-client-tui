@@ -32,22 +32,40 @@ export class DrawerComponent extends BaseComponent {
   }
 
   /**
-   * One padded block holding every visible child's rows, or no rows at all
-   * when nothing registered renders anything (fully collapsed).
+   * One padded block holding every child's rows. Fully empty — every
+   * child renders nothing — collapses to ONE blank row: the log | drawer
+   * gap itself (#146 design: the drawer never disappears entirely, so the
+   * log needs no dynamic padding; the busy edge honestly grows the drawer
+   * by the spinner's row).
+   *
+   * One blank row between drawer items (the spinner and the jobs table
+   * must not butt together); never leading or trailing — the block's top
+   * sits against the log's trailing separator and its bottom is the
+   * input-side gap.
    */
   override render(ctx: RenderContext): string[] {
     const cols = Math.max(0, Math.floor(ctx.cols));
     const inner = Math.max(0, cols - 2);
     const rows: string[] = [];
+    let lastHadRows = false;
     for (const child of registeredDrawerChildren()) {
-      for (const row of toRows(child.render({ cols: inner }))) {
+      const childRows = toRows(child.render({ cols: inner }));
+      if (childRows.length > 0 && lastHadRows) rows.push("");
+      for (const row of childRows) {
         rows.push(truncateAnsi(row, inner));
       }
+      lastHadRows = childRows.length > 0;
     }
-    if (rows.length === 0) return [];
+    if (rows.length === 0) {
+      // Fully empty: the drawer is its single log|drawer gap line (styled
+      // like any other row — full-width backing).
+      return ST.drawer.width(cols).render("").split("\n");
+    }
+    // The gap on the INPUT side: one blank row after the block (the log's
+    // trailing separator blank is the gap on the LOG side).
+    rows.push("");
     return ST.drawer.width(cols).render(rows.join("\n")).split("\n");
   }
-
   /** Row count of the padded block (0 when fully collapsed). */
   override measure(width: number): number {
     const cols = Math.max(0, Math.floor(width));

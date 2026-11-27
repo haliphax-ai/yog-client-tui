@@ -8,6 +8,8 @@
  */
 import { addLiveCompletionTokens, getState, setState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
+import { noteTranscriptTail } from "./transcriptSignature.ts";
+import { transcriptTailSeqOf } from "./transcriptSignature.ts";
 import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
 import {
   type TokenUsage,
@@ -44,6 +46,24 @@ export function applyUsageTotal(usage: TokenUsage): void {
   });
 }
 
+/**
+ * One of this client's OWN turns just streamed live: every row it
+ * produced carries tool-call ids or the raw prompt (no numeric seq
+ * stamps), so `transcriptSignature` under-measures the tail until the
+ * next rebuild. The terminal usage report is the turn's settle edge —
+ * probe the transcript tail there (best effort; a failed probe leaves
+ * the floor alone and the next submit's sync re-measures it, #144).
+ */
+export async function noteOwnTurnTail(client: YogClient): Promise<void> {
+  const sessionId = client.sessionId;
+  if (sessionId === undefined) return;
+  try {
+    noteTranscriptTail(sessionId, transcriptTailSeqOf(await client.getTranscript()));
+  } catch {
+    // Best effort: the floor stays where it was.
+  }
+}
+
 /** Wrap the presenter's events so terminal usage reports update the bar. */
 export function withUsageTracking(presenter: TurnPresenter): TurnEvents {
   const baseOnFinish = presenter.events.onFinish;
@@ -72,8 +92,20 @@ export async function turnWithRecovery(
   events: TurnEvents,
   saveState: StateSaver,
 ): Promise<TurnOutcome> {
+  // An honest wait: if the server already has a turn live on this
+  // session (a wake turn mid-flight, a burst of submits), this turn
+  // queues behind it — say so instead of a bare spinner.
+  const baseEvents = events;
+  const eventsWithQueue: TurnEvents = {
+    ...baseEvents,
+    onQueued: () =>
+      pushLines(
+        "notice",
+        noticeLine("notice", "turn queued", "running after the earlier turn on this session"),
+      ),
+  };
   try {
-    return await client.runTurn(prompt, model, events);
+    return await client.runTurn(prompt, model, eventsWithQueue);
   } catch (err) {
     if (!(err instanceof YogError) || err.code !== "unknown_session") throw err;
     const staleId = client.sessionId;
@@ -84,7 +116,7 @@ export async function turnWithRecovery(
     );
     pushLines("notice", noticeLine("notice", "new session", freshId));
     await saveState(freshId);
-    return await client.runTurn(prompt, model, events);
+    return await client.runTurn(prompt, model, eventsWithQueue);
   }
 }
 
@@ -98,12 +130,28 @@ export async function turnWithRecovery(
  */
 export function abortActiveTurn(client: YogClient): void {
   if (!getState().busy || client.sessionId === undefined) return;
-  void client.abortTurn().catch((err: unknown) => {
-    pushLines(
-      "error",
-      noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
-    );
-  });
+  void client
+    .abortTurn()
+    .then((result) => {
+      // The reply names what WAS killed (captured server-side before the
+      // unwind): surface it — the turn-abort path otherwise has no log
+      // footprint until the settled turn carries its `turn.aborted` notice.
+      const call = result.activeToolCall;
+      pushLines(
+        "notice",
+        noticeLine(
+          "notice",
+          "turn aborted",
+          call === undefined ? undefined : `${call.name} ${call.id}`,
+        ),
+      );
+    })
+    .catch((err: unknown) => {
+      pushLines(
+        "error",
+        noticeLine("error", "abort failed", err instanceof Error ? err.message : String(err)),
+      );
+    });
 }
 
 /** Create the presenter for a new prompt, with usage tracking wired. */

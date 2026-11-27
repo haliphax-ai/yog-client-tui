@@ -16,6 +16,11 @@ export interface UiState {
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
+  /** A foreign turn (the idle watch's wake delivery) is in flight: the
+   *  spinner shows for it too (the label stays honest — generation IS
+   *  running), while `busy` stays the user's own turn's flag (the submit
+   *  path and the busy seam own it). */
+  busyForeign: boolean;
   model: string;
   /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
   focusTarget: FocusTarget;
@@ -23,6 +28,11 @@ export interface UiState {
   tokenTotals: { prompt: number; completion: number; total: number };
   /** Context window size for the session model (from server capabilities). */
   contextWindow?: number;
+  /** Background-jobs drawer state: the view is open, and the rows it
+   *  last rendered (cells; kept between polls). Undefined rows = the
+   *  initial state (the view renders its empty note once open). */
+  jobsOpen?: boolean;
+  jobRows?: readonly (readonly string[])[];
 }
 
 let state: UiState = initialState();
@@ -37,9 +47,12 @@ function initialState(): UiState {
     scrollOffset: 0,
     follow: true,
     busy: false,
+    busyForeign: false,
     model: "",
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     contextWindow: undefined,
+    jobsOpen: false,
+    jobRows: undefined,
     focusTarget: FOCUS_NONE_TARGET,
   };
 }

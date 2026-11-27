@@ -74,6 +74,51 @@ const SHIFT_ENTER_SEQS: ReadonlySet<string> = new Set([
   "\x1b[13;2~",
 ]);
 
+/** Modifiers that turn Space into a real binding (everything but shift). */
+/**
+ * The character a demoted (Shift-only) key types. Shifted letters are
+ * their uppercase; shifted punctuation comes from the US-layout table
+ * below (kitty's CSI-u carries the BASE codepoint + the shift bit, and
+ * without reportAssociatedText the text field is empty — the shifted
+ * symbol is otherwise unknowable). Non-US layouts typing shift+symbol
+ * get the US symbol: imperfect, but strictly better than the key
+ * doing nothing, and every layout matches on the letters/space.
+ */
+const SHIFTED_PUNCT_PAIRS: [string, string][] = [
+  ["1", "!"],
+  ["2", "@"],
+  ["3", "#"],
+  ["4", "$"],
+  ["5", "%"],
+  ["6", "^"],
+  ["7", "&"],
+  ["8", "*"],
+  ["9", "("],
+  ["0", ")"],
+  ["-", "_"],
+  ["=", "+"],
+  ["[", "{"],
+  ["]", "}"],
+  ["\\", "|"],
+  [";", ":"],
+  ["'", '"'],
+  [",", "<"],
+  [".", ">"],
+  ["/", "?"],
+  ["`", "~"],
+];
+const SHIFTED_PUNCT: ReadonlyMap<number, string> = new Map(
+  SHIFTED_PUNCT_PAIRS.map(([base, shifted]) => [base.charCodeAt(0), shifted] as const),
+);
+const KEY_TEXT: ReadonlyMap<number, string> = new Map(
+  Array.from({ length: 95 }, (_, i) => {
+    const cp = 0x20 + i;
+    const ch = String.fromCodePoint(cp);
+    const shifted = cp >= 97 && cp <= 122 ? ch.toUpperCase() : (SHIFTED_PUNCT.get(cp) ?? ch);
+    return [cp, shifted] as const;
+  }),
+);
+
 /** Shift+Up encodings — move top-level focus from the input to the log. */
 const SHIFT_UP_SEQS: ReadonlySet<string> = new Set([
   "\x1b[1;2A", // xterm-style
@@ -399,14 +444,27 @@ export class InputComponent extends BaseComponent {
       setState({}); // notify the scheduler so the blur style repaints
       return "handled";
     }
-    const key = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
-    if (key === undefined) return "unhandled";
-    // Up/Down move the caret only when the input spans multiple lines; a
-    // single-line input leaves them to the log-scroll globals.
-    if ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1) {
-      return "unhandled";
-    }
-    this.feed(key);
+    const parsed = parseSeqKey(seq) ?? LEGACY_SEQ_KEYS[seq];
+    // Unbound Shift+<key> demotes to the plain key (the user's rule):
+    // the kitty CSI-u form arrives text-less, so synthesize the key's
+    // own character — Shift+Space types a space, Shift+Backspace
+    // deletes. Only ctrl/alt/meta make a modifier meaningful here;
+    // everything Shift actually binds (Enter, arrows, Tab, ctrl+J) is
+    // matched earlier by literal sequence sets, before this runs.
+    const key =
+      parsed === undefined || (parsed.mod ?? KeyMod.None) !== KeyMod.Shift
+        ? parsed
+        : { mod: KeyMod.None, text: KEY_TEXT.get(parsed.code), code: parsed.code };
+    // The kitty CSI 27u Esc (flag 1) and up/down on a single-line input
+    // belong to the ring's globals / the log's scroll, not the textarea.
+    const feedable =
+      key === undefined ||
+      key.code === KeyCode.Escape ||
+      ((key.code === KeyCode.Up || key.code === KeyCode.Down) && this.textarea.lineCount() <= 1)
+        ? undefined
+        : key;
+    if (feedable === undefined) return "unhandled";
+    this.feed(feedable);
     // Navigation only — keep the completion selection. A pure cursor /
     // scroll / selection move leaves the value unchanged, so `syncInput`
     // writes nothing — but the view *did* change. The render scheduler

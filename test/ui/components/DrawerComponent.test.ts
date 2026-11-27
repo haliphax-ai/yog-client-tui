@@ -29,30 +29,47 @@ describe("DrawerComponent + registry", () => {
     resetDrawerRegistryForTests();
   });
 
-  it("is fully collapsed when no children are registered", () => {
+  it("renders its single gap line when no children are registered (#146)", () => {
     const drawer = new DrawerComponent();
-    expect(drawer.render({ cols: 80 })).toEqual([]);
-    expect(drawer.measure(80)).toBe(0);
+    expect(drawer.render({ cols: 80 }).map((r) => stripAnsi(r))).toEqual([" ".repeat(80)]);
+    expect(drawer.measure(80)).toBe(1);
   });
 
-  it("is fully collapsed when every registered child renders nothing", () => {
+  it("the busy edge grows the drawer by the spinner row (#146: honest growth)", () => {
+    // Idle: the spinner child renders nothing — the drawer is its single
+    // gap line. Busy: the spinner row + the input-side gap.
+    registerDrawerChild(new Stub([]));
+    const drawer = new DrawerComponent();
+    expect(drawer.render({ cols: 10 }).map((r) => stripAnsi(r))).toEqual([" ".repeat(10)]);
+    expect(drawer.measure(10)).toBe(1);
+    // A visible sibling stacks after the item separator: the gap line sits
+    // ABOVE the block (the no-children case collapsed to it), then the
+    // sibling, then the input-side gap.
+    registerDrawerChild(new Stub(["busy"]));
+    const stacked = new DrawerComponent();
+    expect(stacked.render({ cols: 10 }).map((r) => stripAnsi(r))).toEqual([
+      " busy     ",
+      " ".repeat(10),
+    ]);
+  });
+
+  it("renders its single gap line when every registered child renders nothing", () => {
     registerDrawerChild(new Stub([]));
     registerDrawerChild(new Stub(""));
     const drawer = new DrawerComponent();
-    expect(drawer.render({ cols: 80 })).toEqual([]);
-    expect(drawer.measure(80)).toBe(0);
+    expect(drawer.render({ cols: 80 }).map((r) => stripAnsi(r))).toEqual([" ".repeat(80)]);
+    expect(drawer.measure(80)).toBe(1);
   });
 
-  it("pads a single visible child with 1 cell on every side", () => {
+  it("insets a visible child horizontally (no vertical pad — the log's separator blank is the gap)", () => {
     registerDrawerChild(new Stub(["hello"]));
     const drawer = new DrawerComponent();
     const rows = drawer.render({ cols: 20 });
-    expect(rows).toHaveLength(3);
-    expect(stripAnsi(rows[0] as string)).toBe(" ".repeat(20));
-    expect(stripAnsi(rows[1] as string)).toBe(" hello" + " ".repeat(14));
-    expect(stripAnsi(rows[2] as string)).toBe(" ".repeat(20));
+    expect(rows).toHaveLength(2);
+    expect(stripAnsi(rows[0] as string)).toBe(" hello" + " ".repeat(14));
+    expect(stripAnsi(rows[1] as string)).toBe(" ".repeat(20)); // the input-side gap
     for (const row of rows) expect(displayWidth(row)).toBe(20);
-    expect(drawer.measure(20)).toBe(3);
+    expect(drawer.measure(20)).toBe(2);
   });
 
   it("stacks children in registration order and normalizes string renders", () => {
@@ -61,12 +78,21 @@ describe("DrawerComponent + registry", () => {
     const drawer = new DrawerComponent();
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
     expect(plain).toEqual([
-      " ".repeat(10),
       " aaa      ",
       " bbb      ",
+      "          ", // the item separator: one blank row between children
       " ccc      ",
-      " ".repeat(10),
+      "          ", // the input-side gap
     ]);
+  });
+
+  it("inserts no separator before the first or after the last child", () => {
+    registerDrawerChild(new Stub([]));
+    registerDrawerChild(new Stub(["only"]));
+    registerDrawerChild(new Stub([]));
+    const drawer = new DrawerComponent();
+    const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
+    expect(plain).toEqual([" only     ", " ".repeat(10)]);
   });
 
   it("skips collapsed children between visible ones", () => {
@@ -75,26 +101,26 @@ describe("DrawerComponent + registry", () => {
     registerDrawerChild(new Stub(["second"]));
     const drawer = new DrawerComponent();
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
-    expect(plain).toEqual([" ".repeat(10), " first    ", " second   ", " ".repeat(10)]);
+    expect(plain).toEqual([" first    ", " second   ", " ".repeat(10)]);
   });
 
   it("truncates overlong child rows to the padded interior (no wrap explosion)", () => {
     registerDrawerChild(new Stub(["abcdefghij"]));
     const drawer = new DrawerComponent();
     const rows = drawer.render({ cols: 6 });
-    expect(rows).toHaveLength(3);
-    expect(stripAnsi(rows[1] as string)).toBe(" abcd ");
+    expect(rows).toHaveLength(2);
+    expect(stripAnsi(rows[0] as string)).toBe(" abcd ");
   });
 
   it("measures padding in cells, not characters (emoji regression)", () => {
     registerDrawerChild(new Stub(["✅ done"]));
     const drawer = new DrawerComponent();
     const rows = drawer.render({ cols: 10 });
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2);
     for (const row of rows) expect(displayWidth(row)).toBe(10);
     // "✅" is 1 char but 2 cells: " ✅ done  " is 10 cells, 9 chars.
-    expect(stripAnsi(rows[1] as string)).toBe(" ✅ done  ");
-    expect(drawer.measure(10)).toBe(3);
+    expect(stripAnsi(rows[0] as string)).toBe(" ✅ done  ");
+    expect(drawer.measure(10)).toBe(2);
   });
 
   it("unregistering a child removes it from the draw", () => {
@@ -105,7 +131,7 @@ describe("DrawerComponent + registry", () => {
     expect(registeredDrawerChildren()).toHaveLength(1);
     const drawer = new DrawerComponent();
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
-    expect(plain).toEqual([" ".repeat(10), " kept     ", " ".repeat(10)]);
+    expect(plain).toEqual([" kept     ", " ".repeat(10)]);
     remove(); // unregister is idempotent
     expect(registeredDrawerChildren()).toHaveLength(1);
   });

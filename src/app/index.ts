@@ -12,6 +12,7 @@ export {
 } from "./copySinks.ts";
 export { nextMessageSeq, pushLines, resetEntries } from "./logFeed.ts";
 export { pollRunningTurn } from "./pollRunning.ts";
+export { deferWhileBusy, startIdleWatch, type IdleWatch, type IdleWatchHost } from "./idleWatch.ts";
 export { type ResolvedSession, resolveSession } from "./sessionSetup.ts";
 export {
   type CommandEnv,
@@ -34,9 +35,11 @@ export {
   compactionNote,
   driveRehydrate,
   entriesForDump,
+  entriesForDumpAfter,
   placeholderSeed,
   stageRehydrate,
   statusTotals,
+  syncTranscriptOnSubmit,
   termCols,
   transcriptTokenWeight,
 } from "./transcriptRebuild.ts";
@@ -44,6 +47,7 @@ export {
   type StateSaver,
   abortActiveTurn,
   applyUsageTotal,
+  noteOwnTurnTail,
   recordRoundDelta,
   startTurnPresenter,
   turnWithRecovery,
@@ -51,3 +55,9 @@ export {
   withUsageTracking,
 } from "./turnControl.ts";
 export { type TurnEnv, submitInput } from "./turnRunner.ts";
+export {
+  noteTranscriptTail,
+  resetTranscriptTailForTests,
+  transcriptFloorOf,
+  transcriptSignature,
+} from "./transcriptSignature.ts";

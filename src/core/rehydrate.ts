@@ -26,6 +26,26 @@ import { stepFor } from "./rehydrateSteps.ts";
 import { TurnTracker, turnIdOf } from "./turnTracker.ts";
 import type { TranscriptRehydrateOpts } from "./turnMetrics.ts";
 
+/**
+ * A wake turn's prompt row styles as `system` — harness-internal,
+ * never user-typed. The substitution is a fresh-entry transform (1:1,
+ * indices stable) applied ONCE, before either walker: the walk itself
+ * stays wake-agnostic.
+ */
+export function wakeSubstitute(
+  entries: TranscriptEntry[],
+  turns: TranscriptRehydrateOpts["turns"],
+): TranscriptEntry[] {
+  const wake = new Set<number>();
+  for (const [id, m] of (turns ?? new Map()).entries()) {
+    if (m.wake === true) wake.add(id);
+  }
+  if (wake.size === 0) return entries;
+  return entries.map((e) =>
+    e.role === "user" && wake.has(Number(e.raw.turnId)) ? { ...e, role: "system" } : e,
+  );
+}
+
 export type { TranscriptRehydrateOpts, TranscriptTurnMetrics } from "./turnMetrics.ts";
 
 /**
@@ -42,12 +62,13 @@ export function transcriptLogEntries(
   cols: number,
   opts: TranscriptRehydrateOpts = {},
 ): LogEntry[] {
+  const rows = wakeSubstitute(entries, opts.turns);
   const out: LogEntry[] = [];
   const tracker = new TurnTracker(opts.turns ?? new Map(), (entry) => out.push(entry));
   let i = 0;
-  while (i < entries.length) {
-    tracker.cross(turnIdOf(entries[i]!));
-    const step = stepFor(entries, i, cols);
+  while (i < rows.length) {
+    tracker.cross(turnIdOf(rows[i]!));
+    const step = stepFor(rows, i, cols);
     tracker.countCalls(step.group.filter((e) => e.kind === "tool" && e.label !== undefined).length);
     out.push(...step.group);
     i = step.next;
@@ -73,14 +94,15 @@ export function rehydrateGroups(
   cols: number,
   opts: TranscriptRehydrateOpts = {},
 ): LogEntry[][] {
+  const rows = wakeSubstitute(entries, opts.turns);
   const groups: LogEntry[][] = [];
   // Turn summaries belong to the PREVIOUS turn's last row group; pending
   // holds them until the group that ends the turn exists.
   let pending: LogEntry[] = [];
   const tracker = new TurnTracker(opts.turns ?? new Map(), (entry) => pending.push(entry));
   let i = 0;
-  while (i < entries.length) {
-    tracker.cross(turnIdOf(entries[i]!));
+  while (i < rows.length) {
+    tracker.cross(turnIdOf(rows[i]!));
     const group: LogEntry[] = [];
     // Attach the summary to the previous group (the turn that just ended);
     // before the first group, hold it — it will ride the first group's
@@ -91,7 +113,7 @@ export function rehydrateGroups(
       else group.push(...pending);
       pending = [];
     }
-    const step = stepFor(entries, i, cols);
+    const step = stepFor(rows, i, cols);
     tracker.countCalls(step.group.filter((e) => e.kind === "tool" && e.label !== undefined).length);
     group.push(...step.group);
     groups.push(group);

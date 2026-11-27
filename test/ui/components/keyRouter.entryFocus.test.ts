@@ -42,6 +42,9 @@ function entryFocusGlobals(viewport: ChatViewport): Globals {
     jump: (top) => viewport.jump(top, 24),
     submit: () => undefined,
     abortTurn: () => undefined,
+    dismissEsc: () => false,
+    abortBackgroundJobs: () => undefined,
+    toggleJobs: () => undefined,
     pageRows: () => 24,
   };
 }

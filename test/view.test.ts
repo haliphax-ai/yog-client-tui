@@ -141,9 +141,12 @@ describe("totalRows", () => {
     expect(totalRows([], 40)).toBe(0);
   });
 
-  it("counts one row per logical line plus a separator", () => {
+  // (System rows render as notice blocks now: label+detail collapse to one
+  // row and the block is word-wrapped, so the old per-line height math was
+  // rewritten against the notice contract; the separator row count stays.)
+  it("counts one row per logical line plus a separator (notice shape)", () => {
     expect(totalRows([entry({ kind: "system", lines: ["hi"] })], 40)).toBe(2);
-    expect(totalRows([entry({ kind: "system", lines: ["a", "b"] })], 40)).toBe(3);
+    expect(totalRows([entry({ kind: "system", lines: ["a", "b"] })], 40)).toBe(2);
   });
   it("adds one separator row between entries", () => {
     expect(
@@ -151,7 +154,7 @@ describe("totalRows", () => {
         [entry({ kind: "system", lines: ["hi"] }), entry({ kind: "system", lines: ["x", "y"] })],
         40,
       ),
-    ).toBe(5);
+    ).toBe(4);
   });
 
   it("counts wrapped rows", () => {
@@ -159,7 +162,7 @@ describe("totalRows", () => {
     expect(
       totalRows([entry({ kind: "system", lines: ["w".repeat(100), "w".repeat(100)] })], 40),
     ).toBe(7);
-    expect(totalRows([entry({ kind: "system", lines: ["你好世界再见世界"] })], 6)).toBe(4);
+    expect(totalRows([entry({ kind: "system", lines: ["你好世界再见世界"] })], 6)).toBe(5);
   });
 
   it("counts a headerless entry as a single row", () => {

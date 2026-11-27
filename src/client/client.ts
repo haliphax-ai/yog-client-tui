@@ -36,6 +36,8 @@ import { consumeStream, parseFrame, toEnvelope } from "./sse.ts";
 import type {
   AbortTurnResult,
   ActiveToolCall,
+  BackgroundJob,
+  JobsResult,
   ToolResultEvent,
   TranscriptMessage,
   TranscriptResult,
@@ -98,6 +100,18 @@ export interface SessionStream {
   readonly closed: Promise<Error | undefined>;
   /** Detach the stream (aborts its fetch; the server treats it as a hang-up). */
   close(): void;
+}
+
+/** A job row's id/sessionId/tool/state fields (the row is unusable without them). */
+function jobRowOk(row: unknown): boolean {
+  if (row === null || typeof row !== "object" || Array.isArray(row)) return false;
+  const rec = row as Record<string, unknown>;
+  return (
+    typeof rec["id"] === "string" &&
+    typeof rec["sessionId"] === "string" &&
+    typeof rec["tool"] === "string" &&
+    typeof rec["state"] === "string"
+  );
 }
 
 /** The terminal-event signal one `runTurn` waits on: resolved by the
@@ -275,6 +289,31 @@ export class YogClient extends Transport {
   }
 
   /**
+   * The session's background jobs (`jobs.get`): the full list without
+   * arguments, one job's detail with `{ jobId }`. Reads work while a
+   * turn runs (the server does not gate the type on idleness). Malformed
+   * rows are dropped defensively; absent fields degrade, never throw.
+   */
+  async getJobs(jobId?: string): Promise<JobsResult> {
+    if (!this.sessionId) throw new Error("getJobs called before open() or reopen()");
+    const sessionId = this.sessionId;
+    const body = (await this.send(
+      sessionId,
+      "jobs.get",
+      jobId === undefined ? {} : { jobId },
+      "fetching jobs failed",
+    )) as {
+      jobs?: unknown;
+      job?: unknown;
+    };
+    const rows = Array.isArray(body.jobs) ? body.jobs.filter(jobRowOk) : undefined;
+    return {
+      ...(rows !== undefined ? { jobs: rows as BackgroundJob[] } : {}),
+      ...(jobRowOk(body.job) ? { job: body.job as BackgroundJob } : {}),
+    };
+  }
+
+  /**
    * Run one turn: open the long-lived session stream, POST `turn.start` on
    * the messages channel (nested under `data`, prompt-only — history never
    * rides along), and dispatch the stream's envelopes to `events`. The
@@ -307,13 +346,18 @@ export class YogClient extends Transport {
     const stream = this.openStream(sessionId, handle);
     const streamDone = stream.closed.then((err) => err);
     // `turn.start` is the only such message this client sends; its 202 is
-    // semantics; its 202 is an acceptance, not the turn's progress.
-    await this.send(
+    // semantics; its 202 is an acceptance, not the turn's progress. The
+    // reply's `queued` flag (server: another turn is live on this session
+    // — a wake turn mid-flight, or a burst of submits) surfaces here so
+    // the caller can show the wait honestly instead of a bare spinner.
+    const reply = await this.send(
       sessionId,
       "turn.start",
       turnStartParams(prompt, model, stream),
       "running turn failed",
     );
+    const queued = (reply as { queued?: unknown } | undefined)?.queued === true;
+    if (queued) events.onQueued?.();
     // Wait for the turn's terminal event on the stream, or for the stream
     // itself to die — whichever comes first. `readSseStream` resolves on a
     // clean end with `undefined`, so a stream that ends after the terminal

@@ -294,4 +294,13 @@ describe("perTurnDeltas", () => {
       }>),
     ).toEqual(new Map());
   });
+
+  it("a wake turn keeps its wake marker (the prompt row styles as system)", () => {
+    const map = perTurnDeltas([
+      { turnId: 1, wake: true },
+      { turnId: 2, usage: { total_tokens: 90 } },
+    ]);
+    expect(map.get(1)).toEqual({ wake: true });
+    expect(map.get(2)?.wake).toBeUndefined();
+  });
 });

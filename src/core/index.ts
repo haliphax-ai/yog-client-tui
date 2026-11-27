@@ -16,6 +16,7 @@ export {
   completeSlash,
   isSlash,
   registryVersion,
+  setDrawerCommands,
   requiresArgs,
   resolveSlash,
   setServerCommands,
@@ -47,6 +48,15 @@ export {
 } from "./entries.ts";
 export { FOCUS_NONE, FOCUS_NONE_TARGET, type FocusTarget, moveFocus } from "./focus.ts";
 export { type NoticeKind, noticeLine } from "./notices.ts";
+export {
+  type HarnessNotice,
+  HARNESS_NOTICE_TOOL,
+  decodeHarnessNotices,
+  harnessNoticesShown,
+  harnessNoticeEntries,
+  isHarnessNoticeTool,
+  setHarnessNoticesVisible,
+} from "./harnessNotice.ts";
 export { type ScrollState, clampScroll, jump, scrollBy } from "./scroll.ts";
 export {
   addLiveCompletionTokens,
@@ -96,6 +106,7 @@ export {
   placeholderForTranscriptEntry,
   placeholderLogEntries,
   rehydrateGroupIndices,
+  wakeSubstitute,
   rehydrateGroups,
   toolCallEntry,
   toolResultChunk,

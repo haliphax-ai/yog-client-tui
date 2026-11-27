@@ -64,6 +64,9 @@ export interface TranscriptResult {
     status?: string;
     usage?: TokenUsage;
     durationMs?: number;
+    /** A background-jobs wake turn (the jobs manager fired it; no human
+     *  prompt behind it) — the prompt row styles as harness-internal. */
+    wake?: boolean;
   }>;
 }
 
@@ -91,8 +94,12 @@ export interface ToolResultEvent {
 
 /** Callbacks the UI registers for one in-flight turn. */
 export interface TurnEvents {
+  /** The `turn.start` reply's `queued` flag: another turn on this session
+   *  is live (a wake turn mid-flight or a burst of submits) — this turn
+   *  runs after it. Emitted once, right after the POST acceptance. */
+  onQueued?(): void;
   /** `turn.started` — the stream is live; `turnId` enables recovery. */
-  onStarted?(turnId: string, model: string): void;
+  onStarted?(turnId: string, model: string, wake?: boolean): void;
   /** `message.delta` — an assistant text chunk. */
   onDelta?(text: string): void;
   /** `tool.call` — the model invoked a tool. */
@@ -109,6 +116,12 @@ export interface TurnEvents {
   onError?(code: string, message: string): void;
   /** The SSE stream died and the turn was replayed from turn-status. */
   onRecovered?(): void;
+  /**
+   * A session-stream event outside the turn envelope (background-jobs
+   * lifecycle: `job.started` / `job.settled`). The jobs drawer patches
+   * its rows off these; the turn presenter ignores them.
+   */
+  onJobEvent?(type: string, data: Record<string, unknown>): void;
 }
 
 /**
@@ -162,4 +175,41 @@ export interface AbortTurnResult {
   status: "aborted" | "idle";
   /** The tool call that was killed, if one was in flight. */
   activeToolCall?: ActiveToolCall;
+  /** Count of background jobs the idle abort killed (yog#91 semantics;
+   *  the server reports it only when nonzero). */
+  backgroundJobs?: number;
+}
+
+/** One background job row (`jobs.get` list/detail; verbatim wire fields). */
+export interface BackgroundJob {
+  /** The job id (the pool run key and the transcript's `backgroundJobId`). */
+  readonly id: string;
+  /** Owning session id. */
+  readonly sessionId: string;
+  /** Tool name (e.g. `bash`). */
+  readonly tool: string;
+  /** Raw JSON arguments exactly as the registry received them. */
+  readonly argsJson: string | null;
+  /** The call's start (detach) time, epoch ms. */
+  readonly startedAt: number;
+  /** The settle time, epoch ms (unset while running). */
+  endedAt?: number;
+  /** Lifecycle state. */
+  state: string;
+  /** The retained (capped) result once the call settles. */
+  result?: unknown;
+  /** The worker wrapper child's pid, when known. */
+  pid?: number;
+  /** Termination reason (state `terminated` only). */
+  termReason?: string;
+  /** True once the result has been delivered in a wake prompt. */
+  delivered?: boolean;
+}
+
+/** The `jobs.get` reply: the session's job rows (list) or one row (detail). */
+export interface JobsResult {
+  /** The session's jobs in start order (absent on a single-job reply). */
+  jobs?: BackgroundJob[];
+  /** The named job (detail replies). */
+  job?: BackgroundJob;
 }

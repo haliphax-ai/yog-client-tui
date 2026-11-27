@@ -28,6 +28,8 @@ export interface TurnRow {
   status?: string;
   usage?: TokenUsage;
   durationMs?: number;
+  /** A background-jobs wake turn (the jobs manager fired it). */
+  wake?: boolean;
 }
 
 /** A turn row's numeric id, or undefined (the row is unusable without one). */
@@ -61,6 +63,7 @@ function decodeTurnRow(t: unknown): TurnRow | undefined {
     ...(status !== undefined ? { status } : {}),
     ...(usage !== undefined ? { usage } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(rec["wake"] === true ? { wake: true } : {}),
   };
 }
 

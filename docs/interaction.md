@@ -20,19 +20,53 @@ the focused unit; on a focused table, `←`/`→` scroll its columns.
 
 ## Key bindings
 
-| Key                                        | Action                                                                                                                                                                                                              |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Enter`                                    | In the input: send. In the log: expand/collapse the focused unit.                                                                                                                                                   |
-| `Shift+Enter`                              | Insert a newline in the input without sending.                                                                                                                                                                      |
-| `Shift+Up` / `Shift+Down`                  | Move the ring between input and log.                                                                                                                                                                                |
-| Arrows, `Home`/`End`, `Backspace`/`Delete` | In the input: the full textarea keymap, including word navigation (`Alt`/`Ctrl`+arrows) and multi-line caret movement. In the log: `↑`/`↓` scroll one row; on a focused expanded table, `←`/`→` scroll its columns. |
-| `PageUp`/`PageDown`                        | In the log: scroll a page. In a multi-line input: page the caret.                                                                                                                                                   |
-| `Ctrl+Home`/`Ctrl+End`                     | In the log: jump to top/bottom. In the input: jump to buffer start/end.                                                                                                                                             |
-| `Tab`/`Shift+Tab`                          | In the log: cycle focusable units. In the input: complete a slash command.                                                                                                                                          |
-| `T`/`Shift+T`                              | While a message with tables is focused: cycle its tables.                                                                                                                                                           |
-| `Esc`                                      | In the log with something focused: leave focus mode. In the log with nothing focused: return to the input. In the input: abort the in-flight turn (idle → no-op).                                                   |
-| `/quit`                                    | Quit via the slash command. `Ctrl+C` is unbound.                                                                                                                                                                    |
+| Key                                        | Action                                                                                                                                                                                                                                                               |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Enter`                                    | In the input: send. In the log: expand/collapse the focused unit.                                                                                                                                                                                                    |
+| `Shift+Enter`                              | Insert a newline in the input without sending.                                                                                                                                                                                                                       |
+| `Shift+Up` / `Shift+Down`                  | Move the ring between input and log.                                                                                                                                                                                                                                 |
+| Arrows, `Home`/`End`, `Backspace`/`Delete` | In the input: the full textarea keymap, including word navigation (`Alt`/`Ctrl`+arrows) and multi-line caret movement. In the log: `↑`/`↓` scroll one row; on a focused expanded table, `←`/`→` scroll its columns.                                                  |
+| `PageUp`/`PageDown`                        | In the log: scroll a page. In a multi-line input: page the caret.                                                                                                                                                                                                    |
+| `Ctrl+Home`/`Ctrl+End`                     | In the log: jump to top/bottom. In the input: jump to buffer start/end.                                                                                                                                                                                              |
+| `Tab`/`Shift+Tab`                          | In the log: cycle focusable units. In the input: complete a slash command.                                                                                                                                                                                           |
+| `T`/`Shift+T`                              | While a message with tables is focused: cycle its tables.                                                                                                                                                                                                            |
+| `Ctrl+J`                                   | Toggle the background-jobs drawer, from either ring side (same as `/jobs`).                                                                                                                                                                                          |
+| `Esc`                                      | In the log with something focused: leave focus mode. In the log with nothing focused: return to the input. In the input: the cascade — close an open drawer view that listens for Esc, else abort the in-flight turn, else idle-abort the session's background jobs. |
+| `/jobs`                                    | Toggle the background-jobs drawer (refused with a note on servers without the `background-jobs` feature).                                                                                                                                                            |
+| `/quit`                                    | Quit via the slash command. `Ctrl+C` is unbound.                                                                                                                                                                                                                     |
 
+## The drawer: background jobs
+
+Run `/jobs` (or press `Ctrl+J` from either ring side) to open the
+background-jobs drawer above the input. The view polls `jobs.get` about
+every two seconds while open and shows one row per detached job — id,
+tool, state (a terminated job carries its reason), elapsed time, and the
+result's exit code. Run `/jobs` again to close it. The view is
+capabilities-gated: on a server that does not advertise the
+`background-jobs` feature it stays fully collapsed (zero rows — the
+drawer block never opens), and the command answers with a note instead.
+
+While the drawer is open, `Esc` (from the input) closes it; otherwise
+`Esc` falls through the abort cascade: the in-flight turn aborts, and
+when the session is already idle, `Esc` idle-aborts the session's
+background jobs. The reply is echoed immediately as a notice line
+(⏳ `background jobs · aborted N`), and a job whose state flips
+between polls — terminated or finished — announces its transition in
+the log once, even after the drawer has closed. The server also queues
+a harness notice for the next turn, which lands in the log when the
+next submit rebuilds the transcript.
+
+## Harness notices
+
+The server delivers daemon notices as synthetic `harness_notice` tool
+call/result pairs (empty args; the information lives in the result's
+`{hint, notices: [{kind, body}]}` payload). The client renders these as
+ordinary notice lines — the `kind` as the event label, the body dimmed —
+in both the live turn path and transcript rehydration, instead of a
+generic result blob. The empty-args call row groups with its result
+through the existing pairing, so a notice never leaves a dangling ⚙️
+line behind. Notice rendering can be toggled off for quiet sessions;
+the default is shown.
 `Shift+Enter` is recognized from the CSI-u / Kitty, xterm
 modifyOtherKeys, and `ESC[13;2~` encodings. A terminal configured not to
 report modified keys cannot distinguish `Shift+Enter` from `Enter`.

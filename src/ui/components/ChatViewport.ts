@@ -108,6 +108,9 @@ function focusedTableLayout(
   return { cols: bodyW, totalW: tableRowWidth(layout.widths) };
 }
 
+/** The kitty protocol's Esc (flag 1 sends CSI 27u instead of the byte). */
+const KITTY_ESC_SEQS: ReadonlySet<string> = new Set(["\x1b[27u"]);
+
 /** Shift+Down encodings — move top-level focus from the log to the input. */
 const SHIFT_DOWN_SEQS: ReadonlySet<string> = new Set([
   "\x1b[1;2B", // xterm-style
@@ -232,19 +235,21 @@ export class ChatViewport extends ChatLogComponent {
   }
 
   override handleKey(seq: string): "handled" | "unhandled" {
+    // Shift+Down hands the top-level ring back to the input.
     if (SHIFT_DOWN_SEQS.has(seq)) {
-      // Shift+Down: hand the top-level ring back to the input.
       setTopLevel("input");
       setState({}); // notify the scheduler so the input un-blurs
       return "handled";
     }
-    // Shift+C copies the whole message / whole item.
+    // The kitty protocol's CSI 27u (flag 1 disambiguates Esc — the plain
+    // byte this component used to see as a char never arrives): same
+    // semantics as the Esc char (leaveFocus handles both arms).
+    if (KITTY_ESC_SEQS.has(seq)) return this.leaveFocus();
+    // Shift+C copies / Shift+O outputs / Shift+T cycles tables backward;
+    // everything else falls to the focused-table scroll keys.
     if (SHIFT_C_SEQS.has(seq)) return this.requestCopy(true, false);
-    // Shift+O outputs the whole message / whole item to `out/` (#109).
     if (SHIFT_O_SEQS.has(seq)) return this.requestCopy(true, true);
-    // Shift+T cycles backward through the focused entry's tables.
-    if (TABLE_CYCLE_SEQS.has(seq)) return this.cycleTable(-1);
-    return this.scrollFocusedTable(seq);
+    return TABLE_CYCLE_SEQS.has(seq) ? this.cycleTable(-1) : this.scrollFocusedTable(seq);
   }
 
   override handleChar(ch: string): "handled" | "unhandled" {

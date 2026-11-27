@@ -88,7 +88,15 @@ export function decodeToolResult(m: TranscriptMessage): {
   value: unknown;
   error?: string;
 } {
-  const text = typeof m.content === "string" ? m.content : "";
+  return decodeToolResultText(contentOf2(m));
+}
+
+/** Parse a result row's content text into the decoded shape. */
+function decodeToolResultText(text: string): {
+  ok: boolean;
+  value: unknown;
+  error?: string;
+} {
   let value: unknown = text;
   try {
     value = JSON.parse(text);
@@ -177,6 +185,8 @@ interface CapturedTurn {
   turnId: number;
   usage?: TokenUsage;
   durationMs?: number;
+  /** A background-jobs wake turn (the jobs manager fired it). */
+  wake?: boolean;
 }
 
 /** A finite nonnegative turn id, or undefined. */
@@ -198,6 +208,7 @@ function turnMetrics(turn: CapturedTurn, prevTotal: number): TranscriptTurnMetri
   if (duration !== undefined) metrics.durationMs = duration;
   const delta = reportedTotalOf(turn) - prevTotal;
   if (reportedTotalOf(turn) > 0 && delta > 0) metrics.usage = { total_tokens: delta };
+  if (turn.wake === true) metrics.wake = true;
   return metrics;
 }
 
@@ -208,12 +219,12 @@ function byTurnId(a: CapturedTurn, b: CapturedTurn): number {
 
 /** Is the metrics entry worth a map slot: it carries anything at all? */
 function hasMetrics(metrics: TranscriptTurnMetrics): boolean {
-  return metrics.usage !== undefined || metrics.durationMs !== undefined;
+  return metrics.usage !== undefined || metrics.durationMs !== undefined || metrics.wake === true;
 }
 
 /** The captured turns with usable ids, in turn order. */
 function orderedTurns(
-  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }>,
+  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number; wake?: boolean }>,
 ): CapturedTurn[] {
   return turns
     .filter((t): t is CapturedTurn => t !== null && typeof t === "object")
@@ -227,7 +238,9 @@ function reportedTotalOf(turn: CapturedTurn): number {
 }
 
 export function perTurnDeltas(
-  turns: ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number }> | undefined,
+  turns:
+    | ReadonlyArray<{ turnId: number; usage?: TokenUsage; durationMs?: number; wake?: boolean }>
+    | undefined,
 ): Map<number, TranscriptTurnMetrics> {
   const out = new Map<number, TranscriptTurnMetrics>();
   if (!Array.isArray(turns)) return out;
@@ -272,7 +285,7 @@ function toolCallSummary(m: TranscriptMessage): string {
 }
 
 /** The row's string content (other types read as ""). */
-function contentOf(m: TranscriptMessage): string {
+function contentOf2(m: TranscriptMessage): string {
   return typeof m.content === "string" ? m.content : "";
 }
 
@@ -318,4 +331,19 @@ export function toTranscriptEntries(messages: TranscriptMessage[]): TranscriptEn
   return messages
     .filter((m) => isConvertible(m))
     .map((m) => ({ role: displayRoleOf(m.role), text: transcriptText(m), raw: m }));
+}
+/** The row's string content (other types read as ""). */
+function contentOf(m: TranscriptMessage): string {
+  return typeof m.content === "string" ? m.content : "";
+}
+
+/** Decode a tool result row by its content text (the rehydrate path
+ *  needs the PARSE — the ok/error flags it already computes on the way —
+ *  and harness_notice decoding reuses the same tolerant parse). */
+export function decodeResultContent(text: unknown): {
+  ok: boolean;
+  value: unknown;
+  error?: string;
+} {
+  return decodeToolResultText(typeof text === "string" ? text : "");
 }

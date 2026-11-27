@@ -8,6 +8,7 @@ import {
   registryVersion,
   requiresArgs,
   resolveSlash,
+  setDrawerCommands,
   setServerCommands,
   slashToken,
   slashTokenEnd,
@@ -57,7 +58,7 @@ describe("completeSlash", () => {
   });
 
   it("lists every command for a bare slash, local first, in registry order", () => {
-    expect(completeSlash("/")).toEqual(["/new", "/quit"]);
+    expect(completeSlash("/")).toEqual(["/new", "/quit"]); // /jobs rides the drawer registry
   });
 
   it("merges server descriptors after the local commands", () => {
@@ -189,9 +190,9 @@ describe("setServerCommands", () => {
 
   it("rebuilding the merged registry invalidates prior snapshots", () => {
     setServerCommands([{ name: "shake", summary: "s", message: "transcript.shake" }]);
-    expect(completeSlash("/s")).toEqual(["/shake"]);
+    expect(completeSlash("/shake")).toEqual(["/shake"]); // + /jobs shares no prefix
     setServerCommands([{ name: "compact", summary: "c", message: "compaction.run" }]);
-    expect(completeSlash("/s")).toEqual([]);
+    expect(completeSlash("/sha")).toEqual([]); // /shake is gone; /jobs shares no prefix
     expect(completeSlash("/c")).toEqual(["/compact"]);
   });
 });
@@ -257,5 +258,29 @@ describe("invocation envelope construction", () => {
       type: "compaction.run",
       data: { kind: "compact", guidance: "" },
     });
+  });
+});
+describe("the drawer command hook (/jobs)", () => {
+  beforeEach(() => {
+    setDrawerCommands([]);
+    setServerCommands([]);
+  });
+
+  it("merges drawer commands between the locals and server descriptors", () => {
+    setDrawerCommands([{ name: "jobs", summary: "toggle the background-jobs drawer" }]);
+    const names = SLASH_COMMANDS.map((c) => c.name);
+    expect(names).toEqual(["new", "quit", "jobs"]); // locals, then drawer, then server
+    const jobs = SLASH_COMMANDS.find((c) => c.name === "jobs");
+    expect(jobs?.message).toBeUndefined(); // client-local dispatch, never the server path
+  });
+
+  it("wins the name collision against a server descriptor", () => {
+    setDrawerCommands([{ name: "jobs", summary: "toggle the background-jobs drawer" }]);
+    const rejected = setServerCommands([
+      { name: "jobs", summary: "server-side jobs list", message: "jobs.get", argField: "jobId" },
+    ]);
+    expect(rejected).toHaveLength(1);
+    const merged = SLASH_COMMANDS.find((c) => c.name === "jobs");
+    expect(merged?.message).toBeUndefined(); // the drawer's own command survives
   });
 });

@@ -14,6 +14,7 @@ import {
   finalContextTotal,
   perTurnDeltas,
   toTranscriptEntries,
+  wakeSubstitute,
 } from "../core/index.ts";
 import { formatTokenTotal } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
@@ -102,7 +103,10 @@ export async function resolveSession(
   // paints instantly. Real entries swap in bottom-up (last chunk first —
   // the part the user sees) via `driveRehydrate` after the terminal is
   // taken over.
-  const transcriptEntries = toTranscriptEntries(dump.messages);
+  const transcriptEntries = wakeSubstitute(
+    toTranscriptEntries(dump.messages),
+    perTurnDeltas(dump.turns),
+  );
   for (const entry of placeholderLogEntries(transcriptEntries, process.stdout.columns ?? 80)) {
     seed.push(entry);
   }

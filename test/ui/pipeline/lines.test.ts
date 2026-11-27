@@ -2,61 +2,32 @@ import { describe, expect, it } from "vitest";
 
 import { composeMainPane, padFrame, padLine } from "../../../src/ui/pipeline/index.ts";
 
-describe("composeMainPane — guaranteed single blank line between log and input", () => {
-  it("reuses the viewport's trailing blank (separator/padding) as the gap", () => {
+describe("composeMainPane — exact row accounting (the drawer pad is the gap)", () => {
+  it("concatenates viewport, drawer, input, status — nothing donated", () => {
     expect(composeMainPane(["line1", ""], [], "▐ ", "status")).toEqual([
       "line1",
       "",
       "▐ ",
       "status",
     ]);
-    expect(composeMainPane(["line1", "   "], [], "▐ ", "status")).toEqual([
-      "line1",
-      "   ",
-      "▐ ",
-      "status",
-    ]);
-  });
-
-  it("consumes the bottom row as the gap when the viewport ends in content", () => {
     expect(composeMainPane(["line1", "line2"], [], "▐ ", "status")).toEqual([
       "line1",
-      "",
+      "line2",
       "▐ ",
       "status",
     ]);
-    expect(composeMainPane(["\x1b[31mline1\x1b[m", "line2"], [], "▐ ", "status")).toEqual([
-      "\x1b[31mline1\x1b[m",
-      "",
-      "▐ ",
-      "status",
-    ]);
-  });
-
-  it("tolerates an empty viewport (no content yet)", () => {
-    expect(composeMainPane([], [], "▐ ", "status")).toEqual(["▐ ", "status"]);
-  });
-
-  it("consumes the viewport's trailing row for the drawer gap (no double blank)", () => {
-    // The viewport's trailing blank (entry separator / padding) is consumed
-    // so it does not stack with the drawer's top padding into two blanks.
-    expect(composeMainPane(["line1", ""], ["drawer-a", "drawer-b"], "▐ ", "status")).toEqual([
+    expect(composeMainPane(["line1"], ["drawer-a", "drawer-b"], "▐ ", "status")).toEqual([
       "line1",
       "drawer-a",
       "drawer-b",
       "▐ ",
       "status",
     ]);
-    // A viewport ending in content donates its last row as the margin.
-    expect(composeMainPane(["line1", "line2"], ["drawer"], "▐ ", "status")).toEqual([
-      "line1",
-      "drawer",
-      "▐ ",
-      "status",
-    ]);
+    expect(composeMainPane([], [], "▐ ", "status")).toEqual(["▐ ", "status"]);
     expect(composeMainPane([], ["drawer"], "▐ ", "status")).toEqual(["drawer", "▐ ", "status"]);
-    expect(composeMainPane(["only"], ["drawer"], "▐ ", "status")).toEqual([
-      "drawer",
+    // ANSI-bearing rows pass through untouched.
+    expect(composeMainPane(["\x1b[31mline1\x1b[m"], [], "▐ ", "status")).toEqual([
+      "\x1b[31mline1\x1b[m",
       "▐ ",
       "status",
     ]);

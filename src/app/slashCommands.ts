@@ -24,6 +24,7 @@ import type { YogClient } from "../client/index.ts";
 import { pushLines } from "./logFeed.ts";
 import { compactionNote, applyCompaction } from "./transcriptRebuild.ts";
 import { isSlash } from "../core/index.ts";
+import { runDrawerCommand } from "../ui/components/index.ts";
 
 /** Hooks the command runner needs from the composition root. */
 export interface CommandEnv {
@@ -168,15 +169,48 @@ export function resolveCommand(input: string): SlashCommand | undefined {
   return command;
 }
 
-/** The local command handlers (`/quit`, `/new`) — undefined means the
- *  command is not local (fall through to server dispatch). */
+/** The drawer-command refusal: the child that owns the command refused
+ *  to run (typically its server subsystem is not wired). A notice, not
+ *  an error — the session is fine. */
+function drawerCommandRefused(command: SlashCommand): void {
+  pushLines(
+    "notice",
+    noticeLine("notice", "warning", `/${command.name} is not available on this server`),
+  );
+}
+
+/** /quit: exit the client. */
+function runQuit(env: CommandEnv): () => void {
+  return () => env.quit(0);
+}
+
+/** /new: a fresh session (the current turn must be idle first — an
+ *  in-flight turn's events would be orphaned by the log reset). */
+function runNewWhenIdle(env: CommandEnv, command: SlashCommand): () => void {
+  return () => {
+    if (getState().busy) {
+      busyWarning(command);
+      return;
+    }
+    runNew(env);
+  };
+}
+
+/** The local command handlers by name. A drawer-child command (e.g.
+ *  `/jobs` from the jobs view) dispatches through the drawer registry —
+ *  one hook point, any feature. Undefined falls through to the frozen
+ *  locals and then server dispatch. */
 function localCommand(env: CommandEnv, command: SlashCommand): (() => void) | undefined {
-  if (command.name === "quit") return () => env.quit(0);
-  if (command.name !== "new") return undefined;
-  // Starting a fresh session while a turn is in flight would orphan that
-  // turn's events, so require the current turn to finish first.
-  if (getState().busy) return () => busyWarning(command);
-  return () => runNew(env);
+  const drawer = runDrawerCommand(command.name);
+  if (drawer !== undefined) {
+    return () => {
+      if (drawer() === undefined) return;
+      drawerCommandRefused(command);
+    };
+  }
+  if (command.name === "quit") return runQuit(env);
+  if (command.name === "new") return runNewWhenIdle(env, command);
+  return undefined;
 }
 
 /** The server command dispatch (descriptors from capabilities): requires-

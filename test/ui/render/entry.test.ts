@@ -243,8 +243,8 @@ describe("notice and error entries", () => {
   });
 });
 
-describe("plain fallback (unhandled kinds)", () => {
-  it("wraps a long system line instead of truncating it", () => {
+describe("system rows render as notice blocks", () => {
+  it("word-wraps a long system line instead of truncating it", () => {
     const lines = [
       "system message that is quite long and will definitely overflow the forty column terminal width",
     ];
@@ -256,20 +256,21 @@ describe("plain fallback (unhandled kinds)", () => {
     for (const word of lines[0]?.split(" ") ?? []) {
       expect(plain).toContain(word);
     }
+    // TRUE padding on every wrapped row, like every notice block.
+    for (const row of rows) {
+      expect(stripAnsi(row).startsWith(" ")).toBe(true);
+    }
   });
 
-  it("styles every wrapped row with the kind's style (no drift)", () => {
+  it("renders label + detail as the notice shape (label · detail)", () => {
     const rows = cachedRows(
-      {
-        kind: "system",
-        lines: ["a very long system transcript line that wraps somewhere around here for sure"],
-      },
-      30,
+      { kind: "system", lines: ["short", "a very long system transcript line follows here ok"] },
+      60,
     );
-    expect(rows.length).toBeGreaterThan(1);
-    for (const row of rows) {
-      expect(row).toContain(ST.system.render(stripAnsi(row).trimEnd()));
-    }
+    expect(rows).toHaveLength(1);
+    expect(stripAnsi(rows[0] ?? "")).toBe(
+      " short · a very long system transcript line follows here ok ",
+    );
   });
 
   it("keeps hard-wrapped wide emoji within the cell budget", () => {
@@ -279,23 +280,7 @@ describe("plain fallback (unhandled kinds)", () => {
     for (const row of rows) {
       expect(displayWidth(row)).toBeLessThanOrEqual(30);
     }
-    expect(stripAnsi(rows.join("\n")).replace(/\n/g, "")).toContain("✅".repeat(20));
-  });
-
-  it("wraps every logical line of a multi-line entry", () => {
-    const rows = cachedRows(
-      {
-        kind: "system",
-        lines: [
-          "short",
-          "a very long system transcript line that wraps somewhere around here for sure",
-        ],
-      },
-      30,
-    );
-    // 1 row for "short" + 3 wrapped rows for the long line.
-    expect(rows.length).toBe(4);
-    expect(stripAnsi(rows[0] ?? "")).toBe("short");
+    expect(stripAnsi(rows.join("\n"))).toContain("✅".repeat(14));
   });
 
   it("counts one terminal row per wrapped row", () => {
@@ -303,7 +288,7 @@ describe("plain fallback (unhandled kinds)", () => {
       kind: "system",
       lines: ["a very long system transcript line that wraps somewhere around here for sure"],
     };
-    expect(totalRows([entry], 30)).toBe(4); // 3 wrapped rows + separator
+    expect(totalRows([entry], 30)).toBe(5); // 4 wrapped rows + separator
   });
 });
 

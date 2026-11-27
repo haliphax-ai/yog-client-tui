@@ -32,16 +32,11 @@ export function padFrame(frame: string, width: number): string {
  * drawer is visible, that blank is the drawer's own top padding: the
  * viewport's trailing blank (the log's entry separator, or padding for
  * short content) is consumed so it does not stack with the padding into
- * two blank lines. When the viewport ends in content (scrolled away from
- * the bottom), its last row is consumed as the margin instead — the
- * viewport renders one row of content less and the drawer's padding takes
- * its place, so the frame still fits the terminal exactly. The layout
- * accounts for the consumed row (see `drawerGap` in main.ts).
- *
- * When the drawer is fully collapsed (no rows), the composition guarantees
- * the same single blank line between the log and the input: the viewport's
- * trailing blank is reused as the gap, or its last content row is consumed
- * as the margin, so the frame still fits the terminal exactly.
+ * exact row accounting: the viewport's row budget (see `viewportRows` in
+ * main.ts) already subtracts the drawer's rows, and the drawer's padding
+ * row is the visual gap between log and input. The pane is the plain
+ * concatenation — no slicing, no blanking, no row donation anywhere;
+ * any of those shifted the pane by a line and jittered the bubbles.
  */
 export function composeMainPane(
   viewportRows: readonly string[],
@@ -49,12 +44,30 @@ export function composeMainPane(
   inputRow: string,
   statusRow: string,
 ): string[] {
-  if (drawerRows.length > 0) {
-    return [...viewportRows.slice(0, -1), ...drawerRows, inputRow, statusRow];
+  // The pane is exact accounting: viewportRows() already reserves the
+  // drawer's rows, so the pane is the plain concatenation — no slicing, no
+  // blanking. Any row-donation here shifted the whole pane by a line
+  // (bubbles lost their top pad; two pads stacked at the bottom).
+  //
+  // ONE exception: the log's trailing separator blank and the drawer's top
+  // retained blank (the spinner's idle row, #145) are ADJACENT blank rows
+  // that read as a doubled gap between the log and the drawer's first real
+  // row. The retained blank is load-bearing (it keeps the busy edge from
+  // shifting rows), so the LOG's separator donates its slot instead: trim
+  // one trailing viewport blank when the drawer's first row is blank. The
+  // seam then reads as a single gap in both states.
+  const drawerTop = drawerRows[0];
+  const drawerTopBlank =
+    drawerTop !== undefined && drawerTop.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trim() === "";
+  const vp = [...viewportRows];
+  if (drawerTopBlank && vp.length > 1) {
+    const last = vp[vp.length - 1] as string;
+    if (last.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trim() === "") {
+      vp.pop();
+      // The donated row stays in the pane as top pad (the content is
+      // bottom-aligned): the pane height is exact, the seam reads single.
+      vp.unshift("");
+    }
   }
-  const last = viewportRows[viewportRows.length - 1];
-  if (stripAnsi(last ?? "").trim() !== "") {
-    return [...viewportRows.slice(0, -1), "", inputRow, statusRow];
-  }
-  return [...viewportRows, inputRow, statusRow];
+  return [...vp, ...drawerRows, inputRow, statusRow];
 }

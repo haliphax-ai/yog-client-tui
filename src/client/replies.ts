@@ -56,12 +56,17 @@ function activeToolCallOf(body: Record<string, unknown>): ActiveToolCall | undef
 /** Decode a `turn.abort` reply: whether a live turn was unwound, and what
  *  it was running when it was. */
 export function abortResultOf(body: Record<string, unknown>): AbortTurnResult {
-  const requested = abortedBlock(body)?.["requested"] === true;
+  const block = abortedBlock(body);
+  const requested = block?.["requested"] === true;
   const activeToolCall = activeToolCallOf(body);
+  const raw = block?.["backgroundJobs"];
+  const backgroundJobs =
+    typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : undefined;
   return {
     requested,
     status: requested ? "aborted" : "idle",
     ...(activeToolCall !== undefined ? { activeToolCall } : {}),
+    ...(backgroundJobs !== undefined ? { backgroundJobs } : {}),
   };
 }
 

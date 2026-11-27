@@ -49,19 +49,25 @@ import { configFilePath, loadConfig, loadState, saveState, stateFilePath } from 
 import { FOCUS_NONE_TARGET } from "./core/index.ts";
 import { getState, setState } from "./core/index.ts";
 import { noticeLine } from "./core/index.ts";
-import { setServerCommands, type CommandDescriptor } from "./core/index.ts";
+import { setDrawerCommands, setServerCommands, type CommandDescriptor } from "./core/index.ts";
 import { YogClient, type TranscriptResult } from "./client/index.ts";
 import { driveRehydrate, stageRehydrate, statusTotals } from "./app/index.ts";
 import { pushLines } from "./app/index.ts";
 import { resolveSession } from "./app/index.ts";
-import { pollRunningTurn } from "./app/index.ts";
+import {
+  applyUsageTotal,
+  nextMessageSeq,
+  pollRunningTurn,
+  recordRoundDelta,
+  startIdleWatch,
+} from "./app/index.ts";
 import { abortActiveTurn } from "./app/index.ts";
 import { submitInput } from "./app/index.ts";
 import { setKeyDumpWriter, wireTerminal, type AppHooks, type Terminal } from "./app/index.ts";
 import { copyFailureNotice } from "./app/index.ts";
 import type { CopyRequest } from "./core/index.ts";
 import { ToastComponent } from "./ui/components/index.ts";
-import { registerDrawerChild } from "./ui/components/index.ts";
+import { drawerSlashCommands, registerDrawerChild } from "./ui/components/index.ts";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emitDebug, isDebugEnabled } from "./ui/index.ts";
@@ -104,7 +110,10 @@ let terminalActive = false;
 function restoreTerminal(): void {
   if (!terminalActive) return;
   terminalActive = false;
-  process.stdout.write("\x1b[?1049l\x1b[?25h\x1b[?2004l");
+  // Pop the kitty keyboard stack entry (the flag-1 push at enter) — CSI < u.
+  // The legacy resets ride along so a terminal that never took the push is
+  // still fully restored.
+  process.stdout.write("\x1b[<u\x1b[?1049l\x1b[?25h\x1b[?2004l");
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   process.stdin.pause();
 }
@@ -278,19 +287,36 @@ async function run(argv: readonly string[]): Promise<void> {
     restoreTerminal();
     process.exit(code);
   };
+  // The idle watch (yog#85): foreign-turn rendering — wake turns and
+  // their tool calls stream live instead of appearing on the next
+  // submit. Armed after setup; disarmed while a user turn is live.
+  let idleWatch: { arm(): void; disarm(): void; flushSeam(): void; dropSeam(): void } | undefined;
+  /** The jobs drawer's event sink (late-bound: the drawer wires after
+   *  the idle watch arms; the watch fans events through this). */
+  let jobsDrawerSink: ((type: string, data: Record<string, unknown>) => void) | undefined;
   const hooks: AppHooks = {
     outputToFile,
     submit: () => {
       if (terminal === undefined) return;
+      idleWatch?.disarm();
       submitInput(
         {
           client,
           model: config.model,
           input: terminal.input,
-          spinner: { start: () => setState({ busy: true }), stop: terminal.stopSpinner },
+          spinner: {
+            start: () => setState({ busy: true }),
+            stop: () => {
+              setState({ busy: false });
+              // The seam: the user's turn ended — buffered foreign
+              // deliveries land now, after the user's content.
+              idleWatch?.flushSeam();
+            },
+          },
           scheduler: terminal.scheduler,
           quit: (code) => void quit(code),
           saveState: (id) => saveState(stateFilePath(), { lastSessionId: id }),
+          idleWatch,
         },
         getState().input,
       );
@@ -310,6 +336,30 @@ async function run(argv: readonly string[]): Promise<void> {
       stop: () => setState({ busy: false }),
     });
   }
+  // Arm the idle watch now that the scheduler exists: wake turns render
+  // live (replay covers a connect-mid-turn startup, so a resume with a
+  // foreign turn in flight streams its content too).
+  idleWatch = startIdleWatch(
+    client,
+    {
+      // LIVE binding: rebuilds replace the store's array — the watch must
+      // always mutate the CURRENT one (a captured reference goes stale on
+      // the first rebuild and its rows vanish).
+      get entries() {
+        return getState().entries;
+      },
+      append: pushLines,
+      width: () => process.stdout.columns ?? 80,
+      requestRender: terminal?.scheduler.request ?? (() => undefined),
+      nextMessageSeq,
+      prevTokenTotal: () => getState().tokenTotals.total,
+      onRoundDelta: (delta) => recordRoundDelta(delta),
+      onTerminalUsage: (usage) => applyUsageTotal(usage as never),
+    },
+    (type, data) => void jobsDrawerSink?.(type, data),
+  );
+  idleWatch?.arm();
+
   // Persist the resolved id so the next launch resumes automatically. A
   // startup failure above never reaches this write, so a stored id survives.
   await saveState(stateFilePath(), { lastSessionId: client.sessionId ?? null });
@@ -329,6 +379,35 @@ async function run(argv: readonly string[]): Promise<void> {
 
   // Assemble the terminal: components, draw loop, scheduler, key surface.
   terminal = wireTerminal(client, hooks);
+  // The drawer children's slash commands (`/jobs` from the jobs view)
+  // join the registry through the drawer registry's command hook — one
+  // hook point for any drawer feature that wants a command. A server
+  // descriptor under the same name still loses (drawer commands merge
+  // before server descriptors, and both merge after the frozen locals).
+  setDrawerCommands(drawerSlashCommands());
+  // The jobs drawer's gate + fetch: the view stays fully collapsed (zero
+  // rows) until the server advertises `background-jobs` — the drawer's
+  // padded block must never open for a server without the subsystem.
+  if (terminal.jobsDrawer !== undefined) {
+    const drawer = terminal.jobsDrawer;
+    drawer.wire(
+      async () => (await client.getJobs()).jobs ?? [],
+      () => (client.capabilities?.features ?? []).includes("background-jobs"),
+      (state, detail) => pushLines("notice", noticeLine("notice", `job ${state}`, detail)),
+    );
+    // The idle watch (armed before this line) fans job lifecycle events
+    // into the drawer — event-fed rows, no polling (jobsDrawerSink is the
+    // late-bound indirection created with the watch above).
+    jobsDrawerSink = (type, data) => {
+      drawer.onJobEvent(type, data);
+      // A cascade termination streams immediately (the server emits it at
+      // abort time): surface it as a notice, not just a drawer row.
+      if (type === "job.terminated" && Array.isArray(data["jobs"])) {
+        const ids = (data["jobs"] as unknown[]).join(", ");
+        pushLines("notice", noticeLine("notice", "background jobs terminated", ids));
+      }
+    };
+  }
   // The fatal handler draws its notice through the same flush timer.
   fatalScheduler = terminal.scheduler.request;
 
@@ -360,7 +439,21 @@ async function run(argv: readonly string[]): Promise<void> {
  *  SIGTERM hooks. The resize repaint IS the swap (no blank flash, #67). */
 function enterTerminal(terminal: Terminal, quit: (code: number) => Promise<void>): void {
   terminalActive = true;
-  process.stdout.write("\x1b[?1049h\x1b[?25l\x1b[?2004h\x1b[2J\x1b[H");
+  process.stdout.write(
+    "\x1b[?1049h\x1b[?25l\x1b[?2004h" +
+      // Kitty keyboard protocol: flag 1 (disambiguate escape codes) so
+      // modifier keys (Ctrl+J for the jobs drawer) arrive as unambiguous
+      // CSI-u sequences in supporting terminals instead of colliding with
+      // legacy C0 (Ghostty sends plain LF for Ctrl+J otherwise — the
+      // input ring treats LF as Enter and submits). Plain keys keep
+      // their legacy encoding under flag 1, and a terminal without the
+      // protocol ignores the push entirely (Ctrl+J stays the documented
+      // /jobs fallback). mode 1 = pop at reset (the restore writes the
+      // pop below); CSI < u pops the stack entry on exit.
+      "\x1b[>1u" +
+      "\x1b[?u" + // query: supporting terminals echo their flags
+      "\x1b[2J\x1b[H",
+  );
   process.stdin.setEncoding("utf8");
   process.stdin.setRawMode(true);
   process.stdin.resume();

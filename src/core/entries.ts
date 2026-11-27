@@ -80,6 +80,17 @@ export interface LogEntry {
    *  a tool-call entry — the count describes RESULTS, so it must never read
    *  as a later call's args-row figure. */
   tokenNote?: string;
+  /** True on a notice entry built from a server `harness_notice` pair
+   *  (see `harnessNotice.ts`): the label line's shape is identical to a
+   *  client notice, so the marker is what lets producers (and tests)
+   *  tell harness rows from ordinary lifecycle chatter. Never set on
+   *  other kinds. */
+  harness?: boolean;
+  /** The tool name when the call is the synthetic `harness_notice`
+   *  (see `harnessNotice.ts`): stamps the call entry so its result
+   *  renders as notice lines instead of a result blob. Undefined on
+   *  ordinary tool calls. */
+  harnessTool?: string;
   /** Per-table state, keyed by the table's index within the entry. */
   tables?: Record<number, TableState>;
   /**

@@ -38,8 +38,13 @@ an unchanged row is not rewritten.
 - `StatusComponent` draws the status line: model, session token totals,
   and the context-window gauge (when the server advertised one).
 - `DrawerComponent` is a generic container above the input; children
-  register in order via `drawerRegistry`. The `GeneratingComponent`
-  spinner is its current child.
+  register in order via `drawerRegistry` — THE hook point for anything
+  that wants to live in the drawer (the spinner, toasts, the
+  background-jobs view). A child may implement `dismiss()` (it joins
+  the Esc cascade) and/or declare `drawerCommands()` (its slash
+  commands join the registry through `setDrawerCommands`; the jobs
+  view's `/jobs` is the first client). The composition root consumes
+  both hooks once, at wiring time — no per-feature wiring.
 - `keyRouter` does focus-scoped key routing with a top-level ring between
   log and input; see [interaction](../interaction.md).
 

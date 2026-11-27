@@ -1,13 +1,15 @@
 /**
  * The submit→turn pipeline for the composition root: turn one input line
  * into either a slash-command run or a client turn, with the spinner,
- * usage tracking, and the failure paths wired.
+ * usage tracking, the submit-time transcript sync (#135), and the failure
+ * paths wired.
  */
 import { getState, setState } from "../core/index.ts";
 import { createTurnPresenter, type TurnPresenter } from "../core/index.ts";
-import { turnWithRecovery, applyUsageTotal } from "./turnControl.ts";
+import { turnWithRecovery, applyUsageTotal, noteOwnTurnTail } from "./turnControl.ts";
 import { executeCommand, isCommand, roundDelta } from "./slashCommands.ts";
 import { pushLines, nextMessageSeq } from "./logFeed.ts";
+import { syncTranscriptOnSubmit } from "./transcriptRebuild.ts";
 
 /** What the runner needs from the composition root. */
 export interface TurnEnv {
@@ -18,11 +20,19 @@ export interface TurnEnv {
   scheduler: { request(): void };
   quit(code: number): void;
   saveState(lastSessionId: string | null): Promise<void>;
+  /** The idle watch: disarmed while a user turn is live, rearmed at its
+   *  settle — user-turn streams own rendering; the watch covers idle.
+   *  `dropSeam` discards foreign rows buffered while the user's turn was
+   *  live (the disarm mid-busy case; the next transcript sync recovers
+   *  anything the user never saw). */
+  idleWatch?: { arm(): void; disarm(): void; dropSeam(): void };
 }
 
 /** Run the async turn to its outcome, reporting failures through the
  *  presenter's fail path; always stop the spinner and finish the turn. */
 async function driveTurn(env: TurnEnv, presenter: TurnPresenter, prompt: string): Promise<void> {
+  env.idleWatch?.disarm();
+  env.idleWatch?.dropSeam();
   try {
     const outcome = await turnWithRecovery(
       env.client,
@@ -35,11 +45,15 @@ async function driveTurn(env: TurnEnv, presenter: TurnPresenter, prompt: string)
       const detail = outcome.failure ?? outcome.error;
       if (detail) presenter.fail(detail);
     }
+    // The turn's rows streamed live; raise the transcript-tail floor so
+    // the next submit's sync treats them as seen (best effort, #144).
+    await noteOwnTurnTail(env.client);
   } catch (err) {
     presenter.fail(err instanceof Error ? err.message : String(err));
   } finally {
     env.spinner.stop();
     presenter.finish();
+    env.idleWatch?.arm();
     // The turn's events may have appended to the shared entries array
     // in place.
     setState({ entries: getState().entries });
@@ -68,6 +82,13 @@ function wireUsageTracking(presenter: TurnPresenter): void {
  * resolved against the registry and run instead of being sent as a prompt.
  * Commands bypass the busy gate (e.g. /quit must work mid-turn). Plain
  * prompts are ignored while a turn is in flight (one turn at a time).
+ *
+ * A prompt submit first runs the transcript sync (#135): when the server
+ * transcript advanced while the TUI sat idle (a server wake turn, another
+ * client's turn), those rows are rebuilt into the log BEFORE the new
+ * prompt enters it — the prompt must never sit ahead of rows the server
+ * already persisted before it. The probe is best effort; its contract is
+ * `syncTranscriptOnSubmit`.
  */
 export function submitInput(env: TurnEnv, rawInput: string): void {
   const prompt = rawInput.trim();
@@ -90,6 +111,20 @@ export function submitInput(env: TurnEnv, rawInput: string): void {
 
   if (getState().busy) return; // one turn at a time (documented)
 
+  // The submit-time sync (#135): render any turns that ran while the TUI
+  // sat idle, so this prompt appends after them (never ahead of rows the
+  // server already persisted). Then the baseline read below sees the
+  // post-sync transcript weight, keeping the delta this turn's own.
+  void (async () => {
+    await syncTranscriptOnSubmit(env.client);
+    startTurn(env, prompt);
+  })();
+}
+
+/** The turn assembly the sync hands back to: baseline, presenter, wire,
+ *  and the async drive to the outcome. Extracted so the sync can run
+ *  first without the submit path forking into duplicated setup. */
+function startTurn(env: TurnEnv, prompt: string): void {
   // Baseline the session total BEFORE any live tool-result token accrual:
   // the per-turn delta must stay this turn's own contribution, not the
   // live-updated running total.

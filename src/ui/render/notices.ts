@@ -22,13 +22,18 @@ import type { EntryRender } from "./entryRender.ts";
  * to EVERY row of the block (label, continuation, label-only alike).
  * No component-level padding logic: the style owns the padding, the
  * component only shapes the content (one pre-wrapped line).
+ *
+ * A `harness` notice (⏳ background jobs) wears the same blue-grey as
+ * the other lifecycle chatter: the label's own emoji keeps it distinct
+ * from client notes, and the settle wall it summarises (the purple ⚙️
+ * pairs above it) carries the loud colors.
  */
 export function renderNotice(entry: LogEntry, cols: number): EntryRender {
   const label = entry.lines[0] ?? "";
   const detail = entry.lines[1] ?? "";
   const noticeStyle = label.startsWith("⚠️")
     ? ST.noticeWait
-    : label.startsWith("🪧")
+    : label.startsWith("🪧") || entry.harness === true
       ? ST.noticeSystem
       : ST.notice;
   const line =

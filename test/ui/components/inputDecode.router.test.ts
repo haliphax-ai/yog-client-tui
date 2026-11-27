@@ -33,6 +33,9 @@ function wire() {
     jump: (top) => calls.push(`jump:${top}`),
     submit: () => calls.push("submit"),
     abortTurn: () => calls.push("abortTurn"),
+    dismissEsc: () => false,
+    abortBackgroundJobs: () => undefined,
+    toggleJobs: () => calls.push("toggleJobs"),
     pageRows: () => 24,
   };
   const decode = createInputDecoder({
@@ -67,6 +70,42 @@ describe("live input byte path", () => {
     decode("\x1b[27;2;13~");
     expect(getState().input).toBe("hi\n");
     expect(calls).toEqual([]);
+  });
+
+  it("ctrl+j still toggles the jobs drawer (the printable surface must not claim ctrl)", async () => {
+    const { decode, calls } = wire();
+    decode("\x1b[106;5u");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toEqual(["toggleJobs"]);
+  });
+
+  it("Shift+Space types a space (kitty CSI 32;2u, text-less)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[32;2u");
+    expect(getState().input).toBe("hi ");
+  });
+
+  it("Shift+letter types the uppercase (kitty CSI 117;2u → U)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[117;2u");
+    expect(getState().input).toBe("hiU");
+  });
+
+  it("Shift+punctuation types the shifted symbol (kitty CSI 45;2u → _)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[45;2u");
+    expect(getState().input).toBe("hi_");
+  });
+
+  it("Shift+Backspace deletes (kitty CSI 127;2u, demoted to the plain key)", () => {
+    const { decode } = wire();
+    decode("hi");
+    decode("\x1b[127;2u");
+    expect(getState().input).toBe("h");
   });
 
   it("plain Enter submits", () => {
