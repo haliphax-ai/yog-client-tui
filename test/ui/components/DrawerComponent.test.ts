@@ -29,39 +29,36 @@ describe("DrawerComponent + registry", () => {
     resetDrawerRegistryForTests();
   });
 
-  it("is fully collapsed when no children are registered", () => {
+  it("renders its single gap line when no children are registered (#146)", () => {
     const drawer = new DrawerComponent();
-    expect(drawer.render({ cols: 80 })).toEqual([]);
-    expect(drawer.measure(80)).toBe(0);
+    expect(drawer.render({ cols: 80 }).map((r) => stripAnsi(r))).toEqual([" ".repeat(80)]);
+    expect(drawer.measure(80)).toBe(1);
   });
 
-  it("stays sized when a child retains a blank row (the #145 busy edge)", () => {
-    // The spinner's idle form: one blank row — content for the framing
-    // rules, so the drawer's height never changes on the busy edge.
-    registerDrawerChild(new Stub([""]));
+  it("the busy edge grows the drawer by the spinner row (#146: honest growth)", () => {
+    // Idle: the spinner child renders nothing — the drawer is its single
+    // gap line. Busy: the spinner row + the input-side gap.
+    registerDrawerChild(new Stub([]));
     const drawer = new DrawerComponent();
-    const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
-    expect(plain).toEqual([" ".repeat(10), " ".repeat(10)]);
-    expect(drawer.measure(10)).toBe(2);
-    // All-blank first child + a visible sibling: the top child is exempt
-    // from the separator (its blank IS the gap against the log), so no
-    // blank stacks between them — and the busy edge still shifts no rows
-    // (the spinner takes the retained blank's slot in place).
+    expect(drawer.render({ cols: 10 }).map((r) => stripAnsi(r))).toEqual([" ".repeat(10)]);
+    expect(drawer.measure(10)).toBe(1);
+    // A visible sibling stacks after the item separator: the gap line sits
+    // ABOVE the block (the no-children case collapsed to it), then the
+    // sibling, then the input-side gap.
     registerDrawerChild(new Stub(["busy"]));
     const stacked = new DrawerComponent();
     expect(stacked.render({ cols: 10 }).map((r) => stripAnsi(r))).toEqual([
-      " ".repeat(10),
       " busy     ",
       " ".repeat(10),
     ]);
   });
 
-  it("is fully collapsed when every registered child renders nothing", () => {
+  it("renders its single gap line when every registered child renders nothing", () => {
     registerDrawerChild(new Stub([]));
     registerDrawerChild(new Stub(""));
     const drawer = new DrawerComponent();
-    expect(drawer.render({ cols: 80 })).toEqual([]);
-    expect(drawer.measure(80)).toBe(0);
+    expect(drawer.render({ cols: 80 }).map((r) => stripAnsi(r))).toEqual([" ".repeat(80)]);
+    expect(drawer.measure(80)).toBe(1);
   });
 
   it("insets a visible child horizontally (no vertical pad — the log's separator blank is the gap)", () => {

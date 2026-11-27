@@ -127,6 +127,12 @@ function watchEvents(
   onJobEvent: ((type: string, data: Record<string, unknown>) => void) | undefined,
   onUsage: ((usage: TokenUsage) => void) | undefined,
 ): TurnEvents {
+  // The delivery notice's pending flag: raised on a wake turn.started,
+  // flushed by the delivery's FIRST prelude frame (the server publishes
+  // the pair frames BEFORE turn.started — keying the notice on
+  // turn.started alone placed it after the delivered results). Cleared on
+  // every terminal so the next wake re-announces.
+  let announced = true;
   return {
     ...base,
     /**
@@ -141,21 +147,47 @@ function watchEvents(
       // (`busy`, the submit path owns it) or a foreign turn's (`busyForeign`,
       // owned HERE). A wake turn shows the same honest "generating" row.
       setState({ busyForeign: true });
-      if (wake !== true) return;
-      seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
+      // A wake delivery's notice is pending: it flushes on the FIRST
+      // prelude tool frame (onToolCall below) — the server publishes the
+      // pair frames BEFORE turn.started, so keying the notice on
+      // turn.started would place it AFTER the delivered results.
+      if (wake === true) announced = false;
+    },
+    onDelta: (text: string) => {
+      // No prelude pairs arrived: flush the pending notice before the
+      // turn's prose (the delivery already happened or never will).
+      if (!announced) {
+        announced = true;
+        seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
+      }
+      base.onDelta?.(text);
+    },
+    onToolCall: (id: string, name: string, args: string) => {
+      // The wake delivery's FIRST prelude frame announces the delivery —
+      // ahead of its own results by construction (this IS one).
+      if (id.startsWith("call_bg_") || id.startsWith("call_hn_")) {
+        if (!announced) {
+          announced = true;
+          seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
+        }
+      }
+      base.onToolCall?.(id, name, args);
     },
     onFinish: (durationMs, stopReason, usage) => {
       setState({ busyForeign: false });
+      announced = true;
       if (usage !== undefined) onUsage?.(usage);
       base.onFinish?.(durationMs, stopReason, usage);
     },
     onAborted: (reason, usage) => {
       setState({ busyForeign: false });
+      announced = true;
       if (usage !== undefined) onUsage?.(usage);
       base.onAborted?.(reason, usage);
     },
     onError: (code, message) => {
       setState({ busyForeign: false });
+      announced = true;
       base.onError?.(code, message);
     },
     onJobEvent: (type: string, data: Record<string, unknown>) => {

@@ -27,8 +27,11 @@ describe("idleWatch — foreign turns render live", () => {
               new TextEncoder().encode(
                 [
                   frame("stream.hello", { streamId: "st1" }),
-                  // A wake turn announces; nothing else arrives yet.
+                  // A wake turn announces on its FIRST delivered pair frame
+                  // (the server publishes the pair before turn.started, so
+                  // the notice must precede its results).
                   frame("turn.started", { turnId: "t9", model: "m", wake: true }),
+                  frame("tool.call", { id: "call_bg_x1", name: "bash", args: "{}" }),
                 ].join(""),
               ),
             );
@@ -50,7 +53,8 @@ describe("idleWatch — foreign turns render live", () => {
       nextMessageSeq: () => "1",
     } as never);
     watch.arm();
-    await vi.waitFor(() => expect(host.entries.length).toBe(1));
+    await vi.waitFor(() => expect(host.entries.length).toBe(2));
+    // The notice precedes the delivered pair's call row (#146 ordering).
     expect(host.entries[0]!.kind).toBe("notice");
     expect(host.entries[0]!.lines[0]).toContain("background jobs");
     watch.disarm();

@@ -17,7 +17,7 @@
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { registeredDrawerChildren } from "./drawerRegistry.ts";
-import { stripAnsi, truncateAnsi } from "../../util/index.ts";
+import { truncateAnsi } from "../../util/index.ts";
 import { ST } from "../theme.ts";
 
 /** Normalize a component render result into rows ("" renders nothing). */
@@ -32,42 +32,37 @@ export class DrawerComponent extends BaseComponent {
   }
 
   /**
-   * One padded block holding every child's rows, or no rows at all when
-   * nothing registered renders anything (fully collapsed).
+   * One padded block holding every child's rows. Fully empty — every
+   * child renders nothing — collapses to ONE blank row: the log | drawer
+   * gap itself (#146 design: the drawer never disappears entirely, so the
+   * log needs no dynamic padding; the busy edge honestly grows the drawer
+   * by the spinner's row).
    *
-   * A child may RETAIN its height while idle by rendering a blank row
-   * (the busy spinner's #145 contract): those rows count as content for
-   * the framing rules below — separators and the input-side gap — so the
-   * drawer's row count never changes on a child's show/hide edge.
+   * One blank row between drawer items (the spinner and the jobs table
+   * must not butt together); never leading or trailing — the block's top
+   * sits against the log's trailing separator and its bottom is the
+   * input-side gap.
    */
   override render(ctx: RenderContext): string[] {
     const cols = Math.max(0, Math.floor(ctx.cols));
     const inner = Math.max(0, cols - 2);
     const rows: string[] = [];
     let lastHadRows = false;
-    let seenVisible = false;
     for (const child of registeredDrawerChildren()) {
       const childRows = toRows(child.render({ cols: inner }));
-      const childVisible = childRows.some((r) => stripAnsi(r).trim() !== "");
-      // One blank row between drawer items (the spinner and the jobs
-      // table must not butt together); never leading or trailing. The
-      // exemption runs until the FIRST visible row: the drawer's top
-      // block (the spinner or its retained idle blank, #145) sits against
-      // the log's trailing gap and is itself the visual separation — a
-      // separator before the first real row would read as a second blank
-      // between the log and the drawer, and its presence/absence across
-      // the busy edge would shift rows.
-      if (childRows.length > 0 && lastHadRows && seenVisible) rows.push("");
+      if (childRows.length > 0 && lastHadRows) rows.push("");
       for (const row of childRows) {
         rows.push(truncateAnsi(row, inner));
       }
-      if (childVisible) seenVisible = true;
       lastHadRows = childRows.length > 0;
     }
-    if (rows.length === 0) return [];
+    if (rows.length === 0) {
+      // Fully empty: the drawer is its single log|drawer gap line (styled
+      // like any other row — full-width backing).
+      return ST.drawer.width(cols).render("").split("\n");
+    }
     // The gap on the INPUT side: one blank row after the block (the log's
-    // trailing separator blank is the gap on the LOG side). This keeps
-    // exactly one blank between log | drawer | input in every state.
+    // trailing separator blank is the gap on the LOG side).
     rows.push("");
     return ST.drawer.width(cols).render(rows.join("\n")).split("\n");
   }

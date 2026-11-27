@@ -7,7 +7,7 @@
  * key handlers on. Nothing here parses input semantics — that lives in
  * the components (`ui/components`) and the router.
  */
-import { setState } from "../core/index.ts";
+import { getState, setState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
 import { pushLines } from "./logFeed.ts";
 import type { Component } from "../ui/components/index.ts";
@@ -91,9 +91,9 @@ export function wireTerminal(
   client: {
     sessionId: string | undefined;
     /** The idle-abort message (the Esc cascade's background-jobs arm).
-     *  The reply decodes to `AbortTurnResult` (the count of killed jobs
-     *  rides the idle path's reply). */
-    abortTurn(): Promise<{ backgroundJobs?: number }>;
+     *  The reply decodes to `AbortTurnResult`: `requested` names the live
+     *  turn that was unwound, the count of killed jobs rides the reply. */
+    abortTurn(): Promise<{ requested?: boolean; backgroundJobs?: number }>;
   },
   hooks: AppHooks,
 ): Terminal {
@@ -185,11 +185,21 @@ export function wireTerminal(
       void client
         .abortTurn()
         .then((result) => {
+          // The cascade kills the wake turn AND its jobs (server-side).
+          // The turn.aborted frame lands on the WATCH stream; render the
+          // outcome immediately from the reply too — the stream path can
+          // lag (the watch re-arms after a close) and the user pressed
+          // Esc expecting feedback NOW.
+          if (result.requested) {
+            pushLines("notice", noticeLine("notice", "turn aborted"));
+          }
           const abortedJobs = result.backgroundJobs;
-          if (abortedJobs === undefined) return;
-          pushLines("notice", noticeLine("notice", "background jobs", `aborted ${abortedJobs}`));
-          // Surface the state flip without waiting for the next poll tick.
-          void jobsDrawer.poll();
+          if (abortedJobs !== undefined) {
+            pushLines("notice", noticeLine("notice", "background jobs", `aborted ${abortedJobs}`));
+            // Surface the state flip without waiting for the next poll tick.
+            void jobsDrawer.poll();
+          }
+          setState({ busyForeign: false });
         })
         .catch((err: unknown) => {
           pushLines(
