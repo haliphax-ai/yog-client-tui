@@ -32,7 +32,7 @@ import type { TranscriptRehydrateOpts } from "./turnMetrics.ts";
  * indices stable) applied ONCE, before either walker: the walk itself
  * stays wake-agnostic.
  */
-function wakeSubstitute(
+export function wakeSubstitute(
   entries: TranscriptEntry[],
   turns: TranscriptRehydrateOpts["turns"],
 ): TranscriptEntry[] {

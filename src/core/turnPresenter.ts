@@ -27,6 +27,7 @@ export {
 } from "./toolEntries.ts";
 export {
   transcriptLogEntries,
+  wakeSubstitute,
   rehydrateGroups,
   rehydrateGroupIndices,
   type TranscriptTurnMetrics,

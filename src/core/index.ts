@@ -106,6 +106,7 @@ export {
   placeholderForTranscriptEntry,
   placeholderLogEntries,
   rehydrateGroupIndices,
+  wakeSubstitute,
   rehydrateGroups,
   toolCallEntry,
   toolResultChunk,

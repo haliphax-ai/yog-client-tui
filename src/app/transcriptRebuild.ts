@@ -16,7 +16,7 @@ import {
   rehydrateGroups,
   transcriptLogEntries,
 } from "../core/index.ts";
-import { perTurnDeltas, toTranscriptEntries } from "../core/index.ts";
+import { perTurnDeltas, toTranscriptEntries, wakeSubstitute } from "../core/index.ts";
 import { estimatedContextTotal, finalContextTotal } from "../core/index.ts";
 import { getState, setState } from "../core/index.ts";
 import type { LogEntry } from "../core/index.ts";
@@ -116,7 +116,10 @@ export function applyCompaction(dump: TranscriptResult): void {
 /** The rehydrate seed: startup notes stay, transcript rows land as O(1)
  *  placeholders (no glamour) so the first frame paints instantly. */
 export function placeholderSeed(dump: TranscriptResult): LogEntry[] {
-  return placeholderLogEntries(toTranscriptEntries(dump.messages), termCols());
+  return placeholderLogEntries(
+    wakeSubstitute(toTranscriptEntries(dump.messages), perTurnDeltas(dump.turns)),
+    termCols(),
+  );
 }
 
 /** A pending bottom-up rehydration job (#67). */
