@@ -69,7 +69,9 @@ export const ST = {
   /** Busy label: spinner + "generating" in bright purple. */
   generating: newStyle().foreground("#c084fc").bold(true),
   /** Drawer block: 1-cell padding on every side. */
-  drawer: newStyle().padding(1),
+  /** Drawer block: horizontal inset only — the log's trailing separator
+   *  blank is the vertical gap (a pad here doubled it). */
+  drawer: newStyle().padding(0, 1),
   /** Zebra-striped data row in table rendering: white text on dark blue. */
   tableZebra: newStyle().foreground("#ffffff").background("#1a1a2e"),
   /** Focused table border: blue runes (the focus indicator — not a row bg). */
