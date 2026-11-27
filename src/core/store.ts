@@ -16,6 +16,9 @@ export interface UiState {
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
+  /** The busy turn is a foreign wake delivery (the generating label
+   *  says so — the user's own prompt is not generating). */
+  busyWake?: boolean;
   model: string;
   /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
   focusTarget: FocusTarget;

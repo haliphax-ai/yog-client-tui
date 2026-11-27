@@ -1,6 +1,11 @@
 /**
  * Background-jobs drawer view (yog#92 client track): a live table of the
- * session's detached jobs, polled from `jobs.get` while visible.
+ * session's detached jobs. Event-fed (yog#100): the server pushes
+ * `job.started`/`job.settled` on the session stream — the drawer patches
+ * its rows off those and computes runtime from startedAt (stamped with
+ * the real duration at settle). One one-shot `jobs.get` fetch runs when
+ * the view opens (and on resume) to seed current status; there is no
+ * polling loop against an open SSE connection.
  *
  * Capabilities-gated (the master issue's hard rule): the component renders
  * NOTHING — zero rows, like an unregistered child — until the server
@@ -10,9 +15,7 @@
  * never spend a frame row (a server without the subsystem keeps the
  * drawer fully collapsed).
  *
- * The poll is best-effort: a failed probe keeps the last rows and retries
- * on the next tick (the same policy the running-turn poll follows). Rows
- * are plain text (fixed id / tool / state / elapsed / exit columns),
+ * Rows are plain text (fixed id / tool / state / elapsed / exit columns),
  * cell-truncated per row — widths in CELLS, never characters (AGENTS.md).
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
@@ -37,6 +40,44 @@ export const BACKGROUND_JOBS_FEATURE = "background-jobs";
  *  `(state, detail)` — `detail` already carries the id and reason — and
  *  the composition root shapes the notice lines (it owns the log). */
 export type JobAnnouncer = (state: string, detail: string) => void;
+/** Apply a `job.started` payload to the row list (in place): patch the
+ *  known row or append a fresh running row. */
+function applyStarted(
+  rows: JobRowInput[],
+  idx: number,
+  id: string,
+  data: Record<string, unknown>,
+): void {
+  const startedAt = typeof data["startedAt"] === "number" ? data["startedAt"] : Date.now();
+  const row: JobRowInput = {
+    id,
+    tool: typeof data["tool"] === "string" ? data["tool"] : "tool",
+    startedAt,
+    state: "running",
+  };
+  if (idx === -1) rows.push(row);
+  else rows[idx] = { ...rows[idx]!, ...row };
+}
+
+/** Apply a `job.settled` payload to the row list (in place): the settled
+ *  row (never called for an unknown job — the caller skips those). */
+function applySettled(
+  rows: JobRowInput[],
+  idx: number,
+  data: Record<string, unknown>,
+): JobRowInput {
+  const state = typeof data["state"] === "string" ? data["state"] : "finished";
+  const endedAt = typeof data["endedAt"] === "number" ? data["endedAt"] : undefined;
+  const settled: JobRowInput = {
+    ...rows[idx]!,
+    state,
+    ...(endedAt !== undefined ? { endedAt } : {}),
+    ...(typeof data["reason"] === "string" ? { termReason: data["reason"] } : {}),
+    ...("result" in data ? { result: data["result"] } : {}),
+  };
+  rows[idx] = settled;
+  return settled;
+}
 
 /** One job's id, its last lifecycle state, and why (terminated only) —
  *  the identity a transition notice keys on. */
@@ -140,7 +181,6 @@ export class JobsDrawerComponent
   private fetcher: (() => Promise<JobRowInput[]>) | undefined;
   /** The gate: true when the server advertises `background-jobs`. */
   private gate: () => boolean = () => false;
-  private timer: NodeJS.Timeout | undefined;
   private inFlight = false;
   /** The fingerprints the last poll rendered (the transition diff reads
    *  against these). Undefined = the first poll after wiring (nothing
@@ -148,6 +188,8 @@ export class JobsDrawerComponent
   private fingerprints: readonly JobFingerprint[] | undefined = undefined;
   /** The log announcer (the composition root pushes the notice lines). */
   private announce: JobAnnouncer | undefined = undefined;
+  /** The job rows the drawer currently knows (event-fed + fetch-fed). */
+  private jobInputs: readonly JobRowInput[] | undefined = undefined;
 
   constructor() {
     super(false);
@@ -160,6 +202,32 @@ export class JobsDrawerComponent
     this.fetcher = fetcher;
     this.gate = gate;
     this.announce = announce;
+  }
+
+  /**
+   * Ingest one server-pushed job event (job.started / job.settled on the
+   * session stream): patch the row set incrementally instead of polling.
+   * The server owns the lifecycle — the drawer computes elapsed from
+   * startedAt live and stamps the real duration when a settled event
+   * arrives. Unknown-event shapes are ignored (old servers never send
+   * these). Returns whether the event was recognized.
+   */
+  onJobEvent(type: string, data: Record<string, unknown>): boolean {
+    if (type !== "job.started" && type !== "job.settled") return false;
+    const id = typeof data["id"] === "string" ? data["id"] : undefined;
+    if (id === undefined) return false;
+    const rows = [...(this.jobInputs ?? [])];
+    const idx = rows.findIndex((j) => j.id === id);
+    if (type === "job.started") {
+      applyStarted(rows, idx, id, data);
+    } else if (idx !== -1) {
+      const settled = applySettled(rows, idx, data);
+      this.announceTransition(settled);
+    }
+    this.jobInputs = rows;
+    this.fingerprints = rows.map(fingerprintOf);
+    this.renderRows(rows);
+    return true;
   }
 
   /**
@@ -206,14 +274,12 @@ export class JobsDrawerComponent
     try {
       const jobs = await this.fetcher();
       this.announceTransitions(jobs);
-      // The drawer shows the freshest few in reverse start order; the
-      // transition diff still reads the FULL list (a settled job outside
-      // the visible slice must still announce once).
-      const shown = visibleJobs(jobs);
+      // The poll snapshot BECOMES the event-fed baseline (the one-shot
+      // status fetch the resume path runs; no 2s re-fetch against an
+      // open stream).
+      this.jobInputs = jobs;
       this.fingerprints = jobs.map(fingerprintOf);
-      setState({
-        jobRows: shown.map((job) => jobRowCells(job, Date.now())),
-      });
+      this.renderRows(jobs);
     } catch {
       // Best effort: keep the previous rows, retry on the next tick.
     } finally {
@@ -240,17 +306,18 @@ export class JobsDrawerComponent
     }
   }
 
-  private stopTicking(): void {
-    if (this.timer !== undefined) {
-      clearInterval(this.timer);
-      this.timer = undefined;
-    }
+  /** One job's transition notice (the onJobEvent settle path). */
+  private announceTransition(job: JobRowInput): void {
+    if (this.announce === undefined) return;
+    if (job.state !== "terminated" && job.state !== "finished") return;
+    const reason = job.state === "terminated" ? ` (${job.termReason ?? "terminated"})` : "";
+    this.announce(job.state, `${job.id}${reason}`);
   }
 
-  private startTicking(): void {
-    if (this.timer !== undefined) return;
-    this.timer = setInterval(() => void this.poll(), JOBS_POLL_MS);
-    this.timer.unref?.();
+  /** Rebuild the visible rows from the input list (event-fed updates). */
+  private renderRows(jobs: readonly JobRowInput[]): void {
+    const shown = visibleJobs(jobs);
+    setState({ jobRows: shown.map((job) => jobRowCells(job, Date.now())) });
   }
 
   /**
@@ -261,10 +328,11 @@ export class JobsDrawerComponent
    */
   override render(ctx: RenderContext): string[] {
     if (getState().jobsOpen !== true || !this.gate()) {
-      this.stopTicking();
       return [];
     }
-    this.startTicking();
+    // No timer: the drawer is event-fed (job.started / job.settled on the
+    // session stream) plus this open-time one-shot status fetch.
+    void this.poll();
     const rows: string[][] = (getState().jobRows ?? []).map((cells) => [...cells]);
     const head = ST.system.render("⏳ background jobs");
     if (rows.length === 0) return [head, ST.system.render("(no background jobs)")];

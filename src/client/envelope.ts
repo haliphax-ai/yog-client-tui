@@ -28,6 +28,7 @@ function dispatchStarted(
   events.onStarted?.(
     observed.turnId ?? "",
     typeof data["model"] === "string" ? data["model"] : model,
+    data["wake"] === true,
   );
 }
 
@@ -162,6 +163,7 @@ export function turnEnvelopeHandler(
         dispatchError(events, data, observed, settle);
         return;
       default:
+        events.onJobEvent?.(ev.type, data);
         return;
     }
   };

@@ -99,7 +99,7 @@ export interface TurnEvents {
    *  runs after it. Emitted once, right after the POST acceptance. */
   onQueued?(): void;
   /** `turn.started` — the stream is live; `turnId` enables recovery. */
-  onStarted?(turnId: string, model: string): void;
+  onStarted?(turnId: string, model: string, wake?: boolean): void;
   /** `message.delta` — an assistant text chunk. */
   onDelta?(text: string): void;
   /** `tool.call` — the model invoked a tool. */
@@ -116,6 +116,12 @@ export interface TurnEvents {
   onError?(code: string, message: string): void;
   /** The SSE stream died and the turn was replayed from turn-status. */
   onRecovered?(): void;
+  /**
+   * A session-stream event outside the turn envelope (background-jobs
+   * lifecycle: `job.started` / `job.settled`). The jobs drawer patches
+   * its rows off these; the turn presenter ignores them.
+   */
+  onJobEvent?(type: string, data: Record<string, unknown>): void;
 }
 
 /**

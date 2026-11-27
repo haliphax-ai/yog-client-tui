@@ -290,6 +290,9 @@ async function run(argv: readonly string[]): Promise<void> {
   // their tool calls stream live instead of appearing on the next
   // submit. Armed after setup; disarmed while a user turn is live.
   let idleWatch: { arm(): void; disarm(): void } | undefined;
+  /** The jobs drawer's event sink (late-bound: the drawer wires after
+   *  the idle watch arms; the watch fans events through this). */
+  let jobsDrawerSink: ((type: string, data: Record<string, unknown>) => void) | undefined;
   const hooks: AppHooks = {
     outputToFile,
     submit: () => {
@@ -300,7 +303,10 @@ async function run(argv: readonly string[]): Promise<void> {
           client,
           model: config.model,
           input: terminal.input,
-          spinner: { start: () => setState({ busy: true }), stop: terminal.stopSpinner },
+          spinner: {
+            start: () => setState({ busy: true, busyWake: false }),
+            stop: terminal.stopSpinner,
+          },
           scheduler: terminal.scheduler,
           quit: (code) => void quit(code),
           saveState: (id) => saveState(stateFilePath(), { lastSessionId: id }),
@@ -320,7 +326,7 @@ async function run(argv: readonly string[]): Promise<void> {
       noticeLine("notice", "turn in flight", "this session has a running turn — generating"),
     );
     pollRunningTurn(client, startup.runningTurnId, [...startup.notes], {
-      start: () => setState({ busy: true }),
+      start: () => setState({ busy: true, busyWake: false }),
       stop: () => setState({ busy: false }),
     });
   }
@@ -342,6 +348,7 @@ async function run(argv: readonly string[]): Promise<void> {
       nextMessageSeq,
     },
     { set: (flag: boolean) => setState({ busy: flag }) },
+    (type, data) => void jobsDrawerSink?.(type, data),
   );
   idleWatch?.arm();
 
@@ -374,11 +381,16 @@ async function run(argv: readonly string[]): Promise<void> {
   // rows) until the server advertises `background-jobs` — the drawer's
   // padded block must never open for a server without the subsystem.
   if (terminal.jobsDrawer !== undefined) {
-    terminal.jobsDrawer.wire(
+    const drawer = terminal.jobsDrawer;
+    drawer.wire(
       async () => (await client.getJobs()).jobs ?? [],
       () => (client.capabilities?.features ?? []).includes("background-jobs"),
       (state, detail) => pushLines("notice", noticeLine("notice", `job ${state}`, detail)),
     );
+    // The idle watch (armed before this line) fans job lifecycle events
+    // into the drawer — event-fed rows, no polling (jobsDrawerSink is the
+    // late-bound indirection created with the watch above).
+    jobsDrawerSink = (type, data) => drawer.onJobEvent(type, data);
   }
   // The fatal handler draws its notice through the same flush timer.
   fatalScheduler = terminal.scheduler.request;

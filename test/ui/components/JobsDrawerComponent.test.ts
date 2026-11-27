@@ -167,9 +167,43 @@ describe("JobsDrawerComponent", () => {
     expect(view.render({ cols: 80 })).toEqual([]);
   });
 
-  it("exposes the constants the composition and docs reference", () => {
+  it("exposes the feature constant the composition references", () => {
     expect(BACKGROUND_JOBS_FEATURE).toBe("background-jobs");
-    expect(JOBS_POLL_MS).toBe(2000);
+  });
+
+  it("onJobEvent: job.started adds a running row; job.settled stamps the result", () => {
+    resetForTests();
+    const view = new JobsDrawerComponent();
+    const announced: Array<{ state: string; detail: string }> = [];
+    view.wire(
+      async () => [],
+      () => true,
+      (state, detail) => announced.push({ state, detail }),
+    );
+    view.toggle();
+    setState({ jobsOpen: true });
+    expect(view.onJobEvent("job.started", { id: "bg_1", tool: "bash", startedAt: 1000 })).toBe(
+      true,
+    );
+    expect(
+      view.onJobEvent("job.settled", {
+        id: "bg_1",
+        state: "finished",
+        startedAt: 1000,
+        endedAt: 4000,
+        durationMs: 3000,
+        result: { exitCode: 0 },
+      }),
+    ).toBe(true);
+    const rows = getState().jobRows ?? [];
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.join(" ")).toContain("bg_1");
+    expect(rows[0]!.join(" ")).toContain("finished");
+    expect(rows[0]!.join(" ")).toContain("exit 0");
+    expect(announced).toHaveLength(1);
+    expect(announced[0]!.state).toBe("finished");
+    // Unknown event types are ignored (old servers never send these).
+    expect(view.onJobEvent("job.poked", { id: "bg_1" })).toBe(false);
   });
 });
 

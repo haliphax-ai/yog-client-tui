@@ -12,7 +12,7 @@
  */
 import { TurnObservation, turnEnvelopeHandler } from "../client/index.ts";
 import type { YogClient } from "../client/index.ts";
-import { createTurnPresenter } from "../core/index.ts";
+import { createTurnPresenter, setState } from "../core/index.ts";
 import { emitDebug, isDebugEnabled } from "../ui/index.ts";
 
 /** The presenter host the watch builds its own presenter over (the
@@ -30,6 +30,7 @@ export function startIdleWatch(
   client: YogClient,
   host: IdleWatchHost,
   busy: { set(flag: boolean): void },
+  onJobEvent?: (type: string, data: Record<string, unknown>) => void,
 ): IdleWatch {
   const presenter = createTurnPresenter(host);
   let stream: ReturnType<YogClient["openStream"]> | undefined;
@@ -41,15 +42,21 @@ export function startIdleWatch(
     if (foreign) {
       foreign = false;
       busy.set(false);
+      setState({ busyWake: false });
     }
   };
   const events = {
     ...base,
-    onStarted: () => {
+    onJobEvent: (type: string, data: Record<string, unknown>) => {
+      base.onJobEvent?.(type, data);
+      onJobEvent?.(type, data);
+    },
+    onStarted: (_turnId: string, _model: string, wake: boolean | undefined) => {
       base.onStarted?.(observed.turnId ?? "", "");
       if (!foreign) {
         foreign = true;
         busy.set(true);
+        setState({ busyWake: wake === true });
       }
     },
     onFinish: (...args: Parameters<NonNullable<typeof base.onFinish>>) => {
