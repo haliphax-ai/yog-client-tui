@@ -200,8 +200,9 @@ describe("JobsDrawerComponent", () => {
     expect(rows[0]!.join(" ")).toContain("bg_1");
     expect(rows[0]!.join(" ")).toContain("finished");
     expect(rows[0]!.join(" ")).toContain("exit 0");
-    expect(announced).toHaveLength(1);
-    expect(announced[0]!.state).toBe("finished");
+    // Silent for 'finished': the settle delivers as the tool pair; only
+    // terminations announce.
+    expect(announced).toEqual([]);
     // Unknown event types are ignored (old servers never send these).
     expect(view.onJobEvent("job.poked", { id: "bg_1" })).toBe(false);
   });
@@ -246,12 +247,12 @@ describe("JobsDrawerComponent — poll transition notices", () => {
     expect(announced).toEqual([{ state: "terminated", detail: "bg_1 (operator abort)" }]);
   });
 
-  it("announces running → finished with the tool name as the detail head", async () => {
+  it("stays silent for running → finished (the settle delivers as the tool pair)", async () => {
     const { view, announced, setRows } = openWith([job({ id: "bg_2", state: "running" })]);
     await vi.waitFor(() => expect(getState().jobRows).toHaveLength(1));
     setRows([job({ id: "bg_2", state: "finished", endedAt: Date.now() })]);
     await view.poll();
-    expect(announced).toEqual([{ state: "finished", detail: "bg_2" }]);
+    expect(announced).toEqual([]);
   });
 
   it("stays silent when nothing settled between polls", async () => {

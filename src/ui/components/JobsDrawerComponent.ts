@@ -298,20 +298,21 @@ export class JobsDrawerComponent
   private announceTransitions(jobs: readonly JobRowInput[]): void {
     if (this.announce === undefined || this.fingerprints === undefined) return;
     for (const job of jobs) {
-      if (job.state !== "terminated" && job.state !== "finished") continue;
+      // Only TERMINATIONS announce: a finished job delivers its result as
+      // the tool-outcome pair (synthetic call + true result) — the notice
+      // would duplicate it as cyan text.
+      if (job.state !== "terminated") continue;
       const was = this.fingerprints.find((f) => f.id === job.id);
       if (was === undefined || was.state === job.state) continue;
-      const reason = job.state === "terminated" ? ` (${job.termReason ?? "terminated"})` : "";
-      this.announce(job.state, `${job.id}${reason}`);
+      this.announce(job.state, `${job.id} (${job.termReason ?? "terminated"})`);
     }
   }
 
   /** One job's transition notice (the onJobEvent settle path). */
   private announceTransition(job: JobRowInput): void {
     if (this.announce === undefined) return;
-    if (job.state !== "terminated" && job.state !== "finished") return;
-    const reason = job.state === "terminated" ? ` (${job.termReason ?? "terminated"})` : "";
-    this.announce(job.state, `${job.id}${reason}`);
+    if (job.state !== "terminated") return;
+    this.announce(job.state, `${job.id} (${job.termReason ?? "terminated"})`);
   }
 
   /** Rebuild the visible rows from the input list (event-fed updates). */
