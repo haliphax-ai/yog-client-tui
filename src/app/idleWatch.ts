@@ -12,7 +12,8 @@
  */
 import { TurnObservation, turnEnvelopeHandler } from "../client/index.ts";
 import type { YogClient } from "../client/index.ts";
-import { createTurnPresenter, setState } from "../core/index.ts";
+import { createTurnPresenter, setState, type LogEntry } from "../core/index.ts";
+import { getState } from "../core/index.ts";
 import { emitDebug, isDebugEnabled } from "../ui/index.ts";
 
 /** The presenter host the watch builds its own presenter over (the
@@ -26,12 +27,42 @@ export interface IdleWatch {
   disarm(): void;
 }
 
+/**
+ * A seam-aware host wrapper: while the user's own turn is busy, foreign
+ * deliveries (a wake turn streaming its results) do not interleave with
+ * the user's prose — their entries queue in a side buffer and flush at
+ * the seam (busy → false), landing after the user's turn content.
+ */
+export function deferWhileBusy(host: IdleWatchHost, isBusy: () => boolean): IdleWatchHost {
+  let buffer: LogEntry[] | undefined;
+  const flush = (): void => {
+    if (buffer === undefined) return;
+    const queued = buffer;
+    buffer = undefined;
+    for (const entry of queued) host.append(entry.kind, entry.lines);
+  };
+  return {
+    ...host,
+    append: (kind: LogEntry["kind"], lines: string[]) => {
+      if (isBusy()) {
+        (buffer ??= []).push({ kind, lines } as LogEntry);
+        return;
+      }
+      host.append(kind, lines);
+      flush();
+    },
+  };
+}
+
 export function startIdleWatch(
   client: YogClient,
-  host: IdleWatchHost,
+  hostInput: IdleWatchHost,
   busy: { set(flag: boolean): void },
   onJobEvent?: (type: string, data: Record<string, unknown>) => void,
 ): IdleWatch {
+  // Foreign deliveries never interleave with the user's own turn: entries
+  // queue while busy and flush at the seam (busy → false).
+  const host = deferWhileBusy(hostInput, () => getState().busy);
   const presenter = createTurnPresenter(host);
   let stream: ReturnType<YogClient["openStream"]> | undefined;
   let foreign = false;
