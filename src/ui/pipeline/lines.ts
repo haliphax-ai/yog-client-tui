@@ -45,9 +45,29 @@ export function composeMainPane(
   statusRow: string,
 ): string[] {
   // The pane is exact accounting: viewportRows() already reserves the
-  // drawer's rows (and its pad row IS the visual gap between log and
-  // input), so the pane is the plain concatenation — no slicing, no
+  // drawer's rows, so the pane is the plain concatenation — no slicing, no
   // blanking. Any row-donation here shifted the whole pane by a line
   // (bubbles lost their top pad; two pads stacked at the bottom).
-  return [...viewportRows, ...drawerRows, inputRow, statusRow];
+  //
+  // ONE exception: the log's trailing separator blank and the drawer's top
+  // retained blank (the spinner's idle row, #145) are ADJACENT blank rows
+  // that read as a doubled gap between the log and the drawer's first real
+  // row. The retained blank is load-bearing (it keeps the busy edge from
+  // shifting rows), so the LOG's separator donates its slot instead: trim
+  // one trailing viewport blank when the drawer's first row is blank. The
+  // seam then reads as a single gap in both states.
+  const drawerTop = drawerRows[0];
+  const drawerTopBlank =
+    drawerTop !== undefined && drawerTop.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trim() === "";
+  const vp = [...viewportRows];
+  if (drawerTopBlank && vp.length > 1) {
+    const last = vp[vp.length - 1] as string;
+    if (last.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").trim() === "") {
+      vp.pop();
+      // The donated row stays in the pane as top pad (the content is
+      // bottom-aligned): the pane height is exact, the seam reads single.
+      vp.unshift("");
+    }
+  }
+  return [...vp, ...drawerRows, inputRow, statusRow];
 }

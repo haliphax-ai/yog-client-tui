@@ -154,16 +154,16 @@ describe("ViewportComponent — window slicing", () => {
     expect(rows[2]).toBe("line3");
   });
 
-  it("pads with blank rows when content is shorter than viewport", () => {
+  it("pads ABOVE short content (bottom-aligned: the log tail sits flush)", () => {
     const vp = new TestViewport(["a", "b"]);
     vp.setViewportRows(5);
     const rows = vp.render({ cols: COLS });
     expect(rows).toHaveLength(5);
-    expect(rows[0]).toBe("a");
-    expect(rows[1]).toBe("b");
+    expect(rows[0]).toBe("");
+    expect(rows[1]).toBe("");
     expect(rows[2]).toBe("");
-    expect(rows[3]).toBe("");
-    expect(rows[4]).toBe("");
+    expect(rows[3]).toBe("a");
+    expect(rows[4]).toBe("b");
   });
 
   it("returns full content when viewportRows is unset", () => {

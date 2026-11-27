@@ -131,7 +131,15 @@ export abstract class ViewportComponent extends BaseComponent {
     for (let i = offset; i < allRows.length && visible.length < rows; i++) {
       visible.push(truncateAnsi(allRows[i] ?? "", cols));
     }
-    while (visible.length < rows) visible.push("");
+    // Short content bottom-aligns: the pad rows go ABOVE the content, so
+    // the log's last row sits flush against the pane's bottom (the drawer
+    // and the input). Top-anchored padding left a growing blank run
+    // between the log tail and the input whenever the content ran short
+    // (yog#146 live report: three blanks above the input, drawer closed).
+    if (visible.length < rows) {
+      const pad = Array.from({ length: rows - visible.length }, () => "");
+      return [...pad, ...visible];
+    }
     return visible;
   }
 }
