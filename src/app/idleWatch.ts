@@ -25,6 +25,12 @@ export interface IdleWatch {
   arm(): void;
   /** Disarm while a user turn is live (its stream owns rendering). */
   disarm(): void;
+  /**
+   * Flush the deferred foreign rows (the user-turn seam): the user's
+   * turn just ended — buffered wake deliveries land now, after the
+   * user's content, without waiting for the next append.
+   */
+  flushSeam(): void;
 }
 
 /**
@@ -63,56 +69,23 @@ export function deferWhileBusy(
 export function startIdleWatch(
   client: YogClient,
   hostInput: IdleWatchHost,
-  busy: { set(flag: boolean): void },
   onJobEvent?: (type: string, data: Record<string, unknown>) => void,
 ): IdleWatch {
-  // Foreign deliveries never interleave with the user's own turn: entries
-  // queue while busy and flush at the seam (busy → false). The flush is
-  // driven BY the busy edge — buffering alone would hold rows until the
-  // next append (a wake turn that finished mid-turn stayed hidden until
-  // the user typed something).
+  // The busy flag is the USER'S OWN TURN (the submit path owns it). The
+  // watch never touches it: foreign wake deliveries defer while the user
+  // is busy and flush at the seam (flushSeam — the submit path calls it
+  // on the busy-false edge). The spinner reflects only the user's own
+  // generation; no more foreign spinner ghosts.
   const seam = deferWhileBusy(hostInput, () => getState().busy);
-  const host = seam.host;
-  const busyGate: { set(flag: boolean): void } = {
-    set: (flag: boolean) => {
-      busy.set(flag);
-      if (!flag) queueMicrotask(() => seam.flush());
-    },
-  };
-  const presenter = createTurnPresenter(host);
+  const presenter = createTurnPresenter(seam.host);
   let stream: ReturnType<YogClient["openStream"]> | undefined;
-  let foreign = false;
-
   const observed = new TurnObservation();
   const base = presenter.events;
-  const foreignEnd = (): void => {
-    if (foreign) {
-      foreign = false;
-      busyGate.set(false);
-      setState({ busyWake: false });
-    }
-  };
   const events = {
     ...base,
     onJobEvent: (type: string, data: Record<string, unknown>) => {
       base.onJobEvent?.(type, data);
       onJobEvent?.(type, data);
-    },
-    onStarted: (_turnId: string, _model: string, wake: boolean | undefined) => {
-      base.onStarted?.(observed.turnId ?? "", "");
-      if (!foreign) {
-        foreign = true;
-        busyGate.set(true);
-        setState({ busyWake: wake === true });
-      }
-    },
-    onFinish: (...args: Parameters<NonNullable<typeof base.onFinish>>) => {
-      base.onFinish?.(...args);
-      foreignEnd();
-    },
-    onAborted: (...args: Parameters<NonNullable<typeof base.onAborted>>) => {
-      base.onAborted?.(...args);
-      foreignEnd();
     },
   };
   const dbg = (line: string): void => {
@@ -138,6 +111,9 @@ export function startIdleWatch(
       dbg("disarm");
       stream?.close();
       stream = undefined;
+    },
+    flushSeam(): void {
+      seam.flush();
     },
   };
 }

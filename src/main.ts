@@ -289,7 +289,7 @@ async function run(argv: readonly string[]): Promise<void> {
   // The idle watch (yog#85): foreign-turn rendering — wake turns and
   // their tool calls stream live instead of appearing on the next
   // submit. Armed after setup; disarmed while a user turn is live.
-  let idleWatch: { arm(): void; disarm(): void } | undefined;
+  let idleWatch: { arm(): void; disarm(): void; flushSeam(): void } | undefined;
   /** The jobs drawer's event sink (late-bound: the drawer wires after
    *  the idle watch arms; the watch fans events through this). */
   let jobsDrawerSink: ((type: string, data: Record<string, unknown>) => void) | undefined;
@@ -304,8 +304,13 @@ async function run(argv: readonly string[]): Promise<void> {
           model: config.model,
           input: terminal.input,
           spinner: {
-            start: () => setState({ busy: true, busyWake: false }),
-            stop: terminal.stopSpinner,
+            start: () => setState({ busy: true }),
+            stop: () => {
+              setState({ busy: false });
+              // The seam: the user's turn ended — buffered foreign
+              // deliveries land now, after the user's content.
+              idleWatch?.flushSeam();
+            },
           },
           scheduler: terminal.scheduler,
           quit: (code) => void quit(code),
@@ -326,7 +331,7 @@ async function run(argv: readonly string[]): Promise<void> {
       noticeLine("notice", "turn in flight", "this session has a running turn — generating"),
     );
     pollRunningTurn(client, startup.runningTurnId, [...startup.notes], {
-      start: () => setState({ busy: true, busyWake: false }),
+      start: () => setState({ busy: true }),
       stop: () => setState({ busy: false }),
     });
   }
@@ -347,7 +352,6 @@ async function run(argv: readonly string[]): Promise<void> {
       requestRender: terminal?.scheduler.request ?? (() => undefined),
       nextMessageSeq,
     },
-    { set: (flag: boolean) => setState({ busy: flag }) },
     (type, data) => void jobsDrawerSink?.(type, data),
   );
   idleWatch?.arm();

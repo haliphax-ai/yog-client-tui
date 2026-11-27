@@ -58,17 +58,13 @@ describe("idleWatch — foreign turns render live", () => {
     const client = new YogClient("http://test");
     client.sessionId = "s1";
     // YogClient-shaped: openStream + stream.closed handled internally.
-    const watch = startIdleWatch(
-      client,
-      {
-        entries: host.entries,
-        append: (kind: never, lines: never) => void host.entries.push({ kind, lines } as never),
-        width: () => 80,
-        requestRender: () => undefined,
-        nextMessageSeq: () => "1",
-      } as never,
-      { set: (flag: boolean) => setState({ busy: flag }) },
-    );
+    const watch = startIdleWatch(client, {
+      entries: host.entries,
+      append: (kind: never, lines: never) => void host.entries.push({ kind, lines } as never),
+      width: () => 80,
+      requestRender: () => undefined,
+      nextMessageSeq: () => "1",
+    } as never);
     watch.arm();
     await vi.waitFor(() => expect(host.entries.length).toBeGreaterThan(0));
     // The second burst: the tool call renders through the presenter.
