@@ -43,12 +43,14 @@ describe("DrawerComponent + registry", () => {
     const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
     expect(plain).toEqual([" ".repeat(10), " ".repeat(10)]);
     expect(drawer.measure(10)).toBe(2);
-    // All-blank with a visible sibling: the separator sits between them.
+    // All-blank first child + a visible sibling: the top child is exempt
+    // from the separator (its blank IS the gap against the log), so no
+    // blank stacks between them — and the busy edge still shifts no rows
+    // (the spinner takes the retained blank's slot in place).
     registerDrawerChild(new Stub(["busy"]));
     const stacked = new DrawerComponent();
     expect(stacked.render({ cols: 10 }).map((r) => stripAnsi(r))).toEqual([
       " ".repeat(10),
-      " ".repeat(10), // the retained blank is content: it gets the separator
       " busy     ",
       " ".repeat(10),
     ]);

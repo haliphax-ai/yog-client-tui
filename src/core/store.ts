@@ -16,6 +16,11 @@ export interface UiState {
   scrollOffset: number;
   follow: boolean;
   busy: boolean;
+  /** A foreign turn (the idle watch's wake delivery) is in flight: the
+   *  spinner shows for it too (the label stays honest — generation IS
+   *  running), while `busy` stays the user's own turn's flag (the submit
+   *  path and the busy seam own it). */
+  busyForeign: boolean;
   model: string;
   /** Focused table target (`{entry:-1, table:-1}` = none); Enter toggles. */
   focusTarget: FocusTarget;
@@ -42,6 +47,7 @@ function initialState(): UiState {
     scrollOffset: 0,
     follow: true,
     busy: false,
+    busyForeign: false,
     model: "",
     tokenTotals: { prompt: 0, completion: 0, total: 0 },
     contextWindow: undefined,

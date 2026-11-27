@@ -73,7 +73,8 @@ export class GeneratingComponent extends BaseComponent {
    * the whole log up mid-turn.
    */
   override render(_ctx: RenderContext): string[] {
-    if (!getState().busy) {
+    const { busy, busyForeign } = getState();
+    if (!busy && !busyForeign) {
       this.stopTicking();
       return [""];
     }

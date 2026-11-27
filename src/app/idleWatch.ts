@@ -22,7 +22,7 @@
  */
 import { TurnObservation, YogError, turnEnvelopeHandler } from "../client/index.ts";
 import type { TurnEvents, YogClient } from "../client/index.ts";
-import { createTurnPresenter, type LogEntry } from "../core/index.ts";
+import { createTurnPresenter, setState, type LogEntry } from "../core/index.ts";
 import { getState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
 import { emitDebug, isDebugEnabled } from "../ui/index.ts";
@@ -135,8 +135,24 @@ function watchEvents(
      * lands at t=0; the deliveries follow through the normal paths.
      */
     onStarted: (_turnId: string, _model: string, wake?: boolean): void => {
+      // The spinner reflects ANY generation in flight — the user's own
+      // (`busy`, the submit path owns it) or a foreign turn's (`busyForeign`,
+      // owned HERE). A wake turn shows the same honest "generating" row.
+      setState({ busyForeign: true });
       if (wake !== true) return;
       seam.host.append("notice", noticeLine("notice", "background jobs", "delivering"));
+    },
+    onFinish: (durationMs, stopReason, usage) => {
+      setState({ busyForeign: false });
+      base.onFinish?.(durationMs, stopReason, usage);
+    },
+    onAborted: (reason, usage) => {
+      setState({ busyForeign: false });
+      base.onAborted?.(reason, usage);
+    },
+    onError: (code, message) => {
+      setState({ busyForeign: false });
+      base.onError?.(code, message);
     },
     onJobEvent: (type: string, data: Record<string, unknown>) => {
       base.onJobEvent?.(type, data);

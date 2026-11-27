@@ -17,7 +17,7 @@
  */
 import { BaseComponent, type RenderContext } from "./Component.ts";
 import { registeredDrawerChildren } from "./drawerRegistry.ts";
-import { truncateAnsi } from "../../util/index.ts";
+import { stripAnsi, truncateAnsi } from "../../util/index.ts";
 import { ST } from "../theme.ts";
 
 /** Normalize a component render result into rows ("" renders nothing). */
@@ -45,14 +45,23 @@ export class DrawerComponent extends BaseComponent {
     const inner = Math.max(0, cols - 2);
     const rows: string[] = [];
     let lastHadRows = false;
+    let seenVisible = false;
     for (const child of registeredDrawerChildren()) {
       const childRows = toRows(child.render({ cols: inner }));
+      const childVisible = childRows.some((r) => stripAnsi(r).trim() !== "");
       // One blank row between drawer items (the spinner and the jobs
-      // table must not butt together); never leading or trailing.
-      if (childRows.length > 0 && lastHadRows) rows.push("");
+      // table must not butt together); never leading or trailing. The
+      // exemption runs until the FIRST visible row: the drawer's top
+      // block (the spinner or its retained idle blank, #145) sits against
+      // the log's trailing gap and is itself the visual separation — a
+      // separator before the first real row would read as a second blank
+      // between the log and the drawer, and its presence/absence across
+      // the busy edge would shift rows.
+      if (childRows.length > 0 && lastHadRows && seenVisible) rows.push("");
       for (const row of childRows) {
         rows.push(truncateAnsi(row, inner));
       }
+      if (childVisible) seenVisible = true;
       lastHadRows = childRows.length > 0;
     }
     if (rows.length === 0) return [];
