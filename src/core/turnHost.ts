@@ -36,4 +36,10 @@ export interface TurnHost {
    * round in exactly once, even for batches.
    */
   onRoundDelta?(delta: number): void;
+  /**
+   * A terminal usage report from a turn this host does not own end-to-end
+   * (the idle watch's foreign turns): the composition root folds it into
+   * the status bar exactly like its own turns' reports.
+   */
+  onTerminalUsage?(usage: unknown): void;
 }

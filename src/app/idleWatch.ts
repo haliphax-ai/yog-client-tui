@@ -23,6 +23,7 @@
 import { TurnObservation, YogError, turnEnvelopeHandler } from "../client/index.ts";
 import type { TurnEvents, YogClient } from "../client/index.ts";
 import { createTurnPresenter, setState, type LogEntry } from "../core/index.ts";
+import type { TokenUsage } from "../client/index.ts";
 import { getState } from "../core/index.ts";
 import { noticeLine } from "../core/index.ts";
 import { emitDebug, isDebugEnabled } from "../ui/index.ts";
@@ -124,6 +125,7 @@ function watchEvents(
   seam: { host: IdleWatchHost },
   base: TurnEvents,
   onJobEvent: ((type: string, data: Record<string, unknown>) => void) | undefined,
+  onUsage: ((usage: TokenUsage) => void) | undefined,
 ): TurnEvents {
   return {
     ...base,
@@ -144,10 +146,12 @@ function watchEvents(
     },
     onFinish: (durationMs, stopReason, usage) => {
       setState({ busyForeign: false });
+      if (usage !== undefined) onUsage?.(usage);
       base.onFinish?.(durationMs, stopReason, usage);
     },
     onAborted: (reason, usage) => {
       setState({ busyForeign: false });
+      if (usage !== undefined) onUsage?.(usage);
       base.onAborted?.(reason, usage);
     },
     onError: (code, message) => {
@@ -192,7 +196,7 @@ export function startIdleWatch(
   };
   const onEvent = turnEnvelopeHandler(
     observed,
-    watchEvents(seam, presenter.events, onJobEvent) as never,
+    watchEvents(seam, presenter.events, onJobEvent, hostInput.onTerminalUsage) as never,
     "",
     () => undefined,
   );

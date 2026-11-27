@@ -54,7 +54,13 @@ import { YogClient, type TranscriptResult } from "./client/index.ts";
 import { driveRehydrate, stageRehydrate, statusTotals } from "./app/index.ts";
 import { pushLines } from "./app/index.ts";
 import { resolveSession } from "./app/index.ts";
-import { nextMessageSeq, pollRunningTurn, startIdleWatch } from "./app/index.ts";
+import {
+  applyUsageTotal,
+  nextMessageSeq,
+  pollRunningTurn,
+  recordRoundDelta,
+  startIdleWatch,
+} from "./app/index.ts";
 import { abortActiveTurn } from "./app/index.ts";
 import { submitInput } from "./app/index.ts";
 import { setKeyDumpWriter, wireTerminal, type AppHooks, type Terminal } from "./app/index.ts";
@@ -346,6 +352,9 @@ async function run(argv: readonly string[]): Promise<void> {
       width: () => process.stdout.columns ?? 80,
       requestRender: terminal?.scheduler.request ?? (() => undefined),
       nextMessageSeq,
+      prevTokenTotal: () => getState().tokenTotals.total,
+      onRoundDelta: (delta) => recordRoundDelta(delta),
+      onTerminalUsage: (usage) => applyUsageTotal(usage as never),
     },
     (type, data) => void jobsDrawerSink?.(type, data),
   );
