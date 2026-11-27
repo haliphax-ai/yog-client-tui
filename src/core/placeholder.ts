@@ -34,7 +34,7 @@ export function isWakePromptText(text: string): boolean {
 /** The one-line wake-prompt label shared with the swap-side step: the
  *  job count from the header when it parses, "delivered" otherwise. */
 export function wakePromptLabel(text: string): string {
-  const m = /^\[background jobs\] (\d+) finished/.exec(text);
+  const m = /^\[background jobs\] (\d+) delivered/.exec(text);
   const label = m === null ? "background jobs delivered" : `background jobs: ${m[1]} delivered`;
   return noticeLine("notice", "background jobs", label).join(" · ");
 }
@@ -44,7 +44,7 @@ export function wakePromptLabel(text: string): string {
  *  swap-side step composes its noticeLine with this so both stages show
  *  the same words. */
 export function wakePromptDetail(text: string): string {
-  const m = /^\[background jobs\] (\d+) finished/.exec(text);
+  const m = /^\[background jobs\] (\d+) delivered/.exec(text);
   return m === null ? "delivered" : `${m[1]} delivered`;
 }
 

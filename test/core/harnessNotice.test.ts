@@ -332,7 +332,11 @@ describe("wake-turn prompt rows render as the one quiet harness line (#144)", ()
     const rows = [
       row({ role: "user", content: "normal prompt", turnId: "3" }, 1),
       row(
-        { role: "user", content: "[background jobs] 3 finished: results below\nmore", turnId: "7" },
+        {
+          role: "user",
+          content: "[background jobs] 3 delivered: results below\nmore",
+          turnId: "7",
+        },
         2,
       ),
       row({ role: "assistant", content: "ack", turnId: "7" }, 3),
