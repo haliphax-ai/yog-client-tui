@@ -28,22 +28,10 @@ import type { TranscriptRehydrateOpts } from "./turnMetrics.ts";
 
 /**
  * A wake turn's prompt row styles as `system` — harness-internal,
- * never user-typed. Two discriminators, because the explicit marker only
- * exists on turns fired by a server new enough to stamp `wake`:
- *  - the turn-row marker (the honest source when present);
- *  - the generated prompt itself: the wake header is a fixed literal, so
- *    a user row beginning with it is a wake prompt even from an old
- *    server (whose persisted rows carry no marker — resume rehydration
- *    of those turns otherwise renders the notice as a user bubble).
- * The substitution is a fresh-entry transform (1:1, indices stable)
- * applied ONCE, before either walker: the walk itself stays
- * wake-agnostic.
+ * never user-typed. The substitution is a fresh-entry transform (1:1,
+ * indices stable) applied ONCE, before either walker: the walk itself
+ * stays wake-agnostic.
  */
-
-/** The wake prompt's generated header (verbatim from the server's
- *  buildWakePrompt — a marker the model-facing prompt always carries). */
-const WAKE_PROMPT_HEADER = "[background jobs] ";
-
 function wakeSubstitute(
   entries: TranscriptEntry[],
   turns: TranscriptRehydrateOpts["turns"],
@@ -52,13 +40,10 @@ function wakeSubstitute(
   for (const [id, m] of (turns ?? new Map()).entries()) {
     if (m.wake === true) wake.add(id);
   }
-  const byMarker = wake.size > 0;
-  return entries.map((e) => {
-    if (e.role !== "user") return e;
-    if (byMarker && wake.has(Number(e.raw.turnId))) return { ...e, role: "system" };
-    if (!byMarker && e.text.startsWith(WAKE_PROMPT_HEADER)) return { ...e, role: "system" };
-    return e;
-  });
+  if (wake.size === 0) return entries;
+  return entries.map((e) =>
+    e.role === "user" && wake.has(Number(e.raw.turnId)) ? { ...e, role: "system" } : e,
+  );
 }
 
 export type { TranscriptRehydrateOpts, TranscriptTurnMetrics } from "./turnMetrics.ts";
