@@ -42,6 +42,7 @@ describe("composeMainPane — guaranteed single blank line between log and input
     // so it does not stack with the drawer's top padding into two blanks.
     expect(composeMainPane(["line1", ""], ["drawer-a", "drawer-b"], "▐ ", "status")).toEqual([
       "line1",
+      "",
       "drawer-a",
       "drawer-b",
       "▐ ",
@@ -50,12 +51,14 @@ describe("composeMainPane — guaranteed single blank line between log and input
     // A viewport ending in content donates its last row as the margin.
     expect(composeMainPane(["line1", "line2"], ["drawer"], "▐ ", "status")).toEqual([
       "line1",
+      "",
       "drawer",
       "▐ ",
       "status",
     ]);
     expect(composeMainPane([], ["drawer"], "▐ ", "status")).toEqual(["drawer", "▐ ", "status"]);
     expect(composeMainPane(["only"], ["drawer"], "▐ ", "status")).toEqual([
+      "",
       "drawer",
       "▐ ",
       "status",

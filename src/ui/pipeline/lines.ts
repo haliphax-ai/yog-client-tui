@@ -50,7 +50,15 @@ export function composeMainPane(
   statusRow: string,
 ): string[] {
   if (drawerRows.length > 0) {
-    return [...viewportRows.slice(0, -1), ...drawerRows, inputRow, statusRow];
+    // Same gap rule as the collapsed case below: the viewport's last row
+    // becomes the composition gap — blanked only when it carries content
+    // (a trailing blank is reused in place). Never drop a content row to
+    // make room: the spinner must not overwrite the log's last line.
+    const last = viewportRows[viewportRows.length - 1];
+    if (stripAnsi(last ?? "").trim() !== "") {
+      return [...viewportRows.slice(0, -1), "", ...drawerRows, inputRow, statusRow];
+    }
+    return [...viewportRows, ...drawerRows, inputRow, statusRow];
   }
   const last = viewportRows[viewportRows.length - 1];
   if (stripAnsi(last ?? "").trim() !== "") {
