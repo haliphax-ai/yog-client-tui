@@ -32,8 +32,13 @@ export class DrawerComponent extends BaseComponent {
   }
 
   /**
-   * One padded block holding every visible child's rows, or no rows at all
-   * when nothing registered renders anything (fully collapsed).
+   * One padded block holding every child's rows, or no rows at all when
+   * nothing registered renders anything (fully collapsed).
+   *
+   * A child may RETAIN its height while idle by rendering a blank row
+   * (the busy spinner's #145 contract): those rows count as content for
+   * the framing rules below — separators and the input-side gap — so the
+   * drawer's row count never changes on a child's show/hide edge.
    */
   override render(ctx: RenderContext): string[] {
     const cols = Math.max(0, Math.floor(ctx.cols));

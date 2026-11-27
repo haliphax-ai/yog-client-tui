@@ -35,6 +35,25 @@ describe("DrawerComponent + registry", () => {
     expect(drawer.measure(80)).toBe(0);
   });
 
+  it("stays sized when a child retains a blank row (the #145 busy edge)", () => {
+    // The spinner's idle form: one blank row — content for the framing
+    // rules, so the drawer's height never changes on the busy edge.
+    registerDrawerChild(new Stub([""]));
+    const drawer = new DrawerComponent();
+    const plain = drawer.render({ cols: 10 }).map((r) => stripAnsi(r));
+    expect(plain).toEqual([" ".repeat(10), " ".repeat(10)]);
+    expect(drawer.measure(10)).toBe(2);
+    // All-blank with a visible sibling: the separator sits between them.
+    registerDrawerChild(new Stub(["busy"]));
+    const stacked = new DrawerComponent();
+    expect(stacked.render({ cols: 10 }).map((r) => stripAnsi(r))).toEqual([
+      " ".repeat(10),
+      " ".repeat(10), // the retained blank is content: it gets the separator
+      " busy     ",
+      " ".repeat(10),
+    ]);
+  });
+
   it("is fully collapsed when every registered child renders nothing", () => {
     registerDrawerChild(new Stub([]));
     registerDrawerChild(new Stub(""));

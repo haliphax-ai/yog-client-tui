@@ -14,10 +14,10 @@ describe("GeneratingComponent", () => {
     resetForTests();
   });
 
-  it("renders nothing while idle (fully collapsed)", () => {
+  it("renders a blank retained row while idle (#145: the drawer keeps the row)", () => {
     const gen = new GeneratingComponent();
-    expect(gen.render({ cols: 80 })).toEqual([]);
-    expect(gen.measure(80)).toBe(0);
+    expect(gen.render({ cols: 80 })).toEqual([""]);
+    expect(gen.measure(80)).toBe(1);
   });
 
   it("renders one full-sized braille spinner row while busy", () => {
@@ -64,7 +64,7 @@ describe("GeneratingComponent", () => {
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣽ generating");
     // Resume: idle edge stops the timer, the next busy edge re-arms it.
     setState({ busy: false });
-    expect(gen.render({ cols: 80 })).toEqual([]);
+    expect(gen.render({ cols: 80 })).toEqual([""]);
     setState({ busy: true });
     vi.advanceTimersByTime(100);
     expect(stripAnsi(gen.render({ cols: 80 })[0] as string)).toBe("⣽ generating");
@@ -79,7 +79,7 @@ describe("GeneratingComponent", () => {
     const unsub = subscribe(() => {
       pokes += 1;
     });
-    expect(gen.render({ cols: 80 })).toEqual([]);
+    expect(gen.render({ cols: 80 })).toEqual([""]);
     vi.advanceTimersByTime(100 * 4);
     // No timer survived the idle edge: nothing pokes, no leaked interval.
     expect(pokes).toBe(0);

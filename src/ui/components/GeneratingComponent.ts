@@ -2,8 +2,9 @@
  * Generating notification: the busy spinner plus the "generating" label.
  *
  * A self-contained producer component — it knows nothing about the drawer (or
- * the status bar) it may be drawn in. It is visible exactly while a turn is
- * in flight (`busy` in the store) and fully collapsed (zero rows) otherwise.
+ * the status bar) it may be drawn in. It renders its row while a turn is in
+ * flight (`busy` in the store) and a blank placeholder otherwise (#145:
+ * the drawer keeps the child's row so the busy edge shifts no layout).
  *
  * The spinner is the Bubbles spinner model (`Dot` — the full-sized braille
  * preset), driven the way every Bubbles model in this codebase is driven:
@@ -58,16 +59,23 @@ export class GeneratingComponent extends BaseComponent {
   }
 
   /**
-   * One styled row while busy — the model's current frame plus the label —
-   * or no rows while idle. The timer follows the flag here: armed on the
-   * busy edge, disarmed on the idle edge, so rendering is the only entry
-   * point the busy state needs (a dropped stop call cannot freeze the
-   * spinner on its last frame).
+   * One row while busy — the model's current frame plus the label — or a
+   * blank placeholder row while idle. The timer follows the flag here:
+   * armed on the busy edge, disarmed on the idle edge, so rendering is the
+   * only entry point the busy state needs (a dropped stop call cannot
+   * freeze the spinner on its last frame).
+   *
+   * The idle row is the drawer-stability contract (#145): the drawer keeps
+   * ONE row for this child in both busy and idle states, so the busy edge
+   * shifts no layout rows — the log's first visible row holds still while
+   * the spinner fades in in place. A retained height of zero on idle would
+   * collapse the drawer by one row (two with the item separator) and shove
+   * the whole log up mid-turn.
    */
   override render(_ctx: RenderContext): string[] {
     if (!getState().busy) {
       this.stopTicking();
-      return [];
+      return [""];
     }
     this.startTicking();
     return [this.spinner.view() + ST.generating.render(LABEL)];
